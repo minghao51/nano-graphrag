@@ -1,17 +1,16 @@
 import json
-import numpy as np
-from typing import Optional, List, Any, Callable
+import os
+from typing import Any, Callable, List, Optional
 
 import aioboto3
-from openai import AsyncOpenAI, AsyncAzureOpenAI, APIConnectionError, RateLimitError
-
+import numpy as np
+from openai import APIConnectionError, AsyncAzureOpenAI, AsyncOpenAI, RateLimitError
 from tenacity import (
     retry,
+    retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
-    retry_if_exception_type,
 )
-import os
 
 from ._utils import compute_args_hash, wrap_embedding_func_with_attrs
 from .base import BaseKVStorage
@@ -144,10 +143,10 @@ def create_amazon_bedrock_complete_function(model_id: str) -> Callable:
             history_messages=history_messages,
             **kwargs
         )
-    
+
     # Set function name for easier debugging
     bedrock_complete.__name__ = f"{model_id}_complete"
-    
+
     return bedrock_complete
 
 

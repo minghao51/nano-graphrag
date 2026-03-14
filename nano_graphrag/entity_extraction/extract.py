@@ -1,18 +1,20 @@
-from typing import Union
-import pickle
 import asyncio
-from openai import BadRequestError
+import pickle
 from collections import defaultdict
+from typing import Union
+
 import dspy
+from openai import BadRequestError
+
+from nano_graphrag._op import _merge_edges_then_upsert, _merge_nodes_then_upsert
+from nano_graphrag._utils import compute_mdhash_id, logger
 from nano_graphrag.base import (
     BaseGraphStorage,
     BaseVectorStorage,
     TextChunkSchema,
 )
-from nano_graphrag.prompt import PROMPTS
-from nano_graphrag._utils import logger, compute_mdhash_id
 from nano_graphrag.entity_extraction.module import TypedEntityRelationshipExtractor
-from nano_graphrag._op import _merge_edges_then_upsert, _merge_nodes_then_upsert
+from nano_graphrag.prompt import PROMPTS
 
 
 async def generate_dataset(

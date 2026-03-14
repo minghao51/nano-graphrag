@@ -1,4 +1,5 @@
 import dspy
+
 from nano_graphrag.entity_extraction.module import Relationship
 
 

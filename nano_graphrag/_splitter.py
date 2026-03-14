@@ -1,4 +1,5 @@
-from typing import List, Optional, Union, Literal
+from typing import List, Literal, Optional, Union
+
 
 class SeparatorSplitter:
     def __init__(
@@ -68,7 +69,7 @@ class SeparatorSplitter:
 
         if self._chunk_overlap > 0:
             return self._enforce_overlap(merged_splits)
-        
+
         return merged_splits
 
     def _split_chunk(self, chunk: List[int]) -> List[List[int]]:

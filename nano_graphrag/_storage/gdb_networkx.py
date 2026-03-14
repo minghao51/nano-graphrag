@@ -1,12 +1,13 @@
+import asyncio
 import html
 import json
 import os
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Any, Union, cast, List
+from typing import Any, List, Union, cast
+
 import networkx as nx
 import numpy as np
-import asyncio
 
 from .._utils import logger
 from ..base import (
@@ -105,7 +106,7 @@ class NetworkXStorage(BaseGraphStorage):
 
     async def get_node(self, node_id: str) -> Union[dict, None]:
         return self._graph.nodes.get(node_id)
-    
+
     async def get_nodes_batch(self, node_ids: list[str]) -> dict[str, Union[dict, None]]:
         return await asyncio.gather(*[self.get_node(node_id) for node_id in node_ids])
 
@@ -159,9 +160,9 @@ class NetworkXStorage(BaseGraphStorage):
     async def upsert_edges_batch(
         self, edges_data: list[tuple[str, str, dict[str, str]]]
     ):
-        await asyncio.gather(*[self.upsert_edge(source_node_id, target_node_id, edge_data) 
+        await asyncio.gather(*[self.upsert_edge(source_node_id, target_node_id, edge_data)
                 for source_node_id, target_node_id, edge_data in edges_data])
-        
+
     async def clustering(self, algorithm: str):
         if algorithm not in self._clustering_algorithms:
             raise ValueError(f"Clustering algorithm {algorithm} not supported")

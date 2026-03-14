@@ -2,18 +2,16 @@ import asyncio
 import html
 import json
 import logging
+import numbers
 import os
 import re
-import numbers
 from dataclasses import dataclass
 from functools import wraps
 from hashlib import md5
-from typing import Any, Union, Literal
+from typing import Any, Literal
 
 import numpy as np
 import tiktoken
-
-
 from transformers import AutoTokenizer
 
 logger = logging.getLogger("nano-graphrag")
@@ -35,7 +33,7 @@ def extract_first_complete_json(s: str):
     """Extract the first complete JSON object from the string using a stack to track braces."""
     stack = []
     first_json_start = None
-    
+
     for i, char in enumerate(s):
         if char == '{':
             stack.append(i)
@@ -43,7 +41,7 @@ def extract_first_complete_json(s: str):
                 first_json_start = i
         elif char == '}':
             if stack:
-                start = stack.pop()
+                stack.pop()
                 if not stack:
                     first_json_str = s[first_json_start:i+1]
                     try:
@@ -81,10 +79,10 @@ def parse_value(value: str):
 def extract_values_from_json(json_string, keys=["reasoning", "answer", "data"], allow_no_quotes=False):
     """Extract key values from a non-standard or malformed JSON string, handling nested objects."""
     extracted_values = {}
-    
+
     # Enhanced pattern to match both quoted and unquoted values, as well as nested objects
     regex_pattern = r'(?P<key>"?\w+"?)\s*:\s*(?P<value>{[^}]*}|".*?"|[^,}]+)'
-    
+
     for match in re.finditer(regex_pattern, json_string, re.DOTALL):
         key = match.group('key').strip('"')  # Strip quotes from key
         value = match.group('value').strip()
@@ -98,23 +96,23 @@ def extract_values_from_json(json_string, keys=["reasoning", "answer", "data"], 
 
     if not extracted_values:
         logger.warning("No values could be extracted from the string.")
-    
+
     return extracted_values
 
 
 def convert_response_to_json(response: str) -> dict:
     """Convert response string to JSON, with error handling and fallback to non-standard JSON extraction."""
     prediction_json = extract_first_complete_json(response)
-    
+
     if prediction_json is None:
         logger.info("Attempting to extract values from a non-standard JSON string...")
         prediction_json = extract_values_from_json(response, allow_no_quotes=True)
-    
+
     if not prediction_json:
         logger.error("Unable to extract meaningful data from the response.")
     else:
         logger.info("JSON data successfully extracted.")
-    
+
     return prediction_json
 
 
@@ -152,7 +150,7 @@ class TokenizerWrapper:
     def decode(self, tokens: list[int]) -> str:
         self._lazy_load_tokenizer()
         return self._tokenizer.decode(tokens)
-    
+
     # +++ 新增 +++: 增加一个批量解码的方法以提高效率，并保持接口一致性
     def decode_batch(self, tokens_list: list[list[int]]) -> list[str]:
         self._lazy_load_tokenizer()
@@ -163,13 +161,13 @@ class TokenizerWrapper:
             return self._tokenizer.batch_decode(tokens_list, skip_special_tokens=True)
         else:
              raise ValueError(f"Unknown tokenizer_type: {self.tokenizer_type}")
-        
+
 
 
 def truncate_list_by_token_size(
-    list_data: list, 
-    key: callable, 
-    max_token_size: int, 
+    list_data: list,
+    key: callable,
+    max_token_size: int,
     tokenizer_wrapper: TokenizerWrapper
 ):
     """Truncate a list of data by token size using a provided tokenizer wrapper."""

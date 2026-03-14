@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import TypedDict, Union, Literal, Generic, TypeVar, List
+from typing import Generic, List, Literal, TypedDict, TypeVar, Union
 
 import numpy as np
 
@@ -123,7 +123,7 @@ class BaseGraphStorage(StorageNameSpace):
 
     async def node_degree(self, node_id: str) -> int:
         raise NotImplementedError
-    
+
     async def node_degrees_batch(self, node_ids: List[str]) -> List[str]:
         raise NotImplementedError
 

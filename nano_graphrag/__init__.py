@@ -1,4 +1,5 @@
-from .graphrag import GraphRAG, QueryParam
+from .graphrag import GraphRAG as GraphRAG
+from .graphrag import QueryParam as QueryParam
 
 __version__ = "0.0.8.2"
 __author__ = "Jianbai Ye"

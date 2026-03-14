@@ -1,6 +1,7 @@
 import asyncio
 import os
 from dataclasses import dataclass
+
 import numpy as np
 from nano_vectordb import NanoVectorDB
 

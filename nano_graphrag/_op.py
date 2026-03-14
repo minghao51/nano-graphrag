@@ -1,29 +1,29 @@
-import re
-import json
 import asyncio
-from typing import Union
+import json
+import re
 from collections import Counter, defaultdict
+from typing import Union
+
 from ._splitter import SeparatorSplitter
 from ._utils import (
-    logger,
+    TokenizerWrapper,
     clean_str,
     compute_mdhash_id,
     is_float_regex,
     list_of_list_to_csv,
+    logger,
     pack_user_ass_to_openai_messages,
     split_string_by_multi_markers,
     truncate_list_by_token_size,
-
-    TokenizerWrapper
 )
 from .base import (
     BaseGraphStorage,
     BaseKVStorage,
     BaseVectorStorage,
-    SingleCommunitySchema,
     CommunitySchema,
-    TextChunkSchema,
     QueryParam,
+    SingleCommunitySchema,
+    TextChunkSchema,
 )
 from .prompt import GRAPH_FIELD_SEP, PROMPTS
 
@@ -31,7 +31,7 @@ from .prompt import GRAPH_FIELD_SEP, PROMPTS
 def chunking_by_token_size(
     tokens_list: list[list[int]],
     doc_keys,
-    tokenizer_wrapper: TokenizerWrapper, 
+    tokenizer_wrapper: TokenizerWrapper,
     overlap_token_size=128,
     max_token_size=1024,
 ):
@@ -419,14 +419,14 @@ def _pack_single_community_by_sub_communities(
     max_token_size: int,
     already_reports: dict[str, CommunitySchema],
     tokenizer_wrapper: TokenizerWrapper,
-) -> tuple[str, int, set, set]: 
+) -> tuple[str, int, set, set]:
     all_sub_communities = [
         already_reports[k] for k in community["sub_communities"] if k in already_reports
     ]
     all_sub_communities = sorted(
         all_sub_communities, key=lambda x: x["occurrence"], reverse=True
     )
-    
+
     may_trun_all_sub_communities = truncate_list_by_token_size(
         all_sub_communities,
         key=lambda x: x["report_string"],
@@ -451,7 +451,7 @@ def _pack_single_community_by_sub_communities(
     for c in may_trun_all_sub_communities:
         already_nodes.extend(c["nodes"])
         already_edges.extend([tuple(e) for e in c["edges"]])
-    
+
 
     return (
         sub_communities_describe,
@@ -470,7 +470,7 @@ async def _pack_single_community_describe(
     global_config: dict = {},
 ) -> str:
 
-    
+
 
     # 1. 准备原始数据
     nodes_in_order = sorted(community["nodes"])
@@ -506,19 +506,19 @@ async def _pack_single_community_describe(
     report_describe = ""
     contain_nodes = set()
     contain_edges = set()
-    
+
     # 启发式截断检测
     truncated = len(nodes_in_order) > 100 or len(edges_in_order) > 100
-    
+
     need_to_use_sub_communities = (
-        truncated and 
-        community["sub_communities"] and 
+        truncated and
+        community["sub_communities"] and
         already_reports
     )
     force_to_use_sub_communities = global_config["addon_params"].get(
         "force_to_use_sub_communities", False
     )
-    
+
     if need_to_use_sub_communities or force_to_use_sub_communities:
         logger.debug(f"Community {community['title']} using sub-communities")
         # 获取子社区报告及包含的节点/边
@@ -538,21 +538,21 @@ async def _pack_single_community_describe(
     # 获取度数并创建数据结构
     node_degrees = await knwoledge_graph_inst.node_degrees_batch(nodes_in_order)
     edge_degrees = await knwoledge_graph_inst.edge_degrees_batch(edges_in_order)
-    
+
     # 过滤已存在于子社区的节点/边
     nodes_list_data = [
-        [i, name, data.get("entity_type", "UNKNOWN"), 
+        [i, name, data.get("entity_type", "UNKNOWN"),
          data.get("description", "UNKNOWN"), node_degrees[i]]
         for i, (name, data) in enumerate(zip(nodes_in_order, nodes_data))
         if name not in contain_nodes  # 关键过滤
     ]
-    
+
     edges_list_data = [
         [i, edge[0], edge[1], data.get("description", "UNKNOWN"), edge_degrees[i]]
         for i, (edge, data) in enumerate(zip(edges_in_order, edges_data))
         if (edge[0], edge[1]) not in contain_edges  # 关键过滤
     ]
-    
+
     # 按重要性排序
     nodes_list_data.sort(key=lambda x: x[-1], reverse=True)
     edges_list_data.sort(key=lambda x: x[-1], reverse=True)
@@ -575,8 +575,8 @@ async def _pack_single_community_describe(
 
     # 执行截断
     nodes_final = truncate_list_by_token_size(
-        nodes_list_data, key=format_row, 
-        max_token_size=int(data_budget * node_ratio), 
+        nodes_list_data, key=format_row,
+        max_token_size=int(data_budget * node_ratio),
         tokenizer_wrapper=tokenizer_wrapper
     )
     edges_final = truncate_list_by_token_size(
@@ -647,7 +647,7 @@ async def generate_community_report(
         describe = await _pack_single_community_describe(
             knwoledge_graph_inst,
             community,
-            tokenizer_wrapper=tokenizer_wrapper, 
+            tokenizer_wrapper=tokenizer_wrapper,
             max_token_size=global_config["best_model_max_token_size"] - prompt_overhead -200, # extra token for chat template and prompt template
             already_reports=already_reports,
             global_config=global_config,
@@ -738,7 +738,7 @@ async def _find_most_related_community_from_entities(
         sorted_community_datas,
         key=lambda x: x["report_string"],
         max_token_size=query_param.local_max_token_for_community_report,
-        tokenizer_wrapper=tokenizer_wrapper, 
+        tokenizer_wrapper=tokenizer_wrapper,
     )
     if query_param.local_community_single_one:
         use_community_reports = use_community_reports[:1]
@@ -811,17 +811,17 @@ async def _find_most_related_edges_from_entities(
     tokenizer_wrapper,
 ):
     all_related_edges = await knowledge_graph_inst.get_nodes_edges_batch([dp["entity_name"] for dp in node_datas])
-    
+
     all_edges = []
     seen = set()
-    
+
     for this_edges in all_related_edges:
         for e in this_edges:
             sorted_edge = tuple(sorted(e))
             if sorted_edge not in seen:
                 seen.add(sorted_edge)
-                all_edges.append(sorted_edge) 
-                
+                all_edges.append(sorted_edge)
+
     all_edges_pack = await knowledge_graph_inst.get_edges_batch(all_edges)
     all_edges_degree = await knowledge_graph_inst.edge_degrees_batch(all_edges)
     all_edges_data = [
@@ -836,7 +836,7 @@ async def _find_most_related_edges_from_entities(
         all_edges_data,
         key=lambda x: x["description"],
         max_token_size=query_param.local_max_token_for_local_context,
-        tokenizer_wrapper=tokenizer_wrapper, 
+        tokenizer_wrapper=tokenizer_wrapper,
     )
     return all_edges_data
 

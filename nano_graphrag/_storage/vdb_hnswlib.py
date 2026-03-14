@@ -1,8 +1,9 @@
 import asyncio
 import os
+import pickle
 from dataclasses import dataclass, field
 from typing import Any
-import pickle
+
 import hnswlib
 import numpy as np
 import xxhash
