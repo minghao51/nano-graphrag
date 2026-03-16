@@ -1,9 +1,10 @@
+import os
 from dataclasses import dataclass, field
-from typing import Generic, List, Literal, TypedDict, TypeVar, Union
+from typing import Any, Dict, Generic, List, Literal, Optional, TypedDict, TypeVar, Union
 
 import numpy as np
 
-from ._utils import EmbeddingFunc
+from ._utils import EmbeddingFunc, logger
 
 
 @dataclass
@@ -184,3 +185,233 @@ class BaseGraphStorage(StorageNameSpace):
 
     async def embed_nodes(self, algorithm: str) -> tuple[np.ndarray, list[str]]:
         raise NotImplementedError("Node embedding is not used in nano-graphrag.")
+
+
+# =============================================================================
+# GraphRAG Configuration
+# =============================================================================
+
+DEFAULT_LLM_MODEL = "gpt-4o-mini"
+DEFAULT_CHEAP_MODEL = "gpt-4o-mini"
+DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
+DEFAULT_EMBEDDING_DIM = 1536
+
+
+def _parse_bool(env_var: str, default: bool = False) -> bool:
+    """Parse boolean from environment variable.
+
+    Accepts: true, 1, yes, on (case-insensitive) as True
+             false, 0, no, off (case-insensitive) as False
+    """
+    value = os.getenv(env_var, "").lower()
+    if value in ("true", "1", "yes", "on"):
+        return True
+    if value in ("false", "0", "no", "off"):
+        return False
+    return default
+
+
+def _parse_int(env_var: str, default: int, min_value: Optional[int] = None) -> int:
+    """Parse integer from environment variable with validation.
+
+    Args:
+        env_var: Environment variable name
+        default: Default value if not set
+        min_value: Minimum valid value (optional)
+
+    Returns:
+        Parsed integer value or default if invalid
+    """
+    value = os.getenv(env_var, str(default))
+    try:
+        parsed = int(value)
+        if min_value is not None and parsed < min_value:
+            logger.warning(
+                f"Invalid {env_var}={value}: Must be >= {min_value}, using default {default}"
+            )
+            return default
+        return parsed
+    except ValueError:
+        logger.warning(
+            f"Invalid {env_var}={value}: Not an integer, using default {default}"
+        )
+        return default
+
+
+@dataclass
+class GraphRAGConfig:
+    """Main configuration for GraphRAG.
+
+    Can be loaded from environment variables, dict, or instantiated directly.
+
+    Environment Variables:
+        GRAPH_WORKING_DIR: Working directory for storage
+        LLM_MODEL: LLM model name (e.g., "ollama/llama3.2", "gpt-4o-mini")
+        LLM_CHEAP_MODEL: Cheap model for summarization
+        LLM_API_BASE: Base URL for LLM API (e.g., "http://localhost:11434")
+        LLM_API_KEY: API key for LLM
+        LLM_MAX_ASYNC: Max concurrent LLM calls
+        LLM_MAX_TOKENS: Max tokens for LLM response
+        LLM_TIMEOUT: Timeout for LLM calls in seconds
+        EMBEDDING_MODEL: Embedding model name
+        EMBEDDING_API_BASE: Base URL for embedding API
+        EMBEDDING_API_KEY: API key for embedding
+        EMBEDDING_DIM: Embedding dimension
+        EMBEDDING_MAX_ASYNC: Max concurrent embedding calls
+        EMBEDDING_BATCH_SIZE: Batch size for embedding
+        EXTRACTION_MAX_ASYNC: Max concurrent entity extraction
+        CHUNK_BATCH_SIZE: Chunk batch size for processing
+        ENTITY_EXTRACTION_QUALITY: "fast" | "balanced" | "thorough"
+        GRAPH_CLUSTER_ALGORITHM: "leiden" | "louvain"
+        ENABLE_NODE_EMBEDDING: Enable node embedding (default: False)
+    """
+
+    # === Core ===
+    working_dir: str = "./nano_graphrag"
+
+    # === LLM (passed to LiteLLM) ===
+    llm_model: str = DEFAULT_LLM_MODEL
+    llm_cheap_model: str = DEFAULT_CHEAP_MODEL
+    llm_api_base: Optional[str] = None
+    llm_api_key: Optional[str] = None
+    llm_max_async: int = 16
+    llm_max_tokens: int = 32768
+    llm_timeout: int = 120
+
+    # === Embedding ===
+    embedding_model: str = DEFAULT_EMBEDDING_MODEL
+    embedding_api_base: Optional[str] = None
+    embedding_api_key: Optional[str] = None
+    embedding_dim: int = DEFAULT_EMBEDDING_DIM
+    embedding_max_async: int = 16
+    embedding_batch_size: int = 32
+
+    # === Compute/Quality ===
+    extraction_max_async: int = 16
+    chunk_batch_size: int = 100
+    entity_extraction_quality: str = "balanced"
+    graph_cluster_algorithm: str = "leiden"
+    enable_node_embedding: bool = False
+
+    # === Features ===
+    enable_local: bool = True
+    enable_naive_rag: bool = False
+    enable_llm_cache: bool = True
+
+    # === Logging ===
+    log_level: str = "INFO"
+    log_file: Optional[str] = None
+
+    # === Legacy/Deprecated (for backward compatibility) ===
+    # These are mapped to the new config but will emit deprecation warnings
+
+    @classmethod
+    def from_env(cls) -> "GraphRAGConfig":
+        """Load configuration from environment variables."""
+        return cls(
+            working_dir=os.getenv("GRAPH_WORKING_DIR", "./nano_graphrag"),
+            llm_model=os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL),
+            llm_cheap_model=os.getenv("LLM_CHEAP_MODEL", DEFAULT_CHEAP_MODEL),
+            llm_api_base=os.getenv("LLM_API_BASE"),
+            llm_api_key=os.getenv("LLM_API_KEY"),
+            llm_max_async=_parse_int("LLM_MAX_ASYNC", 16, min_value=1),
+            llm_max_tokens=_parse_int("LLM_MAX_TOKENS", 32768, min_value=1),
+            llm_timeout=_parse_int("LLM_TIMEOUT", 120, min_value=1),
+            embedding_model=os.getenv("EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL),
+            embedding_api_base=os.getenv("EMBEDDING_API_BASE"),
+            embedding_api_key=os.getenv("EMBEDDING_API_KEY"),
+            embedding_dim=_parse_int("EMBEDDING_DIM", DEFAULT_EMBEDDING_DIM, min_value=1),
+            embedding_max_async=_parse_int("EMBEDDING_MAX_ASYNC", 16, min_value=1),
+            embedding_batch_size=_parse_int("EMBEDDING_BATCH_SIZE", 32, min_value=1),
+            extraction_max_async=_parse_int("EXTRACTION_MAX_ASYNC", 16, min_value=1),
+            chunk_batch_size=_parse_int("CHUNK_BATCH_SIZE", 100, min_value=1),
+            entity_extraction_quality=os.getenv("ENTITY_EXTRACTION_QUALITY", "balanced"),
+            graph_cluster_algorithm=os.getenv("GRAPH_CLUSTER_ALGORITHM", "leiden"),
+            enable_node_embedding=_parse_bool("ENABLE_NODE_EMBEDDING", False),
+            enable_local=_parse_bool("ENABLE_LOCAL", True),
+            enable_naive_rag=_parse_bool("ENABLE_NAIVE_RAG", False),
+            enable_llm_cache=_parse_bool("ENABLE_LLM_CACHE", True),
+            log_level=os.getenv("LOG_LEVEL", "INFO"),
+            log_file=os.getenv("LOG_FILE"),
+        )
+
+    @classmethod
+    def from_dict(cls, config: Dict[str, Any]) -> "GraphRAGConfig":
+        """Create config from dictionary, only setting non-None values."""
+        # Filter out None values
+        filtered = {k: v for k, v in config.items() if v is not None}
+        return cls(**filtered)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert config to dictionary."""
+        return {
+            "working_dir": self.working_dir,
+            "llm_model": self.llm_model,
+            "llm_cheap_model": self.llm_cheap_model,
+            "llm_api_base": self.llm_api_base,
+            "llm_api_key": self.llm_api_key,
+            "llm_max_async": self.llm_max_async,
+            "llm_max_tokens": self.llm_max_tokens,
+            "llm_timeout": self.llm_timeout,
+            "embedding_model": self.embedding_model,
+            "embedding_api_base": self.embedding_api_base,
+            "embedding_api_key": self.embedding_api_key,
+            "embedding_dim": self.embedding_dim,
+            "embedding_max_async": self.embedding_max_async,
+            "embedding_batch_size": self.embedding_batch_size,
+            "extraction_max_async": self.extraction_max_async,
+            "chunk_batch_size": self.chunk_batch_size,
+            "entity_extraction_quality": self.entity_extraction_quality,
+            "graph_cluster_algorithm": self.graph_cluster_algorithm,
+            "enable_node_embedding": self.enable_node_embedding,
+            "enable_local": self.enable_local,
+            "enable_naive_rag": self.enable_naive_rag,
+            "enable_llm_cache": self.enable_llm_cache,
+            "log_level": self.log_level,
+            "log_file": self.log_file,
+        }
+
+    def merge(self, overrides: Dict[str, Any]) -> "GraphRAGConfig":
+        """Merge with overrides (env < base < overrides)."""
+        base_dict = self.to_dict()
+        # Only override non-None values
+        merged = {**base_dict, **{k: v for k, v in overrides.items() if v is not None}}
+        return GraphRAGConfig.from_dict(merged)
+
+    @classmethod
+    def from_yaml(cls, path: str) -> "GraphRAGConfig":
+        """Load config from YAML file.
+
+        Example:
+            config = GraphRAGConfig.from_yaml("config.yaml")
+            rag = GraphRAG.from_config(config)
+        """
+        try:
+            import yaml
+        except ImportError:
+            raise ImportError(
+                "PyYAML is required to load YAML configs. "
+                "Install with: uv add pyyaml"
+            )
+
+        with open(path, "r") as f:
+            data = yaml.safe_load(f)
+        return cls.from_dict(data)
+
+    def to_yaml(self, path: str):
+        """Save config to YAML file.
+
+        Example:
+            config = GraphRAGConfig.from_env()
+            config.to_yaml("config.yaml")
+        """
+        try:
+            import yaml
+        except ImportError:
+            raise ImportError(
+                "PyYAML is required to save YAML configs. "
+                "Install with: uv add pyyaml"
+            )
+
+        with open(path, "w") as f:
+            yaml.dump(self.to_dict(), f, default_flow_style=False, sort_keys=False)

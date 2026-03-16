@@ -3,7 +3,7 @@ import os
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from functools import partial
-from typing import Callable, Dict, List, Optional, Type, Union, cast
+from typing import Any, Callable, Dict, List, Optional, Type, Union, cast
 
 from ._llm import (
     amazon_bedrock_embedding,
@@ -39,9 +39,14 @@ from ._utils import (
     logger,
 )
 from .base import (
+    DEFAULT_CHEAP_MODEL,
+    DEFAULT_EMBEDDING_DIM,
+    DEFAULT_EMBEDDING_MODEL,
+    DEFAULT_LLM_MODEL,
     BaseGraphStorage,
     BaseKVStorage,
     BaseVectorStorage,
+    GraphRAGConfig,
     QueryParam,
     StorageNameSpace,
 )
@@ -49,14 +54,18 @@ from .base import (
 
 @dataclass
 class GraphRAG:
+    # === Core ===
     working_dir: str = field(
         default_factory=lambda: f"./nano_graphrag_cache_{datetime.now().strftime('%Y-%m-%d-%H:%M:%S')}"
     )
-    # graph mode
+    log_level: str = "INFO"
+    log_file: Optional[str] = None
+
+    # === Feature Flags ===
     enable_local: bool = True
     enable_naive_rag: bool = False
 
-    # text chunking
+    # === Text Chunking ===
     tokenizer_type: str = "tiktoken"  # or 'huggingface'
     tiktoken_model_name: str = "gpt-4o"
     huggingface_model_name: str = "bert-base-uncased"  # default HF model
@@ -73,17 +82,17 @@ class GraphRAG:
     chunk_token_size: int = 1200
     chunk_overlap_token_size: int = 100
 
-
-    # entity extraction
+    # === Entity Extraction ===
     entity_extract_max_gleaning: int = 1
     entity_summary_to_max_tokens: int = 500
+    extraction_max_async: int = 16  # NEW: control entity extraction concurrency
 
-    # graph clustering
+    # === Graph Clustering ===
     graph_cluster_algorithm: str = "leiden"
     max_graph_cluster_size: int = 10
     graph_cluster_seed: int = 0xDEADBEEF
 
-    # node embedding
+    # === Node Embedding (disabled by default for local) ===
     node_embedding_algorithm: str = "node2vec"
     node2vec_params: dict = field(
         default_factory=lambda: {
@@ -95,46 +104,157 @@ class GraphRAG:
             "random_seed": 3,
         }
     )
+    enable_node_embedding: bool = False  # NEW: disabled by default
 
-    # community reports
+    # === Community Reports ===
     special_community_report_llm_kwargs: dict = field(
         default_factory=lambda: {"response_format": {"type": "json_object"}}
     )
 
-    # text embedding
+    # === Embedding (NEW CONFIG) ===
     embedding_func: EmbeddingFunc = field(default_factory=lambda: openai_embedding)
+    embedding_model: str = DEFAULT_EMBEDDING_MODEL  # NEW
+    embedding_api_base: Optional[str] = None  # NEW: for Ollama, vLLM, custom
+    embedding_api_key: Optional[str] = None  # NEW
+    embedding_dim: int = DEFAULT_EMBEDDING_DIM  # NEW
+    embedding_max_async: Optional[int] = None
+    embedding_batch_size: Optional[int] = None
     embedding_batch_num: int = 32
     embedding_func_max_async: int = 16
-    query_better_than_threshold: float = 0.2
 
-    # LLM
+    # === LLM (NEW CONFIG) ===
     using_azure_openai: bool = False
     using_amazon_bedrock: bool = False
     best_model_id: str = "us.anthropic.claude-3-sonnet-20240229-v1:0"
     cheap_model_id: str = "us.anthropic.claude-3-haiku-20240307-v1:0"
-    best_model_func: callable = gpt_4o_complete
+    best_model_func: Callable[..., Any] = gpt_4o_complete
     best_model_max_token_size: int = 32768
     best_model_max_async: int = 16
-    cheap_model_func: callable = gpt_4o_mini_complete
+    cheap_model_func: Callable[..., Any] = gpt_4o_mini_complete
     cheap_model_max_token_size: int = 32768
     cheap_model_max_async: int = 16
 
-    # entity extraction
-    entity_extraction_func: callable = extract_entities
+    # === LiteLLM (Default Runtime) ===
+    llm_model: str = DEFAULT_LLM_MODEL  # NEW: e.g., "ollama/llama3.2", "gpt-4o-mini"
+    llm_cheap_model: str = DEFAULT_CHEAP_MODEL  # NEW
+    llm_api_base: Optional[str] = None  # NEW: e.g., "http://localhost:11434"
+    llm_api_key: Optional[str] = None  # NEW
+    llm_max_async: Optional[int] = None
+    llm_max_tokens: int = 32768  # NEW
+    llm_timeout: int = 120  # NEW
 
-    # storage
+    structured_output: bool = True
+    use_pydantic_structured_output: bool = True
+    fallback_to_parsing: bool = True
+
+    # === Entity Extraction ===
+    entity_extraction_func: Callable[..., Any] = extract_entities
+    entity_extraction_quality: str = "balanced"  # NEW: "fast" | "balanced" | "thorough"
+
+    # === Storage ===
     key_string_value_json_storage_cls: Type[BaseKVStorage] = JsonKVStorage
     vector_db_storage_cls: Type[BaseVectorStorage] = NanoVectorDBStorage
     vector_db_storage_cls_kwargs: dict = field(default_factory=dict)
     graph_storage_cls: Type[BaseGraphStorage] = NetworkXStorage
     enable_llm_cache: bool = True
 
-    # extension
+    # === Extension ===
     always_create_working_dir: bool = True
     addon_params: dict = field(default_factory=dict)
-    convert_response_to_json_func: callable = convert_response_to_json
+    convert_response_to_json_func: Callable[..., Any] = convert_response_to_json
+
+    @classmethod
+    def from_config(cls, config: GraphRAGConfig) -> "GraphRAG":
+        """Create GraphRAG from GraphRAGConfig object.
+
+        This is the recommended way to create a GraphRAG instance.
+
+        Example:
+            config = GraphRAGConfig.from_env()
+            rag = GraphRAG.from_config(config)
+        """
+        # Convert config to dict
+        config_dict = config.to_dict()
+
+        # Map GraphRAGConfig field names to GraphRAG field names.
+        # Most fields match directly.
+        field_mapping = {}
+
+        # Apply field mapping and filter out invalid fields
+        # Valid GraphRAG fields (from inspection of the dataclass)
+        valid_fields = {
+            "working_dir", "log_level", "log_file",
+            "enable_local", "enable_naive_rag", "enable_llm_cache",
+            "tokenizer_type", "tiktoken_model_name", "huggingface_model_name",
+            "chunk_token_size", "chunk_overlap_token_size",
+            "entity_extract_max_gleaning", "entity_summary_to_max_tokens",
+            "extraction_max_async", "entity_extraction_quality",
+            "graph_cluster_algorithm", "max_graph_cluster_size", "graph_cluster_seed",
+            "node_embedding_algorithm", "node2vec_params", "enable_node_embedding",
+            "special_community_report_llm_kwargs",
+            "embedding_model", "embedding_api_base", "embedding_api_key",
+            "embedding_dim", "embedding_max_async", "embedding_batch_size",
+            "embedding_batch_num", "embedding_func_max_async",
+            "using_azure_openai", "using_amazon_bedrock",
+            "best_model_id", "cheap_model_id",
+            "best_model_max_token_size", "best_model_max_async",
+            "cheap_model_max_token_size", "cheap_model_max_async",
+            "llm_model", "llm_cheap_model", "llm_max_async",
+            "llm_api_base", "llm_api_key", "llm_max_tokens", "llm_timeout",
+            "structured_output", "use_pydantic_structured_output", "fallback_to_parsing",
+            "key_string_value_json_storage_cls", "vector_db_storage_cls",
+            "vector_db_storage_cls_kwargs", "graph_storage_cls",
+            "always_create_working_dir", "addon_params",
+        }
+
+        mapped_dict = {}
+        for key, value in config_dict.items():
+            mapped_key = field_mapping.get(key, key)
+            # Only include fields that exist in GraphRAG
+            if mapped_key in valid_fields:
+                mapped_dict[mapped_key] = value
+
+        # Create GraphRAG instance from mapped config
+        return cls(**mapped_dict)
 
     def __post_init__(self):
+        # === Configure logging ===
+        import logging
+        numeric_level = getattr(logging, self.log_level.upper(), logging.INFO)
+        logger.setLevel(numeric_level)
+        formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+
+        if not any(getattr(handler, "_nano_graphrag_console", False) for handler in logger.handlers):
+            console_handler = logging.StreamHandler()
+            console_handler.setLevel(numeric_level)
+            console_handler.setFormatter(formatter)
+            console_handler._nano_graphrag_console = True
+            logger.addHandler(console_handler)
+
+        # File handler (optional)
+        if self.log_file:
+            existing_file_handler = any(
+                getattr(handler, "_nano_graphrag_file", None) == self.log_file
+                for handler in logger.handlers
+            )
+            if not existing_file_handler:
+                file_handler = logging.FileHandler(self.log_file)
+                file_handler.setLevel(numeric_level)
+                file_handler.setFormatter(formatter)
+                file_handler._nano_graphrag_file = self.log_file
+                logger.addHandler(file_handler)
+
+        if self.llm_max_async is not None:
+            self.best_model_max_async = self.llm_max_async
+            self.cheap_model_max_async = self.llm_max_async
+        if self.embedding_max_async is not None:
+            self.embedding_func_max_async = self.embedding_max_async
+        if self.embedding_batch_size is not None:
+            self.embedding_batch_num = self.embedding_batch_size
+
+        # === Print config ===
         _print_config = ",\n  ".join([f"{k} = {v}" for k, v in asdict(self).items()])
         logger.debug(f"GraphRAG init with param:\n\n  {_print_config}\n")
 
@@ -163,6 +283,23 @@ class GraphRAG:
                 "Switched the default openai funcs to Amazon Bedrock"
             )
 
+        uses_custom_llm = (
+            self.best_model_func not in (gpt_4o_complete, azure_gpt_4o_complete)
+            or self.cheap_model_func not in (gpt_4o_mini_complete, azure_gpt_4o_mini_complete)
+        )
+        uses_custom_embedding = self.embedding_func not in (
+            openai_embedding,
+            azure_openai_embedding,
+            amazon_bedrock_embedding,
+        )
+        use_litellm_runtime = not (
+            self.using_azure_openai
+            or self.using_amazon_bedrock
+            or uses_custom_llm
+            or uses_custom_embedding
+        )
+        self._use_structured_extraction = use_litellm_runtime
+
         if not os.path.exists(self.working_dir) and self.always_create_working_dir:
             logger.info(f"Creating working directory {self.working_dir}")
             os.makedirs(self.working_dir)
@@ -190,9 +327,121 @@ class GraphRAG:
             namespace="chunk_entity_relation", global_config=asdict(self)
         )
 
-        self.embedding_func = limit_async_func_call(self.embedding_func_max_async)(
-            self.embedding_func
-        )
+        if use_litellm_runtime:
+            try:
+                from ._llm_litellm import (
+                    LiteLLMWrapper,
+                    litellm_embedding,
+                    supports_structured_output,
+                )
+            except ImportError as e:
+                raise ImportError(
+                    "LiteLLM is not installed. Install with: pip install litellm\n"
+                    f"Original error: {e}"
+                ) from e
+
+            # Determine effective model names (handle ollama/ prefix for provider detection)
+            effective_best_model = self.llm_model
+            effective_cheap_model = self.llm_cheap_model
+
+            structured = self.structured_output and supports_structured_output(effective_best_model)
+            if not structured:
+                logger.info(
+                    f"LiteLLM model {effective_best_model} does not support structured output, "
+                    "will use text mode with fallback to parsing"
+                )
+
+            # Create LiteLLM wrappers with api_base and api_key support
+            self.best_model_func = limit_async_func_call(self.best_model_max_async)(
+                LiteLLMWrapper(
+                    model=effective_best_model,
+                    structured_output=self.structured_output,
+                    use_native_structured_output=self.use_pydantic_structured_output,
+                    hashing_kv=self.llm_response_cache,
+                    api_base=self.llm_api_base,
+                    api_key=self.llm_api_key,
+                    timeout=self.llm_timeout,
+                )
+            )
+            self.cheap_model_func = limit_async_func_call(self.cheap_model_max_async)(
+                LiteLLMWrapper(
+                    model=effective_cheap_model,
+                    structured_output=self.structured_output,
+                    use_native_structured_output=self.use_pydantic_structured_output,
+                    hashing_kv=self.llm_response_cache,
+                    api_base=self.llm_api_base,
+                    api_key=self.llm_api_key,
+                    timeout=self.llm_timeout,
+                )
+            )
+
+            # Create embedding function with api_base and api_key support
+            limited_embedding = limit_async_func_call(self.embedding_func_max_async)(
+                partial(
+                    litellm_embedding,
+                    model=self.embedding_model,
+                    api_base=self.embedding_api_base,
+                    api_key=self.embedding_api_key,
+                )
+            )
+            self.embedding_func = EmbeddingFunc(
+                embedding_dim=self.embedding_dim,
+                max_token_size=8192,
+                func=limited_embedding,
+            )
+
+            logger.info(
+                f"Using LiteLLM with model {effective_best_model}, "
+                f"api_base={self.llm_api_base}, "
+                f"structured_output={self.structured_output}, "
+                f"use_pydantic_structured_output={self.use_pydantic_structured_output}"
+            )
+
+            # Validate models
+            try:
+                import litellm
+                valid_models = set(litellm.get_valid_models())
+
+                for model_name in [effective_best_model, effective_cheap_model]:
+                    # Check if exact match
+                    if model_name in valid_models:
+                        continue
+
+                    # Check if provider prefix is valid
+                    provider = model_name.split("/")[0] if "/" in model_name else None
+                    if provider:
+                        provider_models = [m for m in valid_models if m.startswith(f"{provider}/")]
+                        if provider_models:
+                            logger.info(
+                                f"✓ Model '{model_name}' uses provider '{provider}' "
+                                f"({len(provider_models)} models available)"
+                            )
+                            continue
+
+                    # Warning if not found
+                    logger.warning(
+                        f"Model '{model_name}' not found in LiteLLM's model list. "
+                        f"This may be a typo or a newly added model. "
+                        f"Provider '{provider}' detected. "
+                        f"Check: https://docs.litellm.ai/docs/supported_models"
+                    )
+            except Exception as e:
+                logger.debug(f"Could not validate models against LiteLLM list: {e}")
+        else:
+            self.embedding_func = EmbeddingFunc(
+                embedding_dim=self.embedding_func.embedding_dim,
+                max_token_size=self.embedding_func.max_token_size,
+                func=limit_async_func_call(self.embedding_func_max_async)(
+                    self.embedding_func
+                ),
+            )
+            self.best_model_func = limit_async_func_call(self.best_model_max_async)(
+                partial(self.best_model_func, hashing_kv=self.llm_response_cache)
+            )
+            self.cheap_model_func = limit_async_func_call(self.cheap_model_max_async)(
+                partial(self.cheap_model_func, hashing_kv=self.llm_response_cache)
+            )
+
         self.entities_vdb = (
             self.vector_db_storage_cls(
                 namespace="entities",
@@ -213,12 +462,10 @@ class GraphRAG:
             else None
         )
 
-        self.best_model_func = limit_async_func_call(self.best_model_max_async)(
-            partial(self.best_model_func, hashing_kv=self.llm_response_cache)
-        )
-        self.cheap_model_func = limit_async_func_call(self.cheap_model_max_async)(
-            partial(self.cheap_model_func, hashing_kv=self.llm_response_cache)
-        )
+    def _runtime_config(self) -> dict:
+        runtime_config = asdict(self)
+        runtime_config["_use_structured_extraction"] = self._use_structured_extraction
+        return runtime_config
 
 
 
@@ -244,7 +491,7 @@ class GraphRAG:
                 self.text_chunks,
                 param,
                 self.tokenizer_wrapper,
-                asdict(self),
+                self._runtime_config(),
             )
         elif param.mode == "global":
             response = await global_query(
@@ -255,7 +502,7 @@ class GraphRAG:
                 self.text_chunks,
                 param,
                 self.tokenizer_wrapper,
-                asdict(self),
+                self._runtime_config(),
             )
         elif param.mode == "naive":
             response = await naive_query(
@@ -264,7 +511,7 @@ class GraphRAG:
                 self.text_chunks,
                 param,
                 self.tokenizer_wrapper,
-                asdict(self),
+                self._runtime_config(),
             )
         else:
             raise ValueError(f"Unknown mode {param.mode}")
@@ -322,7 +569,7 @@ class GraphRAG:
                 knwoledge_graph_inst=self.chunk_entity_relation_graph,
                 entity_vdb=self.entities_vdb,
                 tokenizer_wrapper=self.tokenizer_wrapper,
-                global_config=asdict(self),
+                global_config=self._runtime_config(),
                 using_amazon_bedrock=self.using_amazon_bedrock,
             )
             if maybe_new_kg is None:
@@ -335,7 +582,7 @@ class GraphRAG:
                 self.graph_cluster_algorithm
             )
             await generate_community_report(
-                self.community_reports, self.chunk_entity_relation_graph, self.tokenizer_wrapper, asdict(self)
+                self.community_reports, self.chunk_entity_relation_graph, self.tokenizer_wrapper, self._runtime_config()
             )
 
             # ---------- commit upsertings and indexing
