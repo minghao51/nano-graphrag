@@ -1,5 +1,6 @@
 import pytest
-import dspy
+dspy = pytest.importorskip("dspy")
+pytest.importorskip("openai")
 from openai import BadRequestError
 from unittest.mock import Mock, patch, AsyncMock
 from nano_graphrag.entity_extraction.extract import generate_dataset, extract_entities_dspy

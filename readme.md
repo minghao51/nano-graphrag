@@ -50,37 +50,93 @@
 
 ## Install
 
-**Install from source** (recommend)
+> [!TIP]
+> **We recommend using [uv](https://github.com/astral-sh/uv) for Python package management.**
+
+### Using uv (recommended)
 
 ```shell
-# clone this repo first
+# Clone and install
+git clone https://github.com/gusye1234/nano-graphrag.git
 cd nano-graphrag
-pip install -e .
+
+# Install project and dev tools
+uv sync
 ```
 
-**Install from PyPi**
+### Using pip
 
 ```shell
+# Core install
 pip install nano-graphrag
+
+# Optional extras
+pip install nano-graphrag[dspy]
+pip install nano-graphrag[neo4j]
 ```
+
+### Dependency Groups
+
+| Group | Description |
+|-------|-------------|
+| `storage` | Optional HNSW vector index |
+| `openai` | Direct OpenAI client |
+| `anthropic` | Direct Anthropic client |
+| `aws` | AWS/Bedrock |
+| `neo4j` | Neo4j graph storage |
+| `milvus` | Milvus vector DB |
+| `qdrant` | Qdrant vector DB |
+| `leiden` | Leiden graph clustering |
+| `dspy` | DSPy for entity extraction |
+| `local-embedding` | Sentence-transformers |
+| `dev` | Development tools |
+| `default` | storage + neo4j |
+| `all` | Everything |
 
 
 
 ## Quick Start
 
 > [!TIP]
->
-> **Please set OpenAI API key in environment: `export OPENAI_API_KEY="sk-..."`.** 
+> **Default: OpenAI** - Just set `OPENAI_API_KEY` and go!
+> ```python
+> graph_func = GraphRAG(working_dir="./dickens")
+> ```
 
 > [!TIP]
-> If you're using Azure OpenAI API, refer to the [.env.example](./.env.example.azure) to set your azure openai. Then pass `GraphRAG(...,using_azure_openai=True,...)` to enable.
+> **Using Ollama** - No API key needed!
+> ```python
+> graph_func = GraphRAG(
+>     working_dir="./dickens",
+>     llm_model="ollama/llama3.2",
+>     llm_api_base="http://localhost:11434",
+>     embedding_model="ollama/nomic-embed-text",
+>     embedding_api_base="http://localhost:11434",
+>     embedding_dim=768,
+> )
+> ```
 
 > [!TIP]
-> If you're using Amazon Bedrock API, please ensure your credentials are properly set through commands like `aws configure`. Then enable it by configuring like this: `GraphRAG(...,using_amazon_bedrock=True, best_model_id="us.anthropic.claude-3-sonnet-20240229-v1:0", cheap_model_id="us.anthropic.claude-3-haiku-20240307-v1:0",...)`. Refer to an [example script](./examples/using_amazon_bedrock.py).
+> **Using vLLM or Custom API** - Any OpenAI-compatible endpoint!
+> ```python
+> graph_func = GraphRAG(
+>     working_dir="./dickens",
+>     llm_model="openai/llama3.1-8b",
+>     llm_api_base="http://localhost:8000/v1",
+>     embedding_model="openai/bge-small-en-v1.5",
+>     embedding_api_base="http://localhost:8000/v1",
+> )
+> ```
 
 > [!TIP]
->
-> If you don't have any key, check out this [example](./examples/no_openai_key_at_all.py) that using `transformers` and `ollama` . If you like to use another LLM or Embedding Model, check [Advances](#Advances).
+> **Environment Variables** - Configure via env vars!
+> ```bash
+> export LLM_API_BASE="http://localhost:11434"
+> export LLM_MODEL="ollama/llama3.2"
+> export EMBEDDING_API_BASE="http://localhost:11434"
+> export EMBEDDING_MODEL="ollama/nomic-embed-text"
+> ```
+> Then use: `GraphRAG(working_dir="./dickens")`
 
 download a copy of A Christmas Carol by Charles Dickens:
 
@@ -167,31 +223,43 @@ await graph_func.aquery(...)
 
 ## Components
 
-Below are the components you can use:
+nano-graphrag uses [LiteLLM](https://docs.litellm.ai/) for LLM and embedding, which provides unified access to 100+ providers via OpenAI-compatible APIs.
 
-| Type            |                             What                             |                       Where                       |
+| Type | What | Configuration |
 | :-------------- | :----------------------------------------------------------: | :-----------------------------------------------: |
-| LLM             |                            OpenAI                            |                     Built-in                      |
-|                 |                        Amazon Bedrock                        |                     Built-in                      |
-|                 |                           DeepSeek                           |              [examples](./examples)               |
-|                 |                           `ollama`                           |              [examples](./examples)               |
-| Embedding       |                            OpenAI                            |                     Built-in                      |
-|                 |                        Amazon Bedrock                        |                     Built-in                      |
-|                 |                    Sentence-transformers                     |              [examples](./examples)               |
-| Vector DataBase | [`nano-vectordb`](https://github.com/gusye1234/nano-vectordb) |                     Built-in                      |
-|                 |        [`hnswlib`](https://github.com/nmslib/hnswlib)        |         Built-in, [examples](./examples)          |
-|                 |  [`milvus-lite`](https://github.com/milvus-io/milvus-lite)   |              [examples](./examples)               |
-|                 | [faiss](https://github.com/facebookresearch/faiss?tab=readme-ov-file) |              [examples](./examples)               |
-| Graph Storage   | [`networkx`](https://networkx.org/documentation/stable/index.html) |                     Built-in                      |
-|                 |                [`neo4j`](https://neo4j.com/)                 | Built-in([doc](./docs/use_neo4j_for_graphrag.md)) |
-| Visualization   |                           graphml                            |              [examples](./examples)               |
-| Chunking        |                        by token size                         |                     Built-in                      |
-|                 |                       by text splitter                       |                     Built-in                      |
+| **LLM** | Any OpenAI-compatible API (Ollama, vLLM, LM Studio, etc.) | `llm_model`, `llm_api_base` |
+| | OpenAI | Default |
+| | Anthropic | `llm_model="claude-3-opus..."` |
+| | Azure OpenAI | `using_azure_openai=True` |
+| | Amazon Bedrock | `using_amazon_bedrock=True` |
+| **Embedding** | Any OpenAI-compatible API | `embedding_model`, `embedding_api_base` |
+| | OpenAI | Default |
+| | Sentence-transformers | Custom function |
+| **Vector DB** | [`nano-vectordb`](https://github.com/gusye1234/nano-vectordb) | Built-in |
+| | [`hnswlib`](https://github.com/nmslib/hnswlib) | Built-in |
+| | [`milvus-lite`](https://github.com/milvus-io/milvus-lite) | [examples](./examples) |
+| | [faiss](https://github.com/facebookresearch/faiss) | [examples](./examples) |
+| | [qdrant](https://qdrant.tech/) | [examples](./examples) |
+| **Graph** | [`networkx`](https://networkx.org/) | Built-in |
+| | [`neo4j`](https://neo4j.com/) | [doc](./docs/use_neo4j_for_graphrag.md) |
+| **Chunking** | by token size | Built-in |
+| | by text splitter | Built-in |
 
-- `Built-in` means we have that implementation inside `nano-graphrag`. `examples` means we have that implementation inside an tutorial under [examples](./examples) folder.
+### Configuration via Environment Variables
 
-- Check [examples/benchmarks](./examples/benchmarks) to see few comparisons between components.
-- **Always welcome to contribute more components.**
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `LLM_MODEL` | LLM model name | `gpt-4o-mini` |
+| `LLM_API_BASE` | LLM API base URL | - |
+| `LLM_API_KEY` | LLM API key | - |
+| `LLM_MAX_ASYNC` | Max concurrent LLM calls | 16 |
+| `EMBEDDING_MODEL` | Embedding model | `text-embedding-3-small` |
+| `EMBEDDING_API_BASE` | Embedding API base URL | - |
+| `EMBEDDING_DIM` | Embedding dimension | 1536 |
+| `GRAPH_WORKING_DIR` | Working directory | `./nano_graphrag` |
+| `EXTRACTION_MAX_ASYNC` | Entity extraction concurrency | 16 |
+| `GRAPH_CLUSTER_ALGORITHM` | `leiden` or `louvain` | `leiden` |
+| `ENABLE_NODE_EMBEDDING` | Enable node2vec | `false` |
 
 ## Advances
 
@@ -276,7 +344,7 @@ You can implement your own LLM function (refer to `_llm.gpt_4o_complete`):
 
 ```python
 async def my_llm_complete(
-    prompt, system_prompt=None, history_messages=[], **kwargs
+    prompt, system_prompt=None, history_messages=None, **kwargs
 ) -> str:
   # pop cache KV database if any
   hashing_kv: BaseKVStorage = kwargs.pop("hashing_kv", None)
@@ -297,7 +365,7 @@ GraphRAG(cheap_model_func=my_llm_complete, cheap_model_max_token_size=..., cheap
 
 You can refer to this [example](./examples/using_deepseek_as_llm.py) that use [`deepseek-chat`](https://platform.deepseek.com/api-docs/) as the LLM model
 
-You can refer to this [example](./examples/using_ollama_as_llm.py) that use [`ollama`](https://github.com/ollama/ollama) as the LLM model
+You can refer to this [example](./examples/using_ollama_new.py) that uses [`ollama`](https://github.com/ollama/ollama) through the default LiteLLM configuration
 
 #### Json Output
 
@@ -415,4 +483,3 @@ See [ROADMAP.md](./docs/ROADMAP.md)
 
 - `nano-graphrag` didn't implement the `covariates` feature of `GraphRAG`
 - `nano-graphrag` implements the global search different from the original. The original use a map-reduce-like style to fill all the communities into context, while `nano-graphrag` only use the top-K important and central communites (use `QueryParam.global_max_consider_community` to control, default to 512 communities).
-

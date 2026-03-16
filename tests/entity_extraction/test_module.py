@@ -1,5 +1,5 @@
 import pytest
-import dspy
+dspy = pytest.importorskip("dspy")
 from unittest.mock import Mock, patch
 from nano_graphrag.entity_extraction.module import (
     TypedEntityRelationshipExtractor,
