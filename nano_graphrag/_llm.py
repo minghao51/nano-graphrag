@@ -2,15 +2,42 @@ import json
 import os
 from typing import Any, Callable, List, Optional
 
-import aioboto3
-import numpy as np
-from openai import APIConnectionError, AsyncAzureOpenAI, AsyncOpenAI, RateLimitError
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
+try:
+    import aioboto3
+    HAS_AIOBOTO3 = True
+except ImportError:
+    HAS_AIOBOTO3 = False
+
+try:
+    import numpy as np
+    HAS_NUMPY = True
+except ImportError:
+    HAS_NUMPY = False
+
+try:
+    from openai import APIConnectionError, AsyncAzureOpenAI, AsyncOpenAI, RateLimitError
+    HAS_OPENAI = True
+except ImportError:
+    HAS_OPENAI = False
+    APIConnectionError = Exception
+    AsyncAzureOpenAI = None
+    AsyncOpenAI = None
+    RateLimitError = Exception
+
+try:
+    from tenacity import (
+        retry,
+        retry_if_exception_type,
+        stop_after_attempt,
+        wait_exponential,
+    )
+    HAS_TENACITY = True
+except ImportError:
+    HAS_TENACITY = False
+    retry = lambda **kw: lambda f: f
+    retry_if_exception_type = lambda x: lambda cls: cls
+    stop_after_attempt = lambda n: lambda cls: cls
+    wait_exponential = lambda **kw: lambda cls: cls
 
 from ._utils import compute_args_hash, wrap_embedding_func_with_attrs
 from .base import BaseKVStorage

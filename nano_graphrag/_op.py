@@ -2,7 +2,7 @@ import asyncio
 import json
 import re
 from collections import Counter, defaultdict
-from typing import Union
+from typing import Any, Callable, Union
 
 from ._splitter import SeparatorSplitter
 from ._utils import (
@@ -114,7 +114,7 @@ async def _handle_entity_relation_summary(
     global_config: dict,
     tokenizer_wrapper: TokenizerWrapper,
 ) -> str:
-    use_llm_func: callable = global_config["cheap_model_func"]
+    use_llm_func: Callable[..., Any] = global_config["cheap_model_func"]
     llm_max_tokens = global_config["cheap_model_max_token_size"]
     summary_max_tokens = global_config["entity_summary_to_max_tokens"]
 
@@ -279,6 +279,194 @@ async def _merge_edges_then_upsert(
     )
 
 
+async def extract_entities_structured(
+    chunks: dict[str, TextChunkSchema],
+    knwoledge_graph_inst: BaseGraphStorage,
+    entity_vdb: BaseVectorStorage,
+    tokenizer_wrapper,
+    global_config: dict,
+    using_amazon_bedrock: bool = False,
+) -> Union[BaseGraphStorage, None]:
+    from ._schemas import EntityExtractionOutput
+
+    # Get quality mode and select model and gleaning config
+    quality = global_config.get("entity_extraction_quality", "balanced")
+
+    if quality == "fast":
+        # Fast mode: use cheap model, no gleaning
+        use_llm_func = global_config["cheap_model_func"]
+        # entity_extract_max_gleaning = 0  # Not used in structured mode
+    elif quality == "thorough":
+        # Thorough mode: use best model, max gleaning
+        use_llm_func = global_config["best_model_func"]
+        # entity_extract_max_gleaning = 3  # Not used in structured mode
+    else:  # balanced (default)
+        # Balanced mode: use best model, single gleaning
+        use_llm_func = global_config["best_model_func"]
+        # entity_extract_max_gleaning = 1  # Not used in structured mode
+
+    use_structured_output = global_config.get("structured_output", True)
+    fallback_to_parsing = global_config.get("fallback_to_parsing", True)
+
+    ordered_chunks = list(chunks.items())
+
+    entity_types = PROMPTS["DEFAULT_ENTITY_TYPES"]
+
+    already_processed = 0
+    already_entities = 0
+    already_relations = 0
+
+    async def _process_single_content(chunk_key_dp: tuple[str, TextChunkSchema]):
+        nonlocal already_processed, already_entities, already_relations
+        chunk_key = chunk_key_dp[0]
+        chunk_dp = chunk_key_dp[1]
+        content = chunk_dp["content"]
+
+        try:
+            if use_structured_output:
+                result = await use_llm_func(
+                    content,
+                    system_prompt=f"""You are an entity extraction assistant. Extract entities and relationships from the text.
+Entity types: {', '.join(entity_types)}.
+Return a JSON with 'entities' (name, type, description) and 'relationships' (source, target, description, weight).""",
+                    response_format=EntityExtractionOutput,
+                )
+                # Handle both BaseModel and string returns
+                if isinstance(result, str):
+                    # Manual parse fallback
+                    try:
+                        import json
+                        parsed_data = json.loads(result)
+                        result = EntityExtractionOutput(**parsed_data)
+                    except Exception as e:
+                        logger.warning(f"Failed to parse structured output from string: {e}")
+                        result = None
+
+                if isinstance(result, EntityExtractionOutput):
+                    maybe_nodes = {
+                        clean_str(e.entity_name.upper()): [{
+                            "entity_name": clean_str(e.entity_name.upper()),
+                            "entity_type": clean_str(e.entity_type.upper()),
+                            "description": e.description,
+                            "source_id": chunk_key,
+                        }] for e in result.entities
+                    }
+                    maybe_edges = {
+                        tuple(sorted([clean_str(r.source.upper()), clean_str(r.target.upper())])): [{
+                            "src_id": clean_str(r.source.upper()),
+                            "tgt_id": clean_str(r.target.upper()),
+                            "description": r.description,
+                            "weight": r.weight,
+                            "source_id": chunk_key,
+                        }] for r in result.relationships
+                    }
+                else:
+                    maybe_nodes, maybe_edges = {}, {}
+            else:
+                maybe_nodes, maybe_edges = {}, {}
+
+            if not maybe_nodes or not use_structured_output:
+                entity_extract_prompt = PROMPTS["entity_extraction"]
+                context_base = dict(
+                    tuple_delimiter=PROMPTS["DEFAULT_TUPLE_DELIMITER"],
+                    record_delimiter=PROMPTS["DEFAULT_RECORD_DELIMITER"],
+                    completion_delimiter=PROMPTS["DEFAULT_COMPLETION_DELIMITER"],
+                    entity_types=",".join(entity_types),
+                )
+                hint_prompt = entity_extract_prompt.format(**context_base, input_text=content)
+                final_result = await use_llm_func(hint_prompt)
+
+                records = split_string_by_multi_markers(
+                    final_result,
+                    [context_base["record_delimiter"], context_base["completion_delimiter"]],
+                )
+                maybe_nodes = defaultdict(list)
+                maybe_edges = defaultdict(list)
+                for record in records:
+                    record_match = re.search(r"\((.*)\)", record)
+                    if record_match is None:
+                        continue
+                    record_attrs = split_string_by_multi_markers(
+                        record_match.group(1), [context_base["tuple_delimiter"]]
+                    )
+                    if len(record_attrs) >= 4 and record_attrs[0] == '"entity"':
+                        entity_data = {
+                            "entity_name": clean_str(record_attrs[1].upper()),
+                            "entity_type": clean_str(record_attrs[2].upper()),
+                            "description": clean_str(record_attrs[3]),
+                            "source_id": chunk_key,
+                        }
+                        if entity_data["entity_name"].strip():
+                            maybe_nodes[entity_data["entity_name"]].append(entity_data)
+                    elif len(record_attrs) >= 5 and record_attrs[0] == '"relationship"':
+                        rel_data = {
+                            "src_id": clean_str(record_attrs[1].upper()),
+                            "tgt_id": clean_str(record_attrs[2].upper()),
+                            "description": clean_str(record_attrs[3]),
+                            "weight": float(record_attrs[-1]) if is_float_regex(record_attrs[-1]) else 1.0,
+                            "source_id": chunk_key,
+                        }
+                        maybe_edges[tuple(sorted([rel_data["src_id"], rel_data["tgt_id"]]))].append(rel_data)
+
+        except Exception as e:
+            logger.warning(f"Structured extraction failed for chunk {chunk_key}: {e}")
+            if not fallback_to_parsing:
+                raise
+            maybe_nodes, maybe_edges = {}, {}
+
+        already_processed += 1
+        already_entities += len(maybe_nodes)
+        already_relations += len(maybe_edges)
+        now_ticks = PROMPTS["process_tickers"][already_processed % len(PROMPTS["process_tickers"])]
+        print(
+            f"{now_ticks} Processed {already_processed}({already_processed*100//len(ordered_chunks)}%) chunks, {already_entities} entities, {already_relations} relations\r",
+            end="",
+            flush=True,
+        )
+        return dict(maybe_nodes), dict(maybe_edges)
+
+    results = await asyncio.gather(
+        *[_process_single_content(c) for c in ordered_chunks]
+    )
+    print()
+    maybe_nodes = defaultdict(list)
+    maybe_edges = defaultdict(list)
+    for m_nodes, m_edges in results:
+        for k, v in m_nodes.items():
+            maybe_nodes[k].extend(v)
+        for k, v in m_edges.items():
+            maybe_edges[tuple(sorted(k))].extend(v)
+
+    if not len(maybe_nodes):
+        logger.warning("Didn't extract any entities")
+        return None
+
+    all_entities_data = await asyncio.gather(
+        *[
+            _merge_nodes_then_upsert(k, v, knwoledge_graph_inst, global_config, tokenizer_wrapper)
+            for k, v in maybe_nodes.items()
+        ]
+    )
+    await asyncio.gather(
+        *[
+            _merge_edges_then_upsert(k[0], k[1], v, knwoledge_graph_inst, global_config, tokenizer_wrapper)
+            for k, v in maybe_edges.items()
+        ]
+    )
+
+    if entity_vdb is not None:
+        data_for_vdb = {
+            compute_mdhash_id(dp["entity_name"], prefix="ent-"): {
+                "content": dp["entity_name"] + dp["description"],
+                "entity_name": dp["entity_name"],
+            }
+            for dp in all_entities_data
+        }
+        await entity_vdb.upsert(data_for_vdb)
+
+    return knwoledge_graph_inst
+
+
 async def extract_entities(
     chunks: dict[str, TextChunkSchema],
     knwoledge_graph_inst: BaseGraphStorage,
@@ -287,7 +475,12 @@ async def extract_entities(
     global_config: dict,
     using_amazon_bedrock: bool=False,
 ) -> Union[BaseGraphStorage, None]:
-    use_llm_func: callable = global_config["best_model_func"]
+    if global_config.get("_use_structured_extraction", False):
+        return await extract_entities_structured(
+            chunks, knwoledge_graph_inst, entity_vdb, tokenizer_wrapper, global_config, using_amazon_bedrock
+        )
+
+    use_llm_func: Callable[..., Any] = global_config["best_model_func"]
     entity_extract_max_gleaning = global_config["entity_extract_max_gleaning"]
 
     ordered_chunks = list(chunks.items())
@@ -629,8 +822,8 @@ async def generate_community_report(
     global_config: dict,
 ):
     llm_extra_kwargs = global_config["special_community_report_llm_kwargs"]
-    use_llm_func: callable = global_config["best_model_func"]
-    use_string_json_convert_func: callable = global_config["convert_response_to_json_func"]
+    use_llm_func: Callable[..., Any] = global_config["best_model_func"]
+    use_string_json_convert_func: Callable[..., Any] = global_config["convert_response_to_json_func"]
 
     communities_schema = await knwoledge_graph_inst.community_schema()
     community_keys, community_values = list(communities_schema.keys()), list(communities_schema.values())

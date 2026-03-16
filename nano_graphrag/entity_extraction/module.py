@@ -327,3 +327,7 @@ class TypedEntityRelationshipExtractor(dspy.Module):
         ]
 
         return dspy.Prediction(entities=entities, relationships=relationships)
+
+
+def create_litellm_lm(model: str = "openai/gpt-4o", **kwargs) -> dspy.LM:
+    return dspy.LM(model=model, **kwargs)

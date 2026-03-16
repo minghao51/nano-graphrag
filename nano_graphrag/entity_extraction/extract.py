@@ -86,7 +86,15 @@ async def extract_entities_dspy(
     entity_vdb: BaseVectorStorage,
     global_config: dict,
 ) -> Union[BaseGraphStorage, None]:
-    entity_extractor = TypedEntityRelationshipExtractor(num_refine_turns=1, self_refine=True)
+    if global_config.get("_use_structured_extraction", False):
+        from .module import create_litellm_lm
+
+        lm = create_litellm_lm(global_config.get("llm_model", "gpt-4o-mini"))
+        entity_extractor = TypedEntityRelationshipExtractor(
+            lm=lm, num_refine_turns=1, self_refine=True
+        )
+    else:
+        entity_extractor = TypedEntityRelationshipExtractor(num_refine_turns=1, self_refine=True)
 
     if global_config.get("use_compiled_dspy_entity_relationship", False):
         entity_extractor.load(global_config["entity_relationship_module_path"])
