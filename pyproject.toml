@@ -1,36 +1,79 @@
 [project]
 name = "nano-graphrag"
-version = "0.0.8.2"
+version = "0.0.9.0"
 description = "A simple, easy-to-hack GraphRAG implementation"
 readme = "readme.md"
 authors = [{name = "Jianbai Ye"}]
 requires-python = ">=3.9"
 license = {text = "MIT"}
+
+# Core dependencies - required for basic functionality
 dependencies = [
     "future>=1.0.0",
+    "numpy>=1.26.0",
     "openai",
-    "tiktoken",
-    "networkx",
+    "tiktoken>=0.7.0",
+    "networkx>=3.0",
     "graspologic",
-    "nano-vectordb",
-    "hnswlib",
-    "xxhash",
-    "tenacity",
-    "dspy-ai",
-    "neo4j",
-    "aioboto3",
-    "transformers",
-    "litellm>=1.0.0",
+    "tenacity>=8.0.0",
     "pydantic>=2.0.0",
+    "litellm>=1.0.0",
+    "pyyaml>=6.0",
+    "nano-vectordb",
+    "xxhash",
 ]
 
+# Optional dependencies - install based on needs
 [project.optional-dependencies]
+# Core storage (default - includes vector db and hash)
+storage = [
+    "hnswlib",
+]
+
+# Direct API clients (optional, if not using LiteLLM)
+openai = ["openai"]
+anthropic = ["anthropic"]
+aws = ["aioboto3"]
+
+# Storage backends
+neo4j = ["neo4j"]
+milvus = ["pymilvus"]
+qdrant = ["qdrant-client"]
+
+# Graph algorithms (Leiden is heavier than Louvain)
+leiden = ["graspologic"]
+
+# Entity extraction with DSPy
+dspy = ["dspy-ai"]
+
+# Local embedding models (optional - LiteLLM can call remote)
+local-embedding = [
+    "sentence-transformers",
+    "transformers",
+]
+
+# Tokenizer support (for huggingface tokenizer)
+tokenizer = [
+    "transformers",
+]
+
+# Development dependencies
 dev = [
     "pytest",
     "pytest-asyncio",
     "pytest-cov",
-    "python-dotenv",
     "ruff",
+    "dspy-ai",
+]
+
+# All extras combined
+all = [
+    "nano-graphrag[storage,openai,anthropic,aws,neo4j,milvus,qdrant,leiden,dspy,local-embedding,tokenizer,dev]",
+]
+
+# Convenience: sensible defaults for most users
+default = [
+    "nano-graphrag[storage,neo4j]",
 ]
 
 [build-system]
@@ -49,3 +92,12 @@ ignore = ["E501"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+[tool.uv]
+dev-dependencies = [
+    "dspy-ai>=2.0.0",
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
+    "ruff>=0.1.0",
+]
