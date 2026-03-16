@@ -1,0 +1,66 @@
+# GraphRAG Configuration Example
+# Copy this file to config.yaml and customize as needed
+
+# === Core ===
+working_dir: "./nano_graphrag_cache"
+
+# === LLM Configuration ===
+# Model names can be:
+#   - Simple: "gpt-4o-mini" (uses OpenAI)
+#   - With provider: "ollama/llama3.2", "anthropic/claude-3-sonnet-20240229"
+llm_model: "gpt-4o-mini"  # Main model for entity extraction and queries
+llm_cheap_model: "gpt-4o-mini"  # Cheaper model for summarization
+llm_api_base: null  # Custom API base (e.g., "http://localhost:11434" for Ollama)
+llm_api_key: null  # API key (can also be set via LLM_API_KEY env var)
+llm_max_async: 16  # Max concurrent LLM calls
+llm_max_tokens: 32768  # Max tokens for LLM response
+llm_timeout: 120  # Timeout for LLM calls in seconds
+
+# === Embedding Configuration ===
+embedding_model: "text-embedding-3-small"  # Embedding model
+embedding_api_base: null  # Custom embedding API base
+embedding_api_key: null  # Embedding API key
+embedding_dim: 1536  # Embedding dimension
+embedding_max_async: 16  # Max concurrent embedding calls
+embedding_batch_size: 32  # Batch size for embedding
+
+# === Computation and Quality ===
+extraction_max_async: 16  # Max concurrent entity extraction tasks
+chunk_batch_size: 100  # Chunk batch size for processing
+entity_extraction_quality: "balanced"  # "fast" | "balanced" | "thorough"
+  # fast: Use cheap model, no gleaning (quickest, may miss entities)
+  # balanced: Use best model, single gleaning (default, good quality)
+  # thorough: Use best model, max gleaning (slowest, best quality)
+graph_cluster_algorithm: "louvain"  # "louvain" | "leiden"
+enable_node_embedding: false  # Enable node2vec embeddings (slower)
+
+# === Features ===
+enable_local: true  # Enable local search mode
+enable_naive_rag: false  # Enable naive RAG (chunk-based search)
+enable_llm_cache: true  # Cache LLM responses
+
+# === Logging ===
+log_level: "INFO"  # DEBUG | INFO | WARNING | ERROR
+log_file: null  # Log to file (e.g., "./graphrag.log")
+
+# === Example: Using Ollama ===
+# llm_model: "ollama/llama3.2"
+# llm_api_base: "http://localhost:11434"
+# embedding_model: "ollama/nomic-embed-text"
+# embedding_api_base: "http://localhost:11434"
+
+# === Example: Using vLLM ===
+# llm_model: "openai/Qwen2.5-7B-Instruct"
+# llm_api_base: "http://localhost:8000/v1"
+# llm_api_key: "empty"  # vLLM requires a non-empty API key
+
+# === Example: High Quality Mode ===
+# entity_extraction_quality: "thorough"
+# llm_model: "gpt-4o"
+# llm_max_tokens: 65536
+
+# === Example: Fast Mode ===
+# entity_extraction_quality: "fast"
+# llm_model: "gpt-4o-mini"
+# llm_cheap_model: "gpt-4o-mini"
+# extraction_max_async: 32
