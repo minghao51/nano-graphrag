@@ -14,7 +14,13 @@ neo4j_lock = asyncio.Lock()
 
 
 def make_path_idable(path):
-    return path.replace(".", "_").replace("/", "__").replace("-", "_").replace(":", "_").replace("\\", "__")
+    return (
+        path.replace(".", "_")
+        .replace("/", "__")
+        .replace("-", "_")
+        .replace(":", "_")
+        .replace("\\", "__")
+    )
 
 
 @dataclass
@@ -22,14 +28,14 @@ class Neo4jStorage(BaseGraphStorage):
     def __post_init__(self):
         self.neo4j_url = self.global_config["addon_params"].get("neo4j_url", None)
         self.neo4j_auth = self.global_config["addon_params"].get("neo4j_auth", None)
-        self.namespace = (
-            f"{make_path_idable(self.global_config['working_dir'])}__{self.namespace}"
-        )
+        self.namespace = f"{make_path_idable(self.global_config['working_dir'])}__{self.namespace}"
         logger.info(f"Using the label {self.namespace} for Neo4j as identifier")
         if self.neo4j_url is None or self.neo4j_auth is None:
             raise ValueError("Missing neo4j_url or neo4j_auth in addon_params")
         self.async_driver = AsyncGraphDatabase.driver(
-            self.neo4j_url, auth=self.neo4j_auth, max_connection_pool_size=50,
+            self.neo4j_url,
+            auth=self.neo4j_auth,
+            max_connection_pool_size=50,
         )
 
     # async def create_database(self):
@@ -135,7 +141,7 @@ class Neo4jStorage(BaseGraphStorage):
                 OPTIONAL MATCH (n)-[]-(m:`{self.namespace}`)
                 RETURN node_id, COUNT(m) AS degree
                 """,
-                node_ids=node_ids
+                node_ids=node_ids,
             )
 
             async for record in result:
@@ -175,7 +181,7 @@ class Neo4jStorage(BaseGraphStorage):
 
                     RETURN src_id, tgt_id, src_degree + tgt_degree AS degree
                     """,
-                    edges=edges_params
+                    edges=edges_params,
                 )
 
                 async for record in result:
@@ -191,8 +197,6 @@ class Neo4jStorage(BaseGraphStorage):
         except Exception as e:
             logger.error(f"Error in batch edge degree calculation: {e}")
             return [0] * len(edge_pairs)
-
-
 
     async def get_node(self, node_id: str) -> Union[dict, None]:
         result = await self.get_nodes_batch([node_id])
@@ -213,7 +217,7 @@ class Neo4jStorage(BaseGraphStorage):
                     WHERE n.id = node_id
                     RETURN node_id, properties(n) AS node_data
                     """,
-                    node_ids=node_ids
+                    node_ids=node_ids,
                 )
 
                 async for record in result:
@@ -238,15 +242,11 @@ class Neo4jStorage(BaseGraphStorage):
             logger.error(f"Error in batch node retrieval: {e}")
             raise e
 
-    async def get_edge(
-        self, source_node_id: str, target_node_id: str
-    ) -> Union[dict, None]:
+    async def get_edge(self, source_node_id: str, target_node_id: str) -> Union[dict, None]:
         results = await self.get_edges_batch([(source_node_id, target_node_id)])
         return results[0] if results else None
 
-    async def get_edges_batch(
-        self, edge_pairs: list[tuple[str, str]]
-    ) -> list[Union[dict, None]]:
+    async def get_edges_batch(self, edge_pairs: list[tuple[str, str]]) -> list[Union[dict, None]]:
         if not edge_pairs:
             return []
 
@@ -263,7 +263,7 @@ class Neo4jStorage(BaseGraphStorage):
                     WHERE s.id = edge.source_id AND t.id = edge.target_id
                     RETURN edge.source_id AS source_id, edge.target_id AS target_id, properties(r) AS edge_data
                     """,
-                    edges=edges_params
+                    edges=edges_params,
                 )
 
                 async for record in result:
@@ -279,15 +279,11 @@ class Neo4jStorage(BaseGraphStorage):
             logger.error(f"Error in batch edge retrieval: {e}")
             return [None] * len(edge_pairs)
 
-    async def get_node_edges(
-        self, source_node_id: str
-    ) -> list[tuple[str, str]]:
+    async def get_node_edges(self, source_node_id: str) -> list[tuple[str, str]]:
         results = await self.get_nodes_edges_batch([source_node_id])
         return results[0] if results else []
 
-    async def get_nodes_edges_batch(
-        self, node_ids: list[str]
-    ) -> list[list[tuple[str, str]]]:
+    async def get_nodes_edges_batch(self, node_ids: list[str]) -> list[list[tuple[str, str]]]:
         if not node_ids:
             return []
 
@@ -302,7 +298,7 @@ class Neo4jStorage(BaseGraphStorage):
                     WHERE s.id = node_id
                     RETURN s.id AS source_id, t.id AS target_id
                     """,
-                    node_ids=node_ids
+                    node_ids=node_ids,
                 )
 
                 async for record in result:
@@ -341,7 +337,7 @@ class Neo4jStorage(BaseGraphStorage):
                     MERGE (n:`{self.namespace}`:`{node_type}` {{id: node.id}})
                     SET n += node.data
                     """,
-                    nodes=params
+                    nodes=params,
                 )
 
     async def upsert_edge(
@@ -349,10 +345,7 @@ class Neo4jStorage(BaseGraphStorage):
     ):
         await self.upsert_edges_batch([(source_node_id, target_node_id, edge_data)])
 
-
-    async def upsert_edges_batch(
-        self, edges_data: list[tuple[str, str, dict[str, str]]]
-    ):
+    async def upsert_edges_batch(self, edges_data: list[tuple[str, str, dict[str, str]]]):
         if not edges_data:
             return
 
@@ -361,11 +354,9 @@ class Neo4jStorage(BaseGraphStorage):
             edge_data_copy = edge_data.copy()
             edge_data_copy.setdefault("weight", 0.0)
 
-            edges_params.append({
-                "source_id": source_id,
-                "target_id": target_id,
-                "edge_data": edge_data_copy
-            })
+            edges_params.append(
+                {"source_id": source_id, "target_id": target_id, "edge_data": edge_data_copy}
+            )
 
         async with self.async_driver.session() as session:
             await session.run(
@@ -379,11 +370,8 @@ class Neo4jStorage(BaseGraphStorage):
                 MERGE (s)-[r:RELATED]->(t)
                 SET r += edge.edge_data
                 """,
-                edges=edges_params
+                edges=edges_params,
             )
-
-
-
 
     async def clustering(self, algorithm: str):
         if algorithm != "leiden":
@@ -488,9 +476,7 @@ class Neo4jStorage(BaseGraphStorage):
                     )
                     chunk_ids = source_id.split(GRAPH_FIELD_SEP)
                     results[cluster_key]["chunk_ids"].update(chunk_ids)
-                    max_num_ids = max(
-                        max_num_ids, len(results[cluster_key]["chunk_ids"])
-                    )
+                    max_num_ids = max(max_num_ids, len(results[cluster_key]["chunk_ids"]))
 
             # Process results
             for k, v in results.items():

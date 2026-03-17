@@ -176,7 +176,13 @@ async def test_extract_entities_dspy(mock_chunks, mock_graph_storage, entity_vdb
         with patch('nano_graphrag.entity_extraction.extract._merge_nodes_then_upsert', new_callable=AsyncMock) as mock_merge_nodes, \
              patch('nano_graphrag.entity_extraction.extract._merge_edges_then_upsert', new_callable=AsyncMock) as mock_merge_edges:
             mock_merge_nodes.return_value = mock_entity
-            result = await extract_entities_dspy(mock_chunks, mock_graph_storage, entity_vdb, mock_global_config)
+            result = await extract_entities_dspy(
+                mock_chunks,
+                mock_graph_storage,
+                entity_vdb,
+                Mock(),
+                mock_global_config,
+            )
 
     assert result == mock_graph_storage
     mock_extractor_class.assert_called_once()
@@ -204,7 +210,7 @@ async def test_extract_entities_dspy_with_empty_chunks():
     mock_vector_storage = Mock(spec=BaseVectorStorage)
     global_config = {}
     
-    result = await extract_entities_dspy(chunks, mock_graph_storage, mock_vector_storage, global_config)
+    result = await extract_entities_dspy(chunks, mock_graph_storage, mock_vector_storage, Mock(), global_config)
     
     assert result is None
 
@@ -218,7 +224,7 @@ async def test_extract_entities_dspy_with_no_entities():
     
     with patch('nano_graphrag.entity_extraction.extract.TypedEntityRelationshipExtractor') as mock_extractor:
         mock_extractor.return_value.return_value = Mock(entities=[], relationships=[])
-        result = await extract_entities_dspy(chunks, mock_graph_storage, mock_vector_storage, global_config)
+        result = await extract_entities_dspy(chunks, mock_graph_storage, mock_vector_storage, Mock(), global_config)
     
     assert result is None
     mock_vector_storage.upsert.assert_not_called()
@@ -252,7 +258,7 @@ async def test_extract_entities_dspy_with_bad_request_error():
                 body={"error": {"message": "Test Error", "type": "invalid_request_error"}}
             )
             
-            result = await extract_entities_dspy(chunks, mock_graph_storage, mock_vector_storage, global_config)
+            result = await extract_entities_dspy(chunks, mock_graph_storage, mock_vector_storage, Mock(), global_config)
 
     assert result is None
     mock_to_thread.assert_called_once()

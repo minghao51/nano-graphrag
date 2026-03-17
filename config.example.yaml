@@ -26,12 +26,15 @@ embedding_batch_size: 32  # Batch size for embedding
 
 # === Computation and Quality ===
 extraction_max_async: 16  # Max concurrent entity extraction tasks
-chunk_batch_size: 100  # Chunk batch size for processing
 entity_extraction_quality: "balanced"  # "fast" | "balanced" | "thorough"
-  # fast: Use cheap model, no gleaning (quickest, may miss entities)
-  # balanced: Use best model, single gleaning (default, good quality)
-  # thorough: Use best model, max gleaning (slowest, best quality)
-graph_cluster_algorithm: "louvain"  # "louvain" | "leiden"
+  # Quality modes control model selection for structured extraction:
+  # - fast: Use cheap model (faster, lower cost, may miss some entities)
+  # - balanced: Use best model (default, good quality)
+  # - thorough: Use best model (currently same as balanced)
+  #
+  # Note: For multi-pass extraction with gleaning (iterative refinement),
+  # set use_litellm: False to use legacy extraction path instead.
+graph_cluster_algorithm: "leiden"  # Supported: "leiden"
 enable_node_embedding: false  # Enable node2vec embeddings (slower)
 
 # === Features ===

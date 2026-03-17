@@ -140,24 +140,16 @@ class BaseGraphStorage(StorageNameSpace):
     async def get_nodes_batch(self, node_ids: list[str]) -> dict[str, Union[dict, None]]:
         raise NotImplementedError
 
-    async def get_edge(
-        self, source_node_id: str, target_node_id: str
-    ) -> Union[dict, None]:
+    async def get_edge(self, source_node_id: str, target_node_id: str) -> Union[dict, None]:
         raise NotImplementedError
 
-    async def get_edges_batch(
-        self, edge_pairs: list[tuple[str, str]]
-    ) -> list[Union[dict, None]]:
+    async def get_edges_batch(self, edge_pairs: list[tuple[str, str]]) -> list[Union[dict, None]]:
         raise NotImplementedError
 
-    async def get_node_edges(
-        self, source_node_id: str
-    ) -> Union[list[tuple[str, str]], None]:
+    async def get_node_edges(self, source_node_id: str) -> Union[list[tuple[str, str]], None]:
         raise NotImplementedError
 
-    async def get_nodes_edges_batch(
-        self, node_ids: list[str]
-    ) -> list[list[tuple[str, str]]]:
+    async def get_nodes_edges_batch(self, node_ids: list[str]) -> list[list[tuple[str, str]]]:
         raise NotImplementedError
 
     async def upsert_node(self, node_id: str, node_data: dict[str, str]):
@@ -171,9 +163,7 @@ class BaseGraphStorage(StorageNameSpace):
     ):
         raise NotImplementedError
 
-    async def upsert_edges_batch(
-        self, edges_data: list[tuple[str, str, dict[str, str]]]
-    ):
+    async def upsert_edges_batch(self, edges_data: list[tuple[str, str, dict[str, str]]]):
         raise NotImplementedError
 
     async def clustering(self, algorithm: str):
@@ -195,6 +185,7 @@ DEFAULT_LLM_MODEL = "gpt-4o-mini"
 DEFAULT_CHEAP_MODEL = "gpt-4o-mini"
 DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
 DEFAULT_EMBEDDING_DIM = 1536
+SUPPORTED_GRAPH_CLUSTERING = ("leiden",)
 
 
 def _parse_bool(env_var: str, default: bool = False) -> bool:
@@ -232,9 +223,7 @@ def _parse_int(env_var: str, default: int, min_value: Optional[int] = None) -> i
             return default
         return parsed
     except ValueError:
-        logger.warning(
-            f"Invalid {env_var}={value}: Not an integer, using default {default}"
-        )
+        logger.warning(f"Invalid {env_var}={value}: Not an integer, using default {default}")
         return default
 
 
@@ -262,7 +251,7 @@ class GraphRAGConfig:
         EXTRACTION_MAX_ASYNC: Max concurrent entity extraction
         CHUNK_BATCH_SIZE: Chunk batch size for processing
         ENTITY_EXTRACTION_QUALITY: "fast" | "balanced" | "thorough"
-        GRAPH_CLUSTER_ALGORITHM: "leiden" | "louvain"
+        GRAPH_CLUSTER_ALGORITHM: "leiden"
         ENABLE_NODE_EMBEDDING: Enable node embedding (default: False)
     """
 
@@ -288,7 +277,6 @@ class GraphRAGConfig:
 
     # === Compute/Quality ===
     extraction_max_async: int = 16
-    chunk_batch_size: int = 100
     entity_extraction_quality: str = "balanced"
     graph_cluster_algorithm: str = "leiden"
     enable_node_embedding: bool = False
@@ -324,7 +312,6 @@ class GraphRAGConfig:
             embedding_max_async=_parse_int("EMBEDDING_MAX_ASYNC", 16, min_value=1),
             embedding_batch_size=_parse_int("EMBEDDING_BATCH_SIZE", 32, min_value=1),
             extraction_max_async=_parse_int("EXTRACTION_MAX_ASYNC", 16, min_value=1),
-            chunk_batch_size=_parse_int("CHUNK_BATCH_SIZE", 100, min_value=1),
             entity_extraction_quality=os.getenv("ENTITY_EXTRACTION_QUALITY", "balanced"),
             graph_cluster_algorithm=os.getenv("GRAPH_CLUSTER_ALGORITHM", "leiden"),
             enable_node_embedding=_parse_bool("ENABLE_NODE_EMBEDDING", False),
@@ -360,7 +347,6 @@ class GraphRAGConfig:
             "embedding_max_async": self.embedding_max_async,
             "embedding_batch_size": self.embedding_batch_size,
             "extraction_max_async": self.extraction_max_async,
-            "chunk_batch_size": self.chunk_batch_size,
             "entity_extraction_quality": self.entity_extraction_quality,
             "graph_cluster_algorithm": self.graph_cluster_algorithm,
             "enable_node_embedding": self.enable_node_embedding,
@@ -370,6 +356,32 @@ class GraphRAGConfig:
             "log_level": self.log_level,
             "log_file": self.log_file,
         }
+
+    def __post_init__(self):
+        """Validate configuration after initialization."""
+        # Validate entity_extraction_quality
+        valid_quality_modes = {"fast", "balanced", "thorough"}
+        if self.entity_extraction_quality not in valid_quality_modes:
+            raise ValueError(
+                f"Invalid entity_extraction_quality={self.entity_extraction_quality!r}. "
+                f"Must be one of: {sorted(valid_quality_modes)}"
+            )
+
+        # Validate graph_cluster_algorithm
+        valid_cluster_algorithms = {"louvain", "leiden"}
+        if self.graph_cluster_algorithm not in valid_cluster_algorithms:
+            raise ValueError(
+                f"Invalid graph_cluster_algorithm={self.graph_cluster_algorithm!r}. "
+                f"Must be one of: {sorted(valid_cluster_algorithms)}"
+            )
+
+        # Validate log_level
+
+        valid_log_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+        if self.log_level.upper() not in valid_log_levels:
+            raise ValueError(
+                f"Invalid log_level={self.log_level!r}. Must be one of: {sorted(valid_log_levels)}"
+            )
 
     def merge(self, overrides: Dict[str, Any]) -> "GraphRAGConfig":
         """Merge with overrides (env < base < overrides)."""
@@ -390,8 +402,7 @@ class GraphRAGConfig:
             import yaml
         except ImportError:
             raise ImportError(
-                "PyYAML is required to load YAML configs. "
-                "Install with: uv add pyyaml"
+                "PyYAML is required to load YAML configs. Install with: uv add pyyaml"
             )
 
         with open(path, "r") as f:
@@ -409,8 +420,7 @@ class GraphRAGConfig:
             import yaml
         except ImportError:
             raise ImportError(
-                "PyYAML is required to save YAML configs. "
-                "Install with: uv add pyyaml"
+                "PyYAML is required to save YAML configs. Install with: uv add pyyaml"
             )
 
         with open(path, "w") as f:

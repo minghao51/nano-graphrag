@@ -25,7 +25,10 @@ class FAISSStorage(BaseVectorStorage):
         self._metadata_file_name = os.path.join(
             self.global_config["working_dir"], f"{self.namespace}_metadata.pkl"
         )
-        self._max_batch_size = self.global_config["embedding_batch_num"]
+        self._max_batch_size = self.global_config.get(
+            "embedding_batch_size",
+            self.global_config.get("embedding_batch_num", 32),
+        )
         
         if os.path.exists(self._index_file_name) and os.path.exists(self._metadata_file_name):
             self._index = faiss.read_index(self._index_file_name)

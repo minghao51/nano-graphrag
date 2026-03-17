@@ -82,7 +82,7 @@ async def litellm_completion(
     api_base: Optional[str] = None,
     api_key: Optional[str] = None,
     timeout: int = 120,
-    **kwargs
+    **kwargs,
 ) -> Union[str, BaseModel]:
     history_messages = history_messages or []
     messages = []
@@ -127,6 +127,7 @@ async def litellm_completion(
         else:
             # Legacy route: Add schema to system prompt
             import json
+
             schema_instruction = f"""
 Respond with valid JSON matching this schema:
 {json.dumps(response_format.model_json_schema(), indent=2)}
@@ -157,6 +158,7 @@ Respond with valid JSON matching this schema:
     if response_format is not None and isinstance(result, str):
         try:
             import json
+
             parsed = json.loads(result)
             result = response_format(**parsed)
         except Exception as e:
@@ -165,22 +167,23 @@ Respond with valid JSON matching this schema:
                 # Fallback to text mode
                 logger.info("Falling back to text parsing mode")
                 return await litellm_completion(
-                    model, prompt, system_prompt, history_messages,
+                    model,
+                    prompt,
+                    system_prompt,
+                    history_messages,
                     response_format=response_format,
                     use_native_structured_output=False,
                     hashing_kv=hashing_kv,
                     api_base=api_base,
                     api_key=api_key,
                     timeout=timeout,
-                    **kwargs
+                    **kwargs,
                 )
             # Return string as-is if parsing fails
             logger.warning("Could not parse as structured output, returning raw string")
 
     if hashing_kv is not None:
-        cached_payload = (
-            result.model_dump_json() if isinstance(result, BaseModel) else result
-        )
+        cached_payload = result.model_dump_json() if isinstance(result, BaseModel) else result
         await hashing_kv.upsert(
             {
                 args_hash: {
@@ -203,6 +206,7 @@ async def litellm_embedding(
     api_key: Optional[str] = None,
 ) -> "np.ndarray":  # type: ignore[name-defined]
     import numpy as np
+
     kwargs = {"model": model, "input": texts}
     if api_base:
         kwargs["api_base"] = api_base
@@ -215,7 +219,7 @@ async def litellm_embedding(
 class LiteLLMWrapper:
     def __init__(
         self,
-        model: str = "openai/gpt-4o",
+        model: str = "gpt-4o-mini",  # Aligned with DEFAULT_LLM_MODEL (no provider prefix)
         structured_output: bool = True,
         use_native_structured_output: bool = True,
         hashing_kv: Optional[BaseKVStorage] = None,
@@ -237,7 +241,7 @@ class LiteLLMWrapper:
         system_prompt: Optional[str] = None,
         history_messages: Optional[List[Any]] = None,
         response_format: Optional[Type[BaseModel]] = None,
-        **kwargs
+        **kwargs,
     ) -> Union[str, BaseModel]:
         format_to_use = response_format if self.structured_output else None
         return await litellm_completion(
@@ -251,5 +255,5 @@ class LiteLLMWrapper:
             api_base=self.api_base,
             api_key=self.api_key,
             timeout=self.timeout,
-            **kwargs
+            **kwargs,
         )

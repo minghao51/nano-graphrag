@@ -17,8 +17,12 @@ class ExtractedRelationship(BaseModel):
 
 
 class EntityExtractionOutput(BaseModel):
-    entities: List[ExtractedEntity] = Field(default_factory=list, description="List of extracted entities")
-    relationships: List[ExtractedRelationship] = Field(default_factory=list, description="List of extracted relationships")
+    entities: List[ExtractedEntity] = Field(
+        default_factory=list, description="List of extracted entities"
+    )
+    relationships: List[ExtractedRelationship] = Field(
+        default_factory=list, description="List of extracted relationships"
+    )
 
 
 class CommunityReportFinding(BaseModel):
@@ -31,7 +35,9 @@ class CommunityReportOutput(BaseModel):
     summary: str = Field(..., description="Executive summary of the community")
     rating: float = Field(..., ge=0, le=10, description="Impact severity rating (0-10)")
     rating_explanation: str = Field(..., description="Explanation of the rating")
-    findings: List[CommunityReportFinding] = Field(default_factory=list, description="Key insights about the community")
+    findings: List[CommunityReportFinding] = Field(
+        default_factory=list, description="Key insights about the community"
+    )
 
 
 class GlobalMapPoint(BaseModel):

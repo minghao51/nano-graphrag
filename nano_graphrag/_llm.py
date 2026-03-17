@@ -4,18 +4,21 @@ from typing import Any, Callable, List, Optional
 
 try:
     import aioboto3
+
     HAS_AIOBOTO3 = True
 except ImportError:
     HAS_AIOBOTO3 = False
 
 try:
     import numpy as np
+
     HAS_NUMPY = True
 except ImportError:
     HAS_NUMPY = False
 
 try:
     from openai import APIConnectionError, AsyncAzureOpenAI, AsyncOpenAI, RateLimitError
+
     HAS_OPENAI = True
 except ImportError:
     HAS_OPENAI = False
@@ -31,13 +34,14 @@ try:
         stop_after_attempt,
         wait_exponential,
     )
+
     HAS_TENACITY = True
 except ImportError:
     HAS_TENACITY = False
-    retry = lambda **kw: lambda f: f
-    retry_if_exception_type = lambda x: lambda cls: cls
-    stop_after_attempt = lambda n: lambda cls: cls
-    wait_exponential = lambda **kw: lambda cls: cls
+    retry = lambda **kw: lambda f: f  # noqa: E731
+    retry_if_exception_type = lambda x: lambda cls: cls  # noqa: E731
+    stop_after_attempt = lambda n: lambda cls: cls  # noqa: E731
+    wait_exponential = lambda **kw: lambda cls: cls  # noqa: E731
 
 from ._utils import compute_args_hash, wrap_embedding_func_with_attrs
 from .base import BaseKVStorage
@@ -126,22 +130,30 @@ async def amazon_bedrock_complete_if_cache(
     }
 
     async with amazon_bedrock_async_client.client(
-        "bedrock-runtime",
-        region_name=os.getenv("AWS_REGION", "us-east-1")
+        "bedrock-runtime", region_name=os.getenv("AWS_REGION", "us-east-1")
     ) as bedrock_runtime:
         if system_prompt:
             response = await bedrock_runtime.converse(
-                modelId=model, messages=messages, inferenceConfig=inference_config,
-                system=[{"text": system_prompt}]
+                modelId=model,
+                messages=messages,
+                inferenceConfig=inference_config,
+                system=[{"text": system_prompt}],
             )
         else:
             response = await bedrock_runtime.converse(
-                modelId=model, messages=messages, inferenceConfig=inference_config,
+                modelId=model,
+                messages=messages,
+                inferenceConfig=inference_config,
             )
 
     if hashing_kv is not None:
         await hashing_kv.upsert(
-            {args_hash: {"return": response["output"]["message"]["content"][0]["text"], "model": model}}
+            {
+                args_hash: {
+                    "return": response["output"]["message"]["content"][0]["text"],
+                    "model": model,
+                }
+            }
         )
         await hashing_kv.index_done_callback()
     return response["output"]["message"]["content"][0]["text"]
@@ -157,18 +169,16 @@ def create_amazon_bedrock_complete_function(model_id: str) -> Callable:
     Returns:
         Callable: Generated completion function
     """
+
     async def bedrock_complete(
-        prompt: str,
-        system_prompt: Optional[str] = None,
-        history_messages: List[Any] = [],
-        **kwargs
+        prompt: str, system_prompt: Optional[str] = None, history_messages: List[Any] = [], **kwargs
     ) -> str:
         return await amazon_bedrock_complete_if_cache(
             model_id,
             prompt,
             system_prompt=system_prompt,
             history_messages=history_messages,
-            **kwargs
+            **kwargs,
         )
 
     # Set function name for easier debugging
@@ -177,9 +187,7 @@ def create_amazon_bedrock_complete_function(model_id: str) -> Callable:
     return bedrock_complete
 
 
-async def gpt_4o_complete(
-    prompt, system_prompt=None, history_messages=[], **kwargs
-) -> str:
+async def gpt_4o_complete(prompt, system_prompt=None, history_messages=[], **kwargs) -> str:
     return await openai_complete_if_cache(
         "gpt-4o",
         prompt,
@@ -189,9 +197,7 @@ async def gpt_4o_complete(
     )
 
 
-async def gpt_4o_mini_complete(
-    prompt, system_prompt=None, history_messages=[], **kwargs
-) -> str:
+async def gpt_4o_mini_complete(prompt, system_prompt=None, history_messages=[], **kwargs) -> str:
     return await openai_complete_if_cache(
         "gpt-4o-mini",
         prompt,
@@ -211,8 +217,7 @@ async def amazon_bedrock_embedding(texts: list[str]) -> np.ndarray:
     amazon_bedrock_async_client = get_amazon_bedrock_async_client_instance()
 
     async with amazon_bedrock_async_client.client(
-        "bedrock-runtime",
-        region_name=os.getenv("AWS_REGION", "us-east-1")
+        "bedrock-runtime", region_name=os.getenv("AWS_REGION", "us-east-1")
     ) as bedrock_runtime:
         embeddings = []
         for text in texts:
@@ -223,7 +228,8 @@ async def amazon_bedrock_embedding(texts: list[str]) -> np.ndarray:
                 }
             )
             response = await bedrock_runtime.invoke_model(
-                modelId="amazon.titan-embed-text-v2:0", body=body,
+                modelId="amazon.titan-embed-text-v2:0",
+                body=body,
             )
             response_body = await response.get("body").read()
             embeddings.append(json.loads(response_body))
@@ -282,9 +288,7 @@ async def azure_openai_complete_if_cache(
     return response.choices[0].message.content
 
 
-async def azure_gpt_4o_complete(
-    prompt, system_prompt=None, history_messages=[], **kwargs
-) -> str:
+async def azure_gpt_4o_complete(prompt, system_prompt=None, history_messages=[], **kwargs) -> str:
     return await azure_openai_complete_if_cache(
         "gpt-4o",
         prompt,

@@ -1,5 +1,6 @@
 """Tests for LiteLLM integration."""
 import asyncio
+import warnings
 from unittest.mock import AsyncMock, patch, MagicMock
 import pytest
 
@@ -309,6 +310,19 @@ class TestGraphRAGConfig:
         assert merged.llm_api_base == "http://localhost:11434"  # New
         assert merged.llm_max_async == 16  # Preserved
 
+    def test_invalid_cluster_algorithm_rejected(self):
+        """Test that invalid graph_cluster_algorithm in GraphRAG raises ValueError."""
+        # Note: This test is for GraphRAG (not GraphRAGConfig)
+        # GraphRAG has its own validation in _normalize_runtime_settings
+        import pytest
+        from nano_graphrag import GraphRAG
+
+        with pytest.raises(ValueError, match="Unsupported graph_cluster_algorithm"):
+            GraphRAG(
+                working_dir="./test_cache",
+                graph_cluster_algorithm="invalid_algo",
+            )
+
 
 class TestGraphRAG:
     """Test GraphRAG class with LiteLLM."""
@@ -349,6 +363,17 @@ class TestGraphRAG:
 
         assert rag.best_model_max_async == 8
         assert rag.cheap_model_max_async == 8
+
+    def test_embedding_batch_num_deprecated_alias(self):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            rag = GraphRAG(
+                working_dir="./test_cache",
+                embedding_batch_num=16,
+            )
+
+        assert rag.embedding_batch_size == 16
+        assert any("embedding_batch_num" in str(w.message) for w in caught)
 
 
 class TestEnvVarParsing:
@@ -395,3 +420,78 @@ class TestEnvVarParsing:
 
         monkeypatch.setenv("TEST_INT", "15")
         assert _parse_int("TEST_INT", default=10, min_value=10) == 15  # Above min
+
+
+class TestGraphRAGConfigValidation:
+    """Test GraphRAGConfig validation."""
+
+    def test_invalid_quality_mode_raises_error(self):
+        """Test that invalid entity_extraction_quality raises ValueError."""
+        import pytest
+        from nano_graphrag.base import GraphRAGConfig
+
+        with pytest.raises(ValueError, match="Invalid entity_extraction_quality"):
+            GraphRAGConfig(entity_extraction_quality="invalid")
+
+    def test_valid_quality_modes_accepted(self):
+        """Test that all valid quality modes are accepted."""
+        from nano_graphrag.base import GraphRAGConfig
+
+        for mode in ["fast", "balanced", "thorough"]:
+            config = GraphRAGConfig(entity_extraction_quality=mode)
+            assert config.entity_extraction_quality == mode
+
+    def test_invalid_cluster_algorithm_raises_error(self):
+        """Test that invalid graph_cluster_algorithm raises ValueError."""
+        import pytest
+        from nano_graphrag.base import GraphRAGConfig
+
+        with pytest.raises(ValueError, match="Invalid graph_cluster_algorithm"):
+            GraphRAGConfig(graph_cluster_algorithm="invalid")
+
+    def test_valid_cluster_algorithms_accepted(self):
+        """Test that all valid cluster algorithms are accepted."""
+        from nano_graphrag.base import GraphRAGConfig
+
+        for algo in ["louvain", "leiden"]:
+            config = GraphRAGConfig(graph_cluster_algorithm=algo)
+            assert config.graph_cluster_algorithm == algo
+
+    def test_invalid_log_level_raises_error(self):
+        """Test that invalid log_level raises ValueError."""
+        import pytest
+        from nano_graphrag.base import GraphRAGConfig
+
+        with pytest.raises(ValueError, match="Invalid log_level"):
+            GraphRAGConfig(log_level="invalid")
+
+    def test_valid_log_levels_accepted(self):
+        """Test that all valid log levels are accepted."""
+        from nano_graphrag.base import GraphRAGConfig
+
+        for level in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
+            config = GraphRAGConfig(log_level=level)
+            assert config.log_level == level
+
+    def test_from_env_with_invalid_quality(self, monkeypatch):
+        """Test that from_env validates entity_extraction_quality."""
+        import pytest
+        from nano_graphrag.base import GraphRAGConfig
+
+        monkeypatch.setenv("ENTITY_EXTRACTION_QUALITY", "invalid")
+        with pytest.raises(ValueError, match="Invalid entity_extraction_quality"):
+            GraphRAGConfig.from_env()
+
+    def test_from_yaml_with_invalid_cluster_algorithm(self, tmp_path):
+        """Test that from_yaml validates graph_cluster_algorithm."""
+        import pytest
+        import yaml
+        from nano_graphrag.base import GraphRAGConfig
+
+        config_data = {"graph_cluster_algorithm": "invalid"}
+        config_file = tmp_path / "test_config.yaml"
+        with open(config_file, "w") as f:
+            yaml.dump(config_data, f)
+
+        with pytest.raises(ValueError, match="Invalid graph_cluster_algorithm"):
+            GraphRAGConfig.from_yaml(str(config_file))

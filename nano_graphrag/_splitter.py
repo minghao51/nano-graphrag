@@ -27,7 +27,7 @@ class SeparatorSplitter:
         while i < len(tokens):
             separator_found = False
             for separator in self._separators:
-                if tokens[i:i+len(separator)] == separator:
+                if tokens[i : i + len(separator)] == separator:
                     if self._keep_separator in [True, "end"]:
                         current_split.extend(separator)
                     if current_split:
@@ -55,7 +55,10 @@ class SeparatorSplitter:
         for split in splits:
             if not current_chunk:
                 current_chunk = split
-            elif self._length_function(current_chunk) + self._length_function(split) <= self._chunk_size:
+            elif (
+                self._length_function(current_chunk) + self._length_function(split)
+                <= self._chunk_size
+            ):
                 current_chunk.extend(split)
             else:
                 merged_splits.append(current_chunk)
@@ -75,7 +78,7 @@ class SeparatorSplitter:
     def _split_chunk(self, chunk: List[int]) -> List[List[int]]:
         result = []
         for i in range(0, len(chunk), self._chunk_size - self._chunk_overlap):
-            new_chunk = chunk[i:i + self._chunk_size]
+            new_chunk = chunk[i : i + self._chunk_size]
             if len(new_chunk) > self._chunk_overlap:  # 只有当 chunk 长度大于 overlap 时才添加
                 result.append(new_chunk)
         return result
@@ -86,10 +89,9 @@ class SeparatorSplitter:
             if i == 0:
                 result.append(chunk)
             else:
-                overlap = chunks[i-1][-self._chunk_overlap:]
+                overlap = chunks[i - 1][-self._chunk_overlap :]
                 new_chunk = overlap + chunk
                 if self._length_function(new_chunk) > self._chunk_size:
-                    new_chunk = new_chunk[:self._chunk_size]
+                    new_chunk = new_chunk[: self._chunk_size]
                 result.append(new_chunk)
         return result
-

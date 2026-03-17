@@ -1,6 +1,7 @@
 import asyncio
 import os
-from dataclasses import asdict, dataclass, field
+import warnings
+from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
 from functools import partial
 from typing import Any, Callable, Dict, List, Optional, Type, Union, cast
@@ -43,6 +44,7 @@ from .base import (
     DEFAULT_EMBEDDING_DIM,
     DEFAULT_EMBEDDING_MODEL,
     DEFAULT_LLM_MODEL,
+    SUPPORTED_GRAPH_CLUSTERING,
     BaseGraphStorage,
     BaseKVStorage,
     BaseVectorStorage,
@@ -56,7 +58,9 @@ from .base import (
 class GraphRAG:
     # === Core ===
     working_dir: str = field(
-        default_factory=lambda: f"./nano_graphrag_cache_{datetime.now().strftime('%Y-%m-%d-%H:%M:%S')}"
+        default_factory=lambda: (
+            f"./nano_graphrag_cache_{datetime.now().strftime('%Y-%m-%d-%H:%M:%S')}"
+        )
     )
     log_level: str = "INFO"
     log_file: Optional[str] = None
@@ -173,60 +177,69 @@ class GraphRAG:
             config = GraphRAGConfig.from_env()
             rag = GraphRAG.from_config(config)
         """
-        # Convert config to dict
         config_dict = config.to_dict()
-
-        # Map GraphRAGConfig field names to GraphRAG field names.
-        # Most fields match directly.
-        field_mapping = {}
-
-        # Apply field mapping and filter out invalid fields
-        # Valid GraphRAG fields (from inspection of the dataclass)
-        valid_fields = {
-            "working_dir", "log_level", "log_file",
-            "enable_local", "enable_naive_rag", "enable_llm_cache",
-            "tokenizer_type", "tiktoken_model_name", "huggingface_model_name",
-            "chunk_token_size", "chunk_overlap_token_size",
-            "entity_extract_max_gleaning", "entity_summary_to_max_tokens",
-            "extraction_max_async", "entity_extraction_quality",
-            "graph_cluster_algorithm", "max_graph_cluster_size", "graph_cluster_seed",
-            "node_embedding_algorithm", "node2vec_params", "enable_node_embedding",
-            "special_community_report_llm_kwargs",
-            "embedding_model", "embedding_api_base", "embedding_api_key",
-            "embedding_dim", "embedding_max_async", "embedding_batch_size",
-            "embedding_batch_num", "embedding_func_max_async",
-            "using_azure_openai", "using_amazon_bedrock",
-            "best_model_id", "cheap_model_id",
-            "best_model_max_token_size", "best_model_max_async",
-            "cheap_model_max_token_size", "cheap_model_max_async",
-            "llm_model", "llm_cheap_model", "llm_max_async",
-            "llm_api_base", "llm_api_key", "llm_max_tokens", "llm_timeout",
-            "structured_output", "use_pydantic_structured_output", "fallback_to_parsing",
-            "key_string_value_json_storage_cls", "vector_db_storage_cls",
-            "vector_db_storage_cls_kwargs", "graph_storage_cls",
-            "always_create_working_dir", "addon_params",
-        }
-
-        mapped_dict = {}
-        for key, value in config_dict.items():
-            mapped_key = field_mapping.get(key, key)
-            # Only include fields that exist in GraphRAG
-            if mapped_key in valid_fields:
-                mapped_dict[mapped_key] = value
-
-        # Create GraphRAG instance from mapped config
-        return cls(**mapped_dict)
+        valid_fields = {field_def.name for field_def in fields(cls)}
+        return cls(**{key: value for key, value in config_dict.items() if key in valid_fields})
 
     def __post_init__(self):
+        self._normalize_runtime_settings()
+        self._configure_logging()
+        self._build_tokenizer()
+        self._configure_runtime()
+        self._build_storages()
+
+    def _normalize_runtime_settings(self):
+        if self.graph_cluster_algorithm not in SUPPORTED_GRAPH_CLUSTERING:
+            supported = ", ".join(SUPPORTED_GRAPH_CLUSTERING)
+            raise ValueError(
+                f"Unsupported graph_cluster_algorithm={self.graph_cluster_algorithm!r}. "
+                f"Supported values: {supported}"
+            )
+
+        if self.embedding_batch_size is not None:
+            self.embedding_batch_num = self.embedding_batch_size
+        elif self.embedding_batch_num != 32:
+            warnings.warn(
+                "`embedding_batch_num` is deprecated; use `embedding_batch_size` instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            self.embedding_batch_size = self.embedding_batch_num
+        else:
+            self.embedding_batch_size = self.embedding_batch_num
+
+        if self.llm_max_async is not None:
+            self.best_model_max_async = self.llm_max_async
+            self.cheap_model_max_async = self.llm_max_async
+        if self.embedding_max_async is not None:
+            self.embedding_func_max_async = self.embedding_max_async
+
+        if self.using_azure_openai:
+            warnings.warn(
+                "`using_azure_openai` is deprecated; prefer LiteLLM with `llm_model`, "
+                "`llm_api_base`, and `llm_api_key`.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        if self.using_amazon_bedrock:
+            warnings.warn(
+                "`using_amazon_bedrock` is deprecated; prefer LiteLLM-compatible "
+                "model configuration unless you need the legacy Bedrock path.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
+    def _configure_logging(self):
         # === Configure logging ===
         import logging
+
         numeric_level = getattr(logging, self.log_level.upper(), logging.INFO)
         logger.setLevel(numeric_level)
-        formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-        )
+        formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
-        if not any(getattr(handler, "_nano_graphrag_console", False) for handler in logger.handlers):
+        if not any(
+            getattr(handler, "_nano_graphrag_console", False) for handler in logger.handlers
+        ):
             console_handler = logging.StreamHandler()
             console_handler.setLevel(numeric_level)
             console_handler.setFormatter(formatter)
@@ -246,23 +259,19 @@ class GraphRAG:
                 file_handler._nano_graphrag_file = self.log_file
                 logger.addHandler(file_handler)
 
-        if self.llm_max_async is not None:
-            self.best_model_max_async = self.llm_max_async
-            self.cheap_model_max_async = self.llm_max_async
-        if self.embedding_max_async is not None:
-            self.embedding_func_max_async = self.embedding_max_async
-        if self.embedding_batch_size is not None:
-            self.embedding_batch_num = self.embedding_batch_size
-
         # === Print config ===
         _print_config = ",\n  ".join([f"{k} = {v}" for k, v in asdict(self).items()])
         logger.debug(f"GraphRAG init with param:\n\n  {_print_config}\n")
 
+    def _build_tokenizer(self):
         self.tokenizer_wrapper = TokenizerWrapper(
             tokenizer_type=self.tokenizer_type,
-            model_name=self.tiktoken_model_name if self.tokenizer_type == "tiktoken" else self.huggingface_model_name
+            model_name=self.tiktoken_model_name
+            if self.tokenizer_type == "tiktoken"
+            else self.huggingface_model_name,
         )
 
+    def _configure_runtime(self):
         if self.using_azure_openai:
             # If there's no OpenAI API key, use Azure OpenAI
             if self.best_model_func == gpt_4o_complete:
@@ -279,14 +288,12 @@ class GraphRAG:
             self.best_model_func = create_amazon_bedrock_complete_function(self.best_model_id)
             self.cheap_model_func = create_amazon_bedrock_complete_function(self.cheap_model_id)
             self.embedding_func = amazon_bedrock_embedding
-            logger.info(
-                "Switched the default openai funcs to Amazon Bedrock"
-            )
+            logger.info("Switched the default openai funcs to Amazon Bedrock")
 
-        uses_custom_llm = (
-            self.best_model_func not in (gpt_4o_complete, azure_gpt_4o_complete)
-            or self.cheap_model_func not in (gpt_4o_mini_complete, azure_gpt_4o_mini_complete)
-        )
+        uses_custom_llm = self.best_model_func not in (
+            gpt_4o_complete,
+            azure_gpt_4o_complete,
+        ) or self.cheap_model_func not in (gpt_4o_mini_complete, azure_gpt_4o_mini_complete)
         uses_custom_embedding = self.embedding_func not in (
             openai_embedding,
             azure_openai_embedding,
@@ -303,28 +310,12 @@ class GraphRAG:
         if not os.path.exists(self.working_dir) and self.always_create_working_dir:
             logger.info(f"Creating working directory {self.working_dir}")
             os.makedirs(self.working_dir)
-
-        self.full_docs = self.key_string_value_json_storage_cls(
-            namespace="full_docs", global_config=asdict(self)
-        )
-
-        self.text_chunks = self.key_string_value_json_storage_cls(
-            namespace="text_chunks", global_config=asdict(self)
-        )
-
         self.llm_response_cache = (
             self.key_string_value_json_storage_cls(
                 namespace="llm_response_cache", global_config=asdict(self)
             )
             if self.enable_llm_cache
             else None
-        )
-
-        self.community_reports = self.key_string_value_json_storage_cls(
-            namespace="community_reports", global_config=asdict(self)
-        )
-        self.chunk_entity_relation_graph = self.graph_storage_cls(
-            namespace="chunk_entity_relation", global_config=asdict(self)
         )
 
         if use_litellm_runtime:
@@ -400,6 +391,7 @@ class GraphRAG:
             # Validate models
             try:
                 import litellm
+
                 valid_models = set(litellm.get_valid_models())
 
                 for model_name in [effective_best_model, effective_cheap_model]:
@@ -431,9 +423,7 @@ class GraphRAG:
             self.embedding_func = EmbeddingFunc(
                 embedding_dim=self.embedding_func.embedding_dim,
                 max_token_size=self.embedding_func.max_token_size,
-                func=limit_async_func_call(self.embedding_func_max_async)(
-                    self.embedding_func
-                ),
+                func=limit_async_func_call(self.embedding_func_max_async)(self.embedding_func),
             )
             self.best_model_func = limit_async_func_call(self.best_model_max_async)(
                 partial(self.best_model_func, hashing_kv=self.llm_response_cache)
@@ -441,6 +431,22 @@ class GraphRAG:
             self.cheap_model_func = limit_async_func_call(self.cheap_model_max_async)(
                 partial(self.cheap_model_func, hashing_kv=self.llm_response_cache)
             )
+
+    def _build_storages(self):
+        self.full_docs = self.key_string_value_json_storage_cls(
+            namespace="full_docs", global_config=asdict(self)
+        )
+
+        self.text_chunks = self.key_string_value_json_storage_cls(
+            namespace="text_chunks", global_config=asdict(self)
+        )
+
+        self.community_reports = self.key_string_value_json_storage_cls(
+            namespace="community_reports", global_config=asdict(self)
+        )
+        self.chunk_entity_relation_graph = self.graph_storage_cls(
+            namespace="chunk_entity_relation", global_config=asdict(self)
+        )
 
         self.entities_vdb = (
             self.vector_db_storage_cls(
@@ -466,8 +472,6 @@ class GraphRAG:
         runtime_config = asdict(self)
         runtime_config["_use_structured_extraction"] = self._use_structured_extraction
         return runtime_config
-
-
 
     def insert(self, string_or_strings):
         loop = always_get_an_event_loop()
@@ -545,12 +549,8 @@ class GraphRAG:
                 tokenizer_wrapper=self.tokenizer_wrapper,
             )
 
-            _add_chunk_keys = await self.text_chunks.filter_keys(
-                list(inserting_chunks.keys())
-            )
-            inserting_chunks = {
-                k: v for k, v in inserting_chunks.items() if k in _add_chunk_keys
-            }
+            _add_chunk_keys = await self.text_chunks.filter_keys(list(inserting_chunks.keys()))
+            inserting_chunks = {k: v for k, v in inserting_chunks.items() if k in _add_chunk_keys}
             if not len(inserting_chunks):
                 logger.warning("All chunks are already in the storage")
                 return
@@ -578,11 +578,12 @@ class GraphRAG:
             self.chunk_entity_relation_graph = maybe_new_kg
             # ---------- update clusterings of graph
             logger.info("[Community Report]...")
-            await self.chunk_entity_relation_graph.clustering(
-                self.graph_cluster_algorithm
-            )
+            await self.chunk_entity_relation_graph.clustering(self.graph_cluster_algorithm)
             await generate_community_report(
-                self.community_reports, self.chunk_entity_relation_graph, self.tokenizer_wrapper, self._runtime_config()
+                self.community_reports,
+                self.chunk_entity_relation_graph,
+                self.tokenizer_wrapper,
+                self._runtime_config(),
             )
 
             # ---------- commit upsertings and indexing

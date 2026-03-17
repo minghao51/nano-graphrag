@@ -18,7 +18,10 @@ class NanoVectorDBStorage(BaseVectorStorage):
         self._client_file_name = os.path.join(
             self.global_config["working_dir"], f"vdb_{self.namespace}.json"
         )
-        self._max_batch_size = self.global_config["embedding_batch_num"]
+        self._max_batch_size = self.global_config.get(
+            "embedding_batch_size",
+            self.global_config.get("embedding_batch_num", 32),
+        )
         self._client = NanoVectorDB(
             self.embedding_func.embedding_dim, storage_file=self._client_file_name
         )
@@ -43,9 +46,7 @@ class NanoVectorDBStorage(BaseVectorStorage):
             contents[i : i + self._max_batch_size]
             for i in range(0, len(contents), self._max_batch_size)
         ]
-        embeddings_list = await asyncio.gather(
-            *[self.embedding_func(batch) for batch in batches]
-        )
+        embeddings_list = await asyncio.gather(*[self.embedding_func(batch) for batch in batches])
         embeddings = np.concatenate(embeddings_list)
         for i, d in enumerate(list_data):
             d["__vector__"] = embeddings[i]
@@ -60,9 +61,7 @@ class NanoVectorDBStorage(BaseVectorStorage):
             top_k=top_k,
             better_than_threshold=self.cosine_better_than_threshold,
         )
-        results = [
-            {**dp, "id": dp["__id__"], "distance": dp["__metrics__"]} for dp in results
-        ]
+        results = [{**dp, "id": dp["__id__"], "distance": dp["__metrics__"]} for dp in results]
         return results
 
     async def index_done_callback(self):

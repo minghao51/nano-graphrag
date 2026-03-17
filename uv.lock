@@ -3620,12 +3620,9 @@ all = [
     { name = "anthropic" },
     { name = "dspy-ai", version = "2.6.27", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "dspy-ai", version = "3.1.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
-    { name = "graspologic", version = "3.3.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
-    { name = "graspologic", version = "3.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
     { name = "hnswlib" },
     { name = "neo4j", version = "5.28.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "neo4j", version = "6.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
-    { name = "openai" },
     { name = "pymilvus" },
     { name = "pytest", version = "8.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "pytest", version = "9.0.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
@@ -3665,10 +3662,6 @@ dspy = [
     { name = "dspy-ai", version = "2.6.27", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "dspy-ai", version = "3.1.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
 ]
-leiden = [
-    { name = "graspologic", version = "3.3.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
-    { name = "graspologic", version = "3.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
-]
 local-embedding = [
     { name = "sentence-transformers", version = "5.1.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "sentence-transformers", version = "5.3.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
@@ -3681,9 +3674,6 @@ milvus = [
 neo4j = [
     { name = "neo4j", version = "5.28.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "neo4j", version = "6.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
-]
-openai = [
-    { name = "openai" },
 ]
 qdrant = [
     { name = "qdrant-client", version = "1.16.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
@@ -3717,17 +3707,15 @@ requires-dist = [
     { name = "dspy-ai", marker = "extra == 'dspy'" },
     { name = "future", specifier = ">=1.0.0" },
     { name = "graspologic" },
-    { name = "graspologic", marker = "extra == 'leiden'" },
     { name = "hnswlib", marker = "extra == 'storage'" },
     { name = "litellm", specifier = ">=1.0.0" },
+    { name = "nano-graphrag", extras = ["storage", "anthropic", "aws", "neo4j", "milvus", "qdrant", "dspy", "local-embedding", "tokenizer", "dev"], marker = "extra == 'all'" },
     { name = "nano-graphrag", extras = ["storage", "neo4j"], marker = "extra == 'default'" },
-    { name = "nano-graphrag", extras = ["storage", "openai", "anthropic", "aws", "neo4j", "milvus", "qdrant", "leiden", "dspy", "local-embedding", "tokenizer", "dev"], marker = "extra == 'all'" },
     { name = "nano-vectordb" },
     { name = "neo4j", marker = "extra == 'neo4j'" },
     { name = "networkx", specifier = ">=3.0" },
     { name = "numpy", specifier = ">=1.26.0" },
     { name = "openai" },
-    { name = "openai", marker = "extra == 'openai'" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pymilvus", marker = "extra == 'milvus'" },
     { name = "pytest", marker = "extra == 'dev'" },

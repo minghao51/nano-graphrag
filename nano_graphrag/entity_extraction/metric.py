@@ -33,9 +33,7 @@ class AssessRelationships(dspy.Signature):
     )
 
 
-def relationships_similarity_metric(
-    gold: dspy.Example, pred: dspy.Prediction, trace=None
-) -> float:
+def relationships_similarity_metric(gold: dspy.Example, pred: dspy.Prediction, trace=None) -> float:
     model = dspy.ChainOfThought(AssessRelationships)
     gold_relationships = [Relationship(**item) for item in gold["relationships"]]
     predicted_relationships = [Relationship(**item) for item in pred["relationships"]]
@@ -48,9 +46,7 @@ def relationships_similarity_metric(
     return similarity_score
 
 
-def entity_recall_metric(
-    gold: dspy.Example, pred: dspy.Prediction, trace=None
-) -> float:
+def entity_recall_metric(gold: dspy.Example, pred: dspy.Prediction, trace=None) -> float:
     true_set = set(item["entity_name"] for item in gold["entities"])
     pred_set = set(item["entity_name"] for item in pred["entities"])
     true_positives = len(pred_set.intersection(true_set))

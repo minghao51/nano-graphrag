@@ -30,7 +30,10 @@ class HNSWVectorStorage(BaseVectorStorage):
         self._metadata_file_name = os.path.join(
             self.global_config["working_dir"], f"{self.namespace}_hnsw_metadata.pkl"
         )
-        self._embedding_batch_num = self.global_config.get("embedding_batch_num", 100)
+        self._embedding_batch_num = self.global_config.get(
+            "embedding_batch_size",
+            self.global_config.get("embedding_batch_num", 100),
+        )
 
         hnsw_params = self.global_config.get("vector_db_storage_cls_kwargs", {})
         self.ef_construction = hnsw_params.get("ef_construction", self.ef_construction)
@@ -38,16 +41,10 @@ class HNSWVectorStorage(BaseVectorStorage):
         self.max_elements = hnsw_params.get("max_elements", self.max_elements)
         self.ef_search = hnsw_params.get("ef_search", self.ef_search)
         self.num_threads = hnsw_params.get("num_threads", self.num_threads)
-        self._index = hnswlib.Index(
-            space="cosine", dim=self.embedding_func.embedding_dim
-        )
+        self._index = hnswlib.Index(space="cosine", dim=self.embedding_func.embedding_dim)
 
-        if os.path.exists(self._index_file_name) and os.path.exists(
-            self._metadata_file_name
-        ):
-            self._index.load_index(
-                self._index_file_name, max_elements=self.max_elements
-            )
+        if os.path.exists(self._index_file_name) and os.path.exists(self._metadata_file_name):
+            self._index.load_index(self._index_file_name, max_elements=self.max_elements)
             with open(self._metadata_file_name, "rb") as f:
                 self._metadata, self._current_elements = pickle.load(f)
             logger.info(
@@ -100,9 +97,7 @@ class HNSWVectorStorage(BaseVectorStorage):
         )
         self._metadata.update(
             {
-                id_int: {
-                    k: v for k, v in d.items() if k in self.meta_fields or k == "id"
-                }
+                id_int: {k: v for k, v in d.items() if k in self.meta_fields or k == "id"}
                 for id_int, d in zip(ids, list_data)
             }
         )
@@ -117,9 +112,7 @@ class HNSWVectorStorage(BaseVectorStorage):
         top_k = min(top_k, self._current_elements)
 
         if top_k > self.ef_search:
-            logger.warning(
-                f"Setting ef_search to {top_k} because top_k is larger than ef_search"
-            )
+            logger.warning(f"Setting ef_search to {top_k} because top_k is larger than ef_search")
             self._index.set_ef(top_k)
 
         embedding = await self.embedding_func([query])

@@ -80,14 +80,12 @@ pip install nano-graphrag[neo4j]
 | Group | Description |
 |-------|-------------|
 | `storage` | Optional HNSW vector index |
-| `openai` | Direct OpenAI client |
 | `anthropic` | Direct Anthropic client |
 | `aws` | AWS/Bedrock |
 | `neo4j` | Neo4j graph storage |
 | `milvus` | Milvus vector DB |
 | `qdrant` | Qdrant vector DB |
-| `leiden` | Leiden graph clustering |
-| `dspy` | DSPy for entity extraction |
+| `dspy` | Experimental DSPy helpers in `nano_graphrag.contrib.dspy` |
 | `local-embedding` | Sentence-transformers |
 | `dev` | Development tools |
 | `default` | storage + neo4j |
@@ -147,9 +145,10 @@ curl https://raw.githubusercontent.com/gusye1234/nano-graphrag/main/tests/mock_d
 Use the below python snippet:
 
 ```python
-from nano_graphrag import GraphRAG, QueryParam
+from nano_graphrag import GraphRAG, GraphRAGConfig, QueryParam
 
-graph_func = GraphRAG(working_dir="./dickens")
+config = GraphRAGConfig(working_dir="./dickens")
+graph_func = GraphRAG.from_config(config)
 
 with open("./book.txt") as f:
     graph_func.insert(f.read())
@@ -217,7 +216,7 @@ await graph_func.aquery(...)
 
 ### Available Parameters
 
-`GraphRAG` and `QueryParam` are `dataclass` in Python. Use `help(GraphRAG)` and `help(QueryParam)` to see all available parameters!  Or check out the [Advances](#Advances) section to see some options.
+`GraphRAGConfig` is the primary configuration surface, while `GraphRAG(...)` kwargs remain available as compatibility aliases. Use `help(GraphRAGConfig)` and `help(QueryParam)` to inspect the supported runtime parameters.
 
 
 
@@ -230,8 +229,8 @@ nano-graphrag uses [LiteLLM](https://docs.litellm.ai/) for LLM and embedding, wh
 | **LLM** | Any OpenAI-compatible API (Ollama, vLLM, LM Studio, etc.) | `llm_model`, `llm_api_base` |
 | | OpenAI | Default |
 | | Anthropic | `llm_model="claude-3-opus..."` |
-| | Azure OpenAI | `using_azure_openai=True` |
-| | Amazon Bedrock | `using_amazon_bedrock=True` |
+| | Azure OpenAI | Prefer a LiteLLM model/provider configuration |
+| | Amazon Bedrock | Prefer a LiteLLM model/provider configuration |
 | **Embedding** | Any OpenAI-compatible API | `embedding_model`, `embedding_api_base` |
 | | OpenAI | Default |
 | | Sentence-transformers | Custom function |
@@ -258,8 +257,20 @@ nano-graphrag uses [LiteLLM](https://docs.litellm.ai/) for LLM and embedding, wh
 | `EMBEDDING_DIM` | Embedding dimension | 1536 |
 | `GRAPH_WORKING_DIR` | Working directory | `./nano_graphrag` |
 | `EXTRACTION_MAX_ASYNC` | Entity extraction concurrency | 16 |
-| `GRAPH_CLUSTER_ALGORITHM` | `leiden` or `louvain` | `leiden` |
+| `GRAPH_CLUSTER_ALGORITHM` | `leiden` | `leiden` |
 | `ENABLE_NODE_EMBEDDING` | Enable node2vec | `false` |
+
+## Cookbook
+
+The maintained examples focus on a small cookbook:
+
+- hosted model with the default LiteLLM path
+- local Ollama
+- generic OpenAI-compatible endpoint
+- Neo4j graph storage
+- custom embedding or extraction hooks
+
+DSPy is available as an experimental contrib integration through `nano_graphrag.contrib.dspy`.
 
 ## Advances
 
@@ -406,7 +417,7 @@ async def openai_embedding(texts: list[str]) -> np.ndarray:
 Replace default embedding function with:
 
 ```python
-GraphRAG(embedding_func=your_embed_func, embedding_batch_num=..., embedding_func_max_async=...)
+GraphRAG(embedding_func=your_embed_func, embedding_batch_size=..., embedding_func_max_async=...)
 ```
 
 You can refer to an [example](./examples/using_local_embedding_model.py) that use `sentence-transformer` to locally compute embeddings.
@@ -450,6 +461,10 @@ Check [FQA](./docs/FAQ.md).
 ## Roadmap
 
 See [ROADMAP.md](./docs/ROADMAP.md)
+
+## Architecture
+
+See [20260317-architecture.md](./docs/20260317-architecture.md) for the current pipeline, storage model, and extension points.
 
 
 

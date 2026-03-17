@@ -10,7 +10,7 @@ from nano_graphrag._llm import gpt_4o_mini_complete
 from nano_graphrag._storage import HNSWVectorStorage
 from nano_graphrag.base import BaseKVStorage
 from nano_graphrag._utils import compute_args_hash, wrap_embedding_func_with_attrs
-from nano_graphrag.entity_extraction.extract import extract_entities_dspy
+from nano_graphrag.contrib.dspy import extract_entities_dspy
 
 logging.basicConfig(level=logging.WARNING)
 logging.getLogger("nano-graphrag").setLevel(logging.DEBUG)

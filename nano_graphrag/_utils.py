@@ -12,6 +12,7 @@ from typing import Any, Literal
 
 import numpy as np
 import tiktoken
+
 try:
     from transformers import AutoTokenizer
 except ImportError:
@@ -19,6 +20,7 @@ except ImportError:
 
 logger = logging.getLogger("nano-graphrag")
 logging.getLogger("neo4j").setLevel(logging.ERROR)
+
 
 def always_get_an_event_loop() -> asyncio.AbstractEventLoop:
     try:
@@ -38,25 +40,28 @@ def extract_first_complete_json(s: str):
     first_json_start = None
 
     for i, char in enumerate(s):
-        if char == '{':
+        if char == "{":
             stack.append(i)
             if first_json_start is None:
                 first_json_start = i
-        elif char == '}':
+        elif char == "}":
             if stack:
                 stack.pop()
                 if not stack:
-                    first_json_str = s[first_json_start:i+1]
+                    first_json_str = s[first_json_start : i + 1]
                     try:
                         # Attempt to parse the JSON string
                         return json.loads(first_json_str.replace("\n", ""))
                     except json.JSONDecodeError as e:
-                        logger.error(f"JSON decoding failed: {e}. Attempted string: {first_json_str[:50]}...")
+                        logger.error(
+                            f"JSON decoding failed: {e}. Attempted string: {first_json_str[:50]}..."
+                        )
                         return None
                     finally:
                         first_json_start = None
     logger.warning("No complete JSON object found in the input string.")
     return None
+
 
 def parse_value(value: str):
     """Convert a string value to its appropriate type (int, float, bool, None, or keep as string). Work as a more broad 'eval()'"""
@@ -71,7 +76,7 @@ def parse_value(value: str):
     else:
         # Try to convert to int or float
         try:
-            if '.' in value:  # If there's a dot, it might be a float
+            if "." in value:  # If there's a dot, it might be a float
                 return float(value)
             else:
                 return int(value)
@@ -79,7 +84,10 @@ def parse_value(value: str):
             # If conversion fails, return the value as-is (likely a string)
             return value.strip('"')  # Remove surrounding quotes if they exist
 
-def extract_values_from_json(json_string, keys=["reasoning", "answer", "data"], allow_no_quotes=False):
+
+def extract_values_from_json(
+    json_string, keys=["reasoning", "answer", "data"], allow_no_quotes=False
+):
     """Extract key values from a non-standard or malformed JSON string, handling nested objects."""
     extracted_values = {}
 
@@ -87,11 +95,11 @@ def extract_values_from_json(json_string, keys=["reasoning", "answer", "data"], 
     regex_pattern = r'(?P<key>"?\w+"?)\s*:\s*(?P<value>{[^}]*}|".*?"|[^,}]+)'
 
     for match in re.finditer(regex_pattern, json_string, re.DOTALL):
-        key = match.group('key').strip('"')  # Strip quotes from key
-        value = match.group('value').strip()
+        key = match.group("key").strip('"')  # Strip quotes from key
+        value = match.group("value").strip()
 
         # If the value is another nested JSON (starts with '{' and ends with '}'), recursively parse it
-        if value.startswith('{') and value.endswith('}'):
+        if value.startswith("{") and value.endswith("}"):
             extracted_values[key] = extract_values_from_json(value)
         else:
             # Parse the value into the appropriate type (int, float, bool, etc.)
@@ -119,10 +127,12 @@ def convert_response_to_json(response: str) -> dict:
     return prediction_json
 
 
-
-
 class TokenizerWrapper:
-    def __init__(self, tokenizer_type: Literal["tiktoken", "huggingface"] = "tiktoken", model_name: str = "gpt-4o"):
+    def __init__(
+        self,
+        tokenizer_type: Literal["tiktoken", "huggingface"] = "tiktoken",
+        model_name: str = "gpt-4o",
+    ):
         self.tokenizer_type = tokenizer_type
         self.model_name = model_name
         self._tokenizer = None
@@ -136,7 +146,9 @@ class TokenizerWrapper:
             self._tokenizer = tiktoken.encoding_for_model(self.model_name)
         elif self.tokenizer_type == "huggingface":
             if AutoTokenizer is None:
-                raise ImportError("`transformers` is not installed. Please install it via `pip install transformers` to use HuggingFace tokenizers.")
+                raise ImportError(
+                    "`transformers` is not installed. Please install it via `pip install transformers` to use HuggingFace tokenizers."
+                )
             self._tokenizer = AutoTokenizer.from_pretrained(self.model_name, use_fast=True)
         else:
             raise ValueError(f"Unknown tokenizer_type: {self.tokenizer_type}")
@@ -163,22 +175,18 @@ class TokenizerWrapper:
         elif self.tokenizer_type == "huggingface":
             return self._tokenizer.batch_decode(tokens_list, skip_special_tokens=True)
         else:
-             raise ValueError(f"Unknown tokenizer_type: {self.tokenizer_type}")
-
+            raise ValueError(f"Unknown tokenizer_type: {self.tokenizer_type}")
 
 
 def truncate_list_by_token_size(
-    list_data: list,
-    key: callable,
-    max_token_size: int,
-    tokenizer_wrapper: TokenizerWrapper
+    list_data: list, key: callable, max_token_size: int, tokenizer_wrapper: TokenizerWrapper
 ):
     """Truncate a list of data by token size using a provided tokenizer wrapper."""
     if max_token_size <= 0:
         return []
     tokens = 0
     for i, data in enumerate(list_data):
-        tokens += len(tokenizer_wrapper.encode(key(data))) + 1 # 防御性，模拟通过\n拼接列表的情况
+        tokens += len(tokenizer_wrapper.encode(key(data))) + 1  # 防御性，模拟通过\n拼接列表的情况
         if tokens > max_token_size:
             return list_data[:i]
     return list_data
@@ -201,7 +209,9 @@ def load_json(file_name):
 
 
 # it's dirty to type, so it's a good way to have fun
-def pack_user_ass_to_openai_messages(prompt: str, generated_content: str, using_amazon_bedrock: bool):
+def pack_user_ass_to_openai_messages(
+    prompt: str, generated_content: str, using_amazon_bedrock: bool
+):
     if using_amazon_bedrock:
         return [
             {"role": "user", "content": [{"text": prompt}]},

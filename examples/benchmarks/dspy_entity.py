@@ -6,7 +6,7 @@ import logging
 import asyncio
 import time
 import shutil
-from nano_graphrag.entity_extraction.extract import extract_entities_dspy
+from nano_graphrag.contrib.dspy import extract_entities_dspy
 from nano_graphrag.base import BaseKVStorage
 from nano_graphrag._storage import NetworkXStorage
 from nano_graphrag._utils import compute_mdhash_id, compute_args_hash

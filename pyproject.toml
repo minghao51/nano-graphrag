@@ -30,8 +30,6 @@ storage = [
     "hnswlib",
 ]
 
-# Direct API clients (optional, if not using LiteLLM)
-openai = ["openai"]
 anthropic = ["anthropic"]
 aws = ["aioboto3"]
 
@@ -39,9 +37,6 @@ aws = ["aioboto3"]
 neo4j = ["neo4j"]
 milvus = ["pymilvus"]
 qdrant = ["qdrant-client"]
-
-# Graph algorithms (Leiden is heavier than Louvain)
-leiden = ["graspologic"]
 
 # Entity extraction with DSPy
 dspy = ["dspy-ai"]
@@ -68,7 +63,7 @@ dev = [
 
 # All extras combined
 all = [
-    "nano-graphrag[storage,openai,anthropic,aws,neo4j,milvus,qdrant,leiden,dspy,local-embedding,tokenizer,dev]",
+    "nano-graphrag[storage,anthropic,aws,neo4j,milvus,qdrant,dspy,local-embedding,tokenizer,dev]",
 ]
 
 # Convenience: sensible defaults for most users

@@ -1,12 +1,13 @@
 import asyncio
 import pickle
+import warnings
 from collections import defaultdict
 from typing import Union
 
 import dspy
 from openai import BadRequestError
 
-from nano_graphrag._op import _merge_edges_then_upsert, _merge_nodes_then_upsert
+from nano_graphrag._ops import _merge_edges_then_upsert, _merge_nodes_then_upsert
 from nano_graphrag._utils import compute_mdhash_id, logger
 from nano_graphrag.base import (
     BaseGraphStorage,
@@ -23,6 +24,12 @@ async def generate_dataset(
     save_dataset: bool = True,
     global_config: dict = {},
 ) -> list[dspy.Example]:
+    warnings.warn(
+        "`nano_graphrag.entity_extraction` is deprecated; use "
+        "`nano_graphrag.contrib.dspy` for DSPy integrations.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     entity_extractor = TypedEntityRelationshipExtractor(num_refine_turns=1, self_refine=True)
 
     if global_config.get("use_compiled_dspy_entity_relationship", False):
@@ -33,9 +40,7 @@ async def generate_dataset(
     already_entities = 0
     already_relations = 0
 
-    async def _process_single_content(
-        chunk_key_dp: tuple[str, TextChunkSchema]
-    ) -> dspy.Example:
+    async def _process_single_content(chunk_key_dp: tuple[str, TextChunkSchema]) -> dspy.Example:
         nonlocal already_processed, already_entities, already_relations
         chunk_dp = chunk_key_dp[1]
         content = chunk_dp["content"]
@@ -51,9 +56,7 @@ async def generate_dataset(
         already_entities += len(entities)
         already_relations += len(relationships)
         already_processed += 1
-        now_ticks = PROMPTS["process_tickers"][
-            already_processed % len(PROMPTS["process_tickers"])
-        ]
+        now_ticks = PROMPTS["process_tickers"][already_processed % len(PROMPTS["process_tickers"])]
         print(
             f"{now_ticks} Processed {already_processed} chunks, {already_entities} entities(duplicated), {already_relations} relations(duplicated)\r",
             end="",
@@ -61,9 +64,7 @@ async def generate_dataset(
         )
         return example
 
-    examples = await asyncio.gather(
-        *[_process_single_content(c) for c in ordered_chunks]
-    )
+    examples = await asyncio.gather(*[_process_single_content(c) for c in ordered_chunks])
     filtered_examples = [
         example
         for example in examples
@@ -84,8 +85,15 @@ async def extract_entities_dspy(
     chunks: dict[str, TextChunkSchema],
     knwoledge_graph_inst: BaseGraphStorage,
     entity_vdb: BaseVectorStorage,
+    tokenizer_wrapper,
     global_config: dict,
 ) -> Union[BaseGraphStorage, None]:
+    warnings.warn(
+        "`nano_graphrag.entity_extraction` is deprecated; use "
+        "`nano_graphrag.contrib.dspy` for DSPy integrations.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     if global_config.get("_use_structured_extraction", False):
         from .module import create_litellm_lm
 
@@ -126,15 +134,11 @@ async def extract_entities_dspy(
 
         for relationship in relationships:
             relationship["source_id"] = chunk_key
-            maybe_edges[(relationship["src_id"], relationship["tgt_id"])].append(
-                relationship
-            )
+            maybe_edges[(relationship["src_id"], relationship["tgt_id"])].append(relationship)
             already_relations += 1
 
         already_processed += 1
-        now_ticks = PROMPTS["process_tickers"][
-            already_processed % len(PROMPTS["process_tickers"])
-        ]
+        now_ticks = PROMPTS["process_tickers"][already_processed % len(PROMPTS["process_tickers"])]
         print(
             f"{now_ticks} Processed {already_processed} chunks, {already_entities} entities(duplicated), {already_relations} relations(duplicated)\r",
             end="",
@@ -142,9 +146,7 @@ async def extract_entities_dspy(
         )
         return dict(maybe_nodes), dict(maybe_edges)
 
-    results = await asyncio.gather(
-        *[_process_single_content(c) for c in ordered_chunks]
-    )
+    results = await asyncio.gather(*[_process_single_content(c) for c in ordered_chunks])
     print()
     maybe_nodes = defaultdict(list)
     maybe_edges = defaultdict(list)
@@ -155,13 +157,15 @@ async def extract_entities_dspy(
             maybe_edges[k].extend(v)
     all_entities_data = await asyncio.gather(
         *[
-            _merge_nodes_then_upsert(k, v, knwoledge_graph_inst, global_config)
+            _merge_nodes_then_upsert(k, v, knwoledge_graph_inst, global_config, tokenizer_wrapper)
             for k, v in maybe_nodes.items()
         ]
     )
     await asyncio.gather(
         *[
-            _merge_edges_then_upsert(k[0], k[1], v, knwoledge_graph_inst, global_config)
+            _merge_edges_then_upsert(
+                k[0], k[1], v, knwoledge_graph_inst, global_config, tokenizer_wrapper
+            )
             for k, v in maybe_edges.items()
         ]
     )

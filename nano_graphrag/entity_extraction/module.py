@@ -144,12 +144,8 @@ class CombinedExtraction(dspy.Signature):
     3. The "src_id" and "tgt_id" fields must exactly match entity names from the extracted entities list.
     """
 
-    input_text: str = dspy.InputField(
-        desc="The text to extract entities and relationships from."
-    )
-    entity_types: list[str] = dspy.InputField(
-        desc="List of entity types used for extraction."
-    )
+    input_text: str = dspy.InputField(desc="The text to extract entities and relationships from.")
+    entity_types: list[str] = dspy.InputField(desc="List of entity types used for extraction.")
     entities: list[Entity] = dspy.OutputField(
         desc="List of entities extracted from the text and the entity types."
     )
@@ -272,9 +268,7 @@ class TypedEntityRelationshipExtractor(dspy.Module):
         self.self_refine = self_refine
         self.num_refine_turns = num_refine_turns
 
-        self.extractor = dspy.ChainOfThought(
-            signature=CombinedExtraction, max_retries=max_retries
-        )
+        self.extractor = dspy.ChainOfThought(signature=CombinedExtraction, max_retries=max_retries)
         self.extractor = TypedEntityRelationshipExtractorException(
             self.extractor, exception_types=(ValueError,)
         )
@@ -322,9 +316,7 @@ class TypedEntityRelationshipExtractor(dspy.Module):
                     current_relationships = refined_result.refined_relationships
 
         entities = [entity.to_dict() for entity in current_entities]
-        relationships = [
-            relationship.to_dict() for relationship in current_relationships
-        ]
+        relationships = [relationship.to_dict() for relationship in current_relationships]
 
         return dspy.Prediction(entities=entities, relationships=relationships)
 

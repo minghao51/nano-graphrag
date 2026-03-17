@@ -123,45 +123,49 @@ class NetworkXStorage(BaseGraphStorage):
         )
 
     async def edge_degrees_batch(self, edge_pairs: list[tuple[str, str]]) -> list[int]:
-        return await asyncio.gather(*[self.edge_degree(src_id, tgt_id) for src_id, tgt_id in edge_pairs])
+        return await asyncio.gather(
+            *[self.edge_degree(src_id, tgt_id) for src_id, tgt_id in edge_pairs]
+        )
 
-    async def get_edge(
-        self, source_node_id: str, target_node_id: str
-    ) -> Union[dict, None]:
+    async def get_edge(self, source_node_id: str, target_node_id: str) -> Union[dict, None]:
         return self._graph.edges.get((source_node_id, target_node_id))
 
-    async def get_edges_batch(
-        self, edge_pairs: list[tuple[str, str]]
-    ) -> list[Union[dict, None]]:
-        return await asyncio.gather(*[self.get_edge(source_node_id, target_node_id) for source_node_id, target_node_id in edge_pairs])
+    async def get_edges_batch(self, edge_pairs: list[tuple[str, str]]) -> list[Union[dict, None]]:
+        return await asyncio.gather(
+            *[
+                self.get_edge(source_node_id, target_node_id)
+                for source_node_id, target_node_id in edge_pairs
+            ]
+        )
 
     async def get_node_edges(self, source_node_id: str):
         if self._graph.has_node(source_node_id):
             return list(self._graph.edges(source_node_id))
         return None
 
-    async def get_nodes_edges_batch(
-        self, node_ids: list[str]
-    ) -> list[list[tuple[str, str]]]:
-        return await asyncio.gather(*[self.get_node_edges(node_id) for node_id
-        in node_ids])
+    async def get_nodes_edges_batch(self, node_ids: list[str]) -> list[list[tuple[str, str]]]:
+        return await asyncio.gather(*[self.get_node_edges(node_id) for node_id in node_ids])
 
     async def upsert_node(self, node_id: str, node_data: dict[str, str]):
         self._graph.add_node(node_id, **node_data)
 
     async def upsert_nodes_batch(self, nodes_data: list[tuple[str, dict[str, str]]]):
-        await asyncio.gather(*[self.upsert_node(node_id, node_data) for node_id, node_data in nodes_data])
+        await asyncio.gather(
+            *[self.upsert_node(node_id, node_data) for node_id, node_data in nodes_data]
+        )
 
     async def upsert_edge(
         self, source_node_id: str, target_node_id: str, edge_data: dict[str, str]
     ):
         self._graph.add_edge(source_node_id, target_node_id, **edge_data)
 
-    async def upsert_edges_batch(
-        self, edges_data: list[tuple[str, str, dict[str, str]]]
-    ):
-        await asyncio.gather(*[self.upsert_edge(source_node_id, target_node_id, edge_data)
-                for source_node_id, target_node_id, edge_data in edges_data])
+    async def upsert_edges_batch(self, edges_data: list[tuple[str, str, dict[str, str]]]):
+        await asyncio.gather(
+            *[
+                self.upsert_edge(source_node_id, target_node_id, edge_data)
+                for source_node_id, target_node_id, edge_data in edges_data
+            ]
+        )
 
     async def clustering(self, algorithm: str):
         if algorithm not in self._clustering_algorithms:
@@ -195,9 +199,7 @@ class NetworkXStorage(BaseGraphStorage):
                 results[cluster_key]["level"] = level
                 results[cluster_key]["title"] = f"Cluster {cluster_key}"
                 results[cluster_key]["nodes"].add(node_id)
-                results[cluster_key]["edges"].update(
-                    [tuple(sorted(e)) for e in this_node_edges]
-                )
+                results[cluster_key]["edges"].update([tuple(sorted(e)) for e in this_node_edges])
                 results[cluster_key]["chunk_ids"].update(
                     node_data["source_id"].split(GRAPH_FIELD_SEP)
                 )
@@ -243,9 +245,7 @@ class NetworkXStorage(BaseGraphStorage):
         for partition in community_mapping:
             level_key = partition.level
             cluster_id = partition.cluster
-            node_communities[partition.node].append(
-                {"level": level_key, "cluster": cluster_id}
-            )
+            node_communities[partition.node].append({"level": level_key, "cluster": cluster_id})
             __levels[level_key].add(cluster_id)
         node_communities = dict(node_communities)
         __levels = {k: len(v) for k, v in __levels.items()}

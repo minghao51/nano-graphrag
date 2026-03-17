@@ -30,7 +30,10 @@ class QdrantStorage(BaseVectorStorage):
 
         self._client = QdrantClient(path=self._client_file_path)
 
-        self._max_batch_size = self.global_config["embedding_batch_num"]
+        self._max_batch_size = self.global_config.get(
+            "embedding_batch_size",
+            self.global_config.get("embedding_batch_num", 32),
+        )
 
         if not self._client.collection_exists(collection_name=self.namespace):
             self._client.create_collection(
