@@ -7,7 +7,7 @@ import os
 import re
 from dataclasses import dataclass
 from functools import wraps
-from hashlib import md5
+from hashlib import md5, sha256
 from typing import Any, Literal
 
 import numpy as np
@@ -194,6 +194,29 @@ def truncate_list_by_token_size(
 
 def compute_mdhash_id(content, prefix: str = ""):
     return prefix + md5(content.encode()).hexdigest()
+
+
+def compute_sha256_id(content, prefix: str = ""):
+    return prefix + sha256(content.encode("utf-8")).hexdigest()
+
+
+def generate_stable_entity_id(
+    entity_name: str,
+    entity_type: str = "entity",
+    namespace: str = "default",
+):
+    normalized = f"{namespace}:{entity_type.strip().lower()}:{entity_name.strip().lower()}"
+    return compute_sha256_id(normalized, prefix="entity_")
+
+
+def generate_stable_relationship_id(
+    src_entity_id: str,
+    tgt_entity_id: str,
+    relation_type: str = "related",
+):
+    left, right = sorted([src_entity_id, tgt_entity_id])
+    normalized = f"{left}|{right}|{relation_type.strip().lower()}"
+    return compute_sha256_id(normalized, prefix="rel_")
 
 
 def write_json(json_obj, file_name):

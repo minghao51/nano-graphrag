@@ -64,5 +64,10 @@ class NanoVectorDBStorage(BaseVectorStorage):
         results = [{**dp, "id": dp["__id__"], "distance": dp["__metrics__"]} for dp in results]
         return results
 
+    async def delete(self, ids: list[str]):
+        if not ids:
+            return
+        self._client.delete(ids)
+
     async def index_done_callback(self):
         self._client.save()

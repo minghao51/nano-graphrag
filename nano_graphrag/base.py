@@ -89,6 +89,9 @@ class BaseVectorStorage(StorageNameSpace):
         """
         raise NotImplementedError
 
+    async def delete(self, ids: list[str]):
+        raise NotImplementedError
+
 
 @dataclass
 class BaseKVStorage(Generic[T], StorageNameSpace):
@@ -108,6 +111,9 @@ class BaseKVStorage(Generic[T], StorageNameSpace):
         raise NotImplementedError
 
     async def upsert(self, data: dict[str, T]):
+        raise NotImplementedError
+
+    async def delete(self, ids: list[str]):
         raise NotImplementedError
 
     async def drop(self):
@@ -166,7 +172,19 @@ class BaseGraphStorage(StorageNameSpace):
     async def upsert_edges_batch(self, edges_data: list[tuple[str, str, dict[str, str]]]):
         raise NotImplementedError
 
-    async def clustering(self, algorithm: str):
+    async def delete_node(self, node_id: str):
+        raise NotImplementedError
+
+    async def delete_nodes_batch(self, node_ids: list[str]):
+        raise NotImplementedError
+
+    async def delete_edge(self, source_node_id: str, target_node_id: str):
+        raise NotImplementedError
+
+    async def delete_edges_batch(self, edge_pairs: list[tuple[str, str]]):
+        raise NotImplementedError
+
+    async def clustering(self, algorithm: str, affected_node_ids: Optional[set[str]] = None):
         raise NotImplementedError
 
     async def community_schema(self) -> dict[str, SingleCommunitySchema]:

@@ -74,7 +74,7 @@ async def _find_most_related_text_unit_from_entities(
         split_string_by_multi_markers(dp["source_id"], [GRAPH_FIELD_SEP]) for dp in node_datas
     ]
     edges = await knowledge_graph_inst.get_nodes_edges_batch(
-        [dp["entity_name"] for dp in node_datas]
+        [dp["id"] for dp in node_datas]
     )
     all_one_hop_nodes = set()
     for this_edges in edges:
@@ -125,7 +125,7 @@ async def _find_most_related_edges_from_entities(
     tokenizer_wrapper,
 ):
     all_related_edges = await knowledge_graph_inst.get_nodes_edges_batch(
-        [dp["entity_name"] for dp in node_datas]
+        [dp["id"] for dp in node_datas]
     )
 
     all_edges = []
@@ -140,8 +140,21 @@ async def _find_most_related_edges_from_entities(
 
     all_edges_pack = await knowledge_graph_inst.get_edges_batch(all_edges)
     all_edges_degree = await knowledge_graph_inst.edge_degrees_batch(all_edges)
+    related_node_ids = sorted({node_id for edge in all_edges for node_id in edge})
+    related_nodes = await knowledge_graph_inst.get_nodes_batch(related_node_ids)
+    node_name_lookup = {
+        node_id: node_data.get("entity_name", node_id)
+        for node_id, node_data in zip(related_node_ids, related_nodes)
+        if node_data is not None
+    }
     all_edges_data = [
-        {"src_tgt": k, "rank": d, **v}
+        {
+            "src_tgt": k,
+            "src_entity_name": node_name_lookup.get(k[0], k[0]),
+            "tgt_entity_name": node_name_lookup.get(k[1], k[1]),
+            "rank": d,
+            **v,
+        }
         for k, v, d in zip(all_edges, all_edges_pack, all_edges_degree)
         if v is not None
     ]
@@ -166,14 +179,14 @@ async def _build_local_query_context(
     results = await entities_vdb.query(query, top_k=query_param.top_k)
     if not len(results):
         return None
-    node_datas = await knowledge_graph_inst.get_nodes_batch([r["entity_name"] for r in results])
+    node_datas = await knowledge_graph_inst.get_nodes_batch([r["id"] for r in results])
     if not all([n is not None for n in node_datas]):
         logger.warning("Some nodes are missing, maybe the storage is damaged")
     node_degrees = await knowledge_graph_inst.node_degrees_batch(
-        [r["entity_name"] for r in results]
+        [r["id"] for r in results]
     )
     node_datas = [
-        {**n, "entity_name": k["entity_name"], "rank": d}
+        {**n, "id": k["id"], "entity_name": n.get("entity_name", k["entity_name"]), "rank": d}
         for k, n, d in zip(results, node_datas, node_degrees)
         if n is not None
     ]
@@ -207,8 +220,8 @@ async def _build_local_query_context(
         relations_section_list.append(
             [
                 i,
-                e["src_tgt"][0],
-                e["src_tgt"][1],
+                e.get("src_entity_name", e["src_tgt"][0]),
+                e.get("tgt_entity_name", e["src_tgt"][1]),
                 e["description"],
                 e["weight"],
                 e["rank"],

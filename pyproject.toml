@@ -17,7 +17,7 @@ dependencies = [
     "graspologic",
     "tenacity>=8.0.0",
     "pydantic>=2.0.0",
-    "litellm>=1.0.0",
+    "litellm~=1.82.0",
     "pyyaml>=6.0",
     "nano-vectordb",
     "xxhash",

@@ -42,5 +42,9 @@ class JsonKVStorage(BaseKVStorage):
     async def upsert(self, data: dict[str, dict]):
         self._data.update(data)
 
+    async def delete(self, ids: list[str]):
+        for id in ids:
+            self._data.pop(id, None)
+
     async def drop(self):
         self._data = {}

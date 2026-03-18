@@ -114,7 +114,7 @@ async def _pack_single_community_describe(
     nodes_list_data = [
         [
             i,
-            name,
+            data.get("entity_name", name),
             data.get("entity_type", "UNKNOWN"),
             data.get("description", "UNKNOWN"),
             node_degrees[i],
@@ -124,7 +124,13 @@ async def _pack_single_community_describe(
     ]
 
     edges_list_data = [
-        [i, edge[0], edge[1], data.get("description", "UNKNOWN"), edge_degrees[i]]
+        [
+            i,
+            (nodes_data[nodes_in_order.index(edge[0])] or {}).get("entity_name", edge[0]),
+            (nodes_data[nodes_in_order.index(edge[1])] or {}).get("entity_name", edge[1]),
+            data.get("description", "UNKNOWN"),
+            edge_degrees[i],
+        ]
         for i, (edge, data) in enumerate(zip(edges_in_order, edges_data))
         if (edge[0], edge[1]) not in contain_edges
     ]
@@ -192,6 +198,7 @@ async def generate_community_report(
     knwoledge_graph_inst: BaseGraphStorage,
     tokenizer_wrapper: TokenizerWrapper,
     global_config: dict,
+    only_community_ids: set[str] = None,
 ):
     llm_extra_kwargs = global_config["special_community_report_llm_kwargs"]
     use_llm_func: Callable[..., Any] = global_config["best_model_func"]
@@ -200,6 +207,14 @@ async def generate_community_report(
     ]
 
     communities_schema = await knwoledge_graph_inst.community_schema()
+    if only_community_ids is not None:
+        communities_schema = {
+            k: v for k, v in communities_schema.items() if k in only_community_ids
+        }
+    if not communities_schema:
+        if only_community_ids:
+            await community_report_kv.delete(list(only_community_ids))
+        return
     community_keys, community_values = (
         list(communities_schema.keys()),
         list(communities_schema.values()),
@@ -233,13 +248,19 @@ async def generate_community_report(
     levels = sorted(set([c["level"] for c in community_values]), reverse=True)
     logger.info(f"Generating by levels: {levels}")
     community_datas = {}
+    existing_report_keys = await community_report_kv.all_keys()
+    existing_reports = await community_report_kv.get_by_ids(existing_report_keys)
+    seeded_reports = {
+        key: value for key, value in zip(existing_report_keys, existing_reports) if value is not None
+    }
     for level in levels:
-        this_level_community_keys, this_level_community_values = zip(
-            *[(k, v) for k, v in zip(community_keys, community_values) if v["level"] == level]
-        )
+        level_pairs = [(k, v) for k, v in zip(community_keys, community_values) if v["level"] == level]
+        if not level_pairs:
+            continue
+        this_level_community_keys, this_level_community_values = zip(*level_pairs)
         this_level_communities_reports = await asyncio.gather(
             *[
-                _form_single_community_report(c, community_datas)
+                _form_single_community_report(c, {**seeded_reports, **community_datas})
                 for c in this_level_community_values
             ]
         )
@@ -258,4 +279,8 @@ async def generate_community_report(
             }
         )
     print()
+    if only_community_ids is not None:
+        stale_ids = sorted(only_community_ids - set(community_datas.keys()))
+        if stale_ids:
+            await community_report_kv.delete(stale_ids)
     await community_report_kv.upsert(community_datas)

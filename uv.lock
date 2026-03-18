@@ -3708,7 +3708,7 @@ requires-dist = [
     { name = "future", specifier = ">=1.0.0" },
     { name = "graspologic" },
     { name = "hnswlib", marker = "extra == 'storage'" },
-    { name = "litellm", specifier = ">=1.0.0" },
+    { name = "litellm", specifier = "~=1.82.0" },
     { name = "nano-graphrag", extras = ["storage", "anthropic", "aws", "neo4j", "milvus", "qdrant", "dspy", "local-embedding", "tokenizer", "dev"], marker = "extra == 'all'" },
     { name = "nano-graphrag", extras = ["storage", "neo4j"], marker = "extra == 'default'" },
     { name = "nano-vectordb" },

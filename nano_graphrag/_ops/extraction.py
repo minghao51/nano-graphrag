@@ -2,19 +2,32 @@ import asyncio
 import json
 import re
 from collections import Counter, defaultdict
-from typing import Any, Callable, Union
+from typing import Any, Callable, Optional, Union
 
 from .._utils import (
     TokenizerWrapper,
     clean_str,
-    compute_mdhash_id,
+    generate_stable_entity_id,
+    generate_stable_relationship_id,
     is_float_regex,
     logger,
     pack_user_ass_to_openai_messages,
     split_string_by_multi_markers,
 )
-from ..base import BaseGraphStorage, BaseVectorStorage, TextChunkSchema
+from ..base import BaseGraphStorage, BaseKVStorage, BaseVectorStorage, TextChunkSchema
 from ..prompt import GRAPH_FIELD_SEP, PROMPTS
+
+
+def _join_unique(values: list[str]) -> str:
+    return GRAPH_FIELD_SEP.join(sorted(set(v for v in values if v)))
+
+
+def _normalize_entity_name(value: str) -> str:
+    return clean_str(value.upper())
+
+
+def _normalize_entity_type(value: str) -> str:
+    return clean_str(value.upper()) or '"UNKNOWN"'
 
 
 async def _handle_entity_relation_summary(
@@ -49,10 +62,10 @@ async def _handle_single_entity_extraction(
 ):
     if len(record_attributes) < 4 or record_attributes[0] != '"entity"':
         return None
-    entity_name = clean_str(record_attributes[1].upper())
+    entity_name = _normalize_entity_name(record_attributes[1])
     if not entity_name.strip():
         return None
-    entity_type = clean_str(record_attributes[2].upper())
+    entity_type = _normalize_entity_type(record_attributes[2])
     entity_description = clean_str(record_attributes[3])
     entity_source_id = chunk_key
     return dict(
@@ -69,14 +82,14 @@ async def _handle_single_relationship_extraction(
 ):
     if len(record_attributes) < 5 or record_attributes[0] != '"relationship"':
         return None
-    source = clean_str(record_attributes[1].upper())
-    target = clean_str(record_attributes[2].upper())
+    source = _normalize_entity_name(record_attributes[1])
+    target = _normalize_entity_name(record_attributes[2])
     edge_description = clean_str(record_attributes[3])
     edge_source_id = chunk_key
     weight = float(record_attributes[-1]) if is_float_regex(record_attributes[-1]) else 1.0
     return dict(
-        src_id=source,
-        tgt_id=target,
+        src_name=source,
+        tgt_name=target,
         weight=weight,
         description=edge_description,
         source_id=edge_source_id,
@@ -178,244 +191,359 @@ async def _merge_edges_then_upsert(
     )
 
 
-async def extract_entities_structured(
+def _upsert_document_entity(
+    entities: dict[str, dict],
+    entity_name: str,
+    entity_type: str,
+    description: str,
+    chunk_key: str,
+) -> str:
+    entity_id = generate_stable_entity_id(entity_name, entity_type)
+    entity_entry = entities.setdefault(
+        entity_id,
+        {
+            "entity_name": entity_name,
+            "entity_type": entity_type,
+            "descriptions": [],
+            "source_chunk_ids": [],
+        },
+    )
+    entity_entry["entity_name"] = entity_name
+    entity_entry["entity_type"] = entity_type
+    entity_entry["descriptions"].append(description)
+    entity_entry["source_chunk_ids"].append(chunk_key)
+    return entity_id
+
+
+def _upsert_document_relationship(
+    relationships: dict[str, dict],
+    src_entity_id: str,
+    tgt_entity_id: str,
+    description: str,
+    weight: float,
+    chunk_key: str,
+    relation_type: str = "related",
+) -> str:
+    relationship_id = generate_stable_relationship_id(
+        src_entity_id, tgt_entity_id, relation_type
+    )
+    relationship_entry = relationships.setdefault(
+        relationship_id,
+        {
+            "src_entity_id": src_entity_id,
+            "tgt_entity_id": tgt_entity_id,
+            "relation_type": relation_type,
+            "descriptions": [],
+            "weight": 0.0,
+            "source_chunk_ids": [],
+        },
+    )
+    relationship_entry["descriptions"].append(description)
+    relationship_entry["weight"] += weight
+    relationship_entry["source_chunk_ids"].append(chunk_key)
+    return relationship_id
+
+
+def _normalize_document_manifest(manifest: dict) -> dict:
+    normalized_entities = {}
+    for entity_id, entity in manifest.get("entities", {}).items():
+        normalized_entities[entity_id] = {
+            "entity_name": entity["entity_name"],
+            "entity_type": entity["entity_type"],
+            "descriptions": sorted(set(entity.get("descriptions", []))),
+            "source_chunk_ids": sorted(set(entity.get("source_chunk_ids", []))),
+        }
+
+    normalized_relationships = {}
+    for relationship_id, relationship in manifest.get("relationships", {}).items():
+        normalized_relationships[relationship_id] = {
+            "src_entity_id": relationship["src_entity_id"],
+            "tgt_entity_id": relationship["tgt_entity_id"],
+            "relation_type": relationship.get("relation_type", "related"),
+            "descriptions": sorted(set(relationship.get("descriptions", []))),
+            "weight": relationship.get("weight", 0.0),
+            "source_chunk_ids": sorted(set(relationship.get("source_chunk_ids", []))),
+        }
+
+    return {
+        "content_hash": manifest.get("content_hash"),
+        "chunk_ids": sorted(set(manifest.get("chunk_ids", []))),
+        "entities": normalized_entities,
+        "relationships": normalized_relationships,
+    }
+
+
+def _combine_entity_contributions(contributions: list[dict]) -> Optional[dict]:
+    if not contributions:
+        return None
+    entity_name = contributions[-1]["entity_name"]
+    entity_type = Counter([c["entity_type"] for c in contributions]).most_common(1)[0][0]
+    descriptions = []
+    source_chunk_ids = []
+    for contribution in contributions:
+        descriptions.extend(contribution.get("descriptions", []))
+        source_chunk_ids.extend(contribution.get("source_chunk_ids", []))
+    return {
+        "entity_name": entity_name,
+        "entity_type": entity_type,
+        "description": _join_unique(descriptions),
+        "source_id": _join_unique(source_chunk_ids),
+    }
+
+
+def _combine_relationship_contributions(contributions: list[dict]) -> Optional[dict]:
+    if not contributions:
+        return None
+    first = contributions[0]
+    descriptions = []
+    source_chunk_ids = []
+    total_weight = 0.0
+    for contribution in contributions:
+        descriptions.extend(contribution.get("descriptions", []))
+        source_chunk_ids.extend(contribution.get("source_chunk_ids", []))
+        total_weight += float(contribution.get("weight", 0.0))
+    return {
+        "src_entity_id": first["src_entity_id"],
+        "tgt_entity_id": first["tgt_entity_id"],
+        "description": _join_unique(descriptions),
+        "source_id": _join_unique(source_chunk_ids),
+        "weight": total_weight,
+        "order": 1,
+        "relation_type": first.get("relation_type", "related"),
+    }
+
+
+async def extract_document_entity_relationships_structured(
     chunks: dict[str, TextChunkSchema],
-    knwoledge_graph_inst: BaseGraphStorage,
-    entity_vdb: BaseVectorStorage,
     tokenizer_wrapper,
     global_config: dict,
-    using_amazon_bedrock: bool = False,
-) -> Union[BaseGraphStorage, None]:
-    """Extract entities and relationships using structured LLM output.
-
-    This function uses Pydantic models for structured output, which provides
-    type-safe entity extraction with a single LLM pass per chunk.
-
-    Quality Modes (via entity_extraction_quality in global_config):
-        - "fast": Use cheap model (faster, lower cost, may miss some entities)
-        - "balanced": Use best model (default, good quality)
-        - "thorough": Use best model (currently same as balanced)
-
-    Note: This function uses single-pass extraction. For multi-pass extraction
-    with gleaning (iterative refinement), use the legacy extract_entities()
-    function instead by setting use_litellm=False in GraphRAG config.
-
-    Args:
-        chunks: Dictionary of chunk_id to chunk data
-        knwoledge_graph_inst: Graph storage instance
-        entity_vdb: Vector storage instance for entities
-        tokenizer_wrapper: Tokenizer for text processing
-        global_config: Configuration dictionary containing:
-            - entity_extraction_quality: "fast" | "balanced" | "thorough"
-            - cheap_model_func: LLM function for fast mode
-            - best_model_func: LLM function for balanced/thorough modes
-            - structured_output: Enable structured output
-            - fallback_to_parsing: Enable parsing fallback
-        using_amazon_bedrock: Whether using Amazon Bedrock
-
-    Returns:
-        Updated graph storage instance, or None if extraction failed
-    """
+) -> dict:
     from .._schemas import EntityExtractionOutput
 
     quality = global_config.get("entity_extraction_quality", "balanced")
-
     if quality == "fast":
         use_llm_func = global_config["cheap_model_func"]
-    elif quality == "thorough":
-        use_llm_func = global_config["best_model_func"]
     else:
         use_llm_func = global_config["best_model_func"]
 
-    use_structured_output = global_config.get("structured_output", True)
-    fallback_to_parsing = global_config.get("fallback_to_parsing", True)
-
     ordered_chunks = list(chunks.items())
     entity_types = PROMPTS["DEFAULT_ENTITY_TYPES"]
-
     already_processed = 0
     already_entities = 0
     already_relations = 0
+    fallback_to_parsing = global_config.get("fallback_to_parsing", True)
+
+    async def _process_chunk_with_legacy_prompt(
+        chunk_key: str, content: str
+    ) -> tuple[dict[str, dict], dict[str, dict]]:
+        use_llm_func: Callable[..., Any] = global_config["best_model_func"]
+        entity_extract_max_gleaning = global_config["entity_extract_max_gleaning"]
+        entity_extract_prompt = PROMPTS["entity_extraction"]
+        context_base = dict(
+            tuple_delimiter=PROMPTS["DEFAULT_TUPLE_DELIMITER"],
+            record_delimiter=PROMPTS["DEFAULT_RECORD_DELIMITER"],
+            completion_delimiter=PROMPTS["DEFAULT_COMPLETION_DELIMITER"],
+            entity_types=",".join(PROMPTS["DEFAULT_ENTITY_TYPES"]),
+        )
+        continue_prompt = PROMPTS["entiti_continue_extraction"]
+        if_loop_prompt = PROMPTS["entiti_if_loop_extraction"]
+        hint_prompt = entity_extract_prompt.format(**context_base, input_text=content)
+        final_result = await use_llm_func(hint_prompt)
+        history = pack_user_ass_to_openai_messages(hint_prompt, final_result, False)
+        for now_glean_index in range(entity_extract_max_gleaning):
+            glean_result = await use_llm_func(continue_prompt, history_messages=history)
+            history += pack_user_ass_to_openai_messages(continue_prompt, glean_result, False)
+            final_result += glean_result
+            if now_glean_index == entity_extract_max_gleaning - 1:
+                break
+            if_loop_result: str = await use_llm_func(if_loop_prompt, history_messages=history)
+            if if_loop_result.strip().strip('"').strip("'").lower() != "yes":
+                break
+
+        records = split_string_by_multi_markers(
+            final_result,
+            [context_base["record_delimiter"], context_base["completion_delimiter"]],
+        )
+        entities = {}
+        relationships = {}
+        entity_name_to_id = {}
+        for record in records:
+            record_match = re.search(r"\((.*)\)", record)
+            if record_match is None:
+                continue
+            record_attributes = split_string_by_multi_markers(
+                record_match.group(1), [context_base["tuple_delimiter"]]
+            )
+            entity = await _handle_single_entity_extraction(record_attributes, chunk_key)
+            if entity is not None:
+                entity_id = _upsert_document_entity(
+                    entities,
+                    entity["entity_name"],
+                    entity["entity_type"],
+                    entity["description"],
+                    chunk_key,
+                )
+                entity_name_to_id[entity["entity_name"]] = entity_id
+                continue
+
+            relationship = await _handle_single_relationship_extraction(record_attributes, chunk_key)
+            if relationship is None:
+                continue
+            src_name = relationship["src_name"]
+            tgt_name = relationship["tgt_name"]
+            if src_name not in entity_name_to_id:
+                entity_name_to_id[src_name] = _upsert_document_entity(
+                    entities, src_name, '"UNKNOWN"', relationship["description"], chunk_key
+                )
+            if tgt_name not in entity_name_to_id:
+                entity_name_to_id[tgt_name] = _upsert_document_entity(
+                    entities, tgt_name, '"UNKNOWN"', relationship["description"], chunk_key
+                )
+            _upsert_document_relationship(
+                relationships,
+                entity_name_to_id[src_name],
+                entity_name_to_id[tgt_name],
+                relationship["description"],
+                relationship["weight"],
+                chunk_key,
+            )
+        return entities, relationships
 
     async def _process_single_content(chunk_key_dp: tuple[str, TextChunkSchema]):
         nonlocal already_processed, already_entities, already_relations
         chunk_key = chunk_key_dp[0]
         chunk_dp = chunk_key_dp[1]
         content = chunk_dp["content"]
-
         try:
-            if use_structured_output:
-                result = await use_llm_func(
-                    content,
-                    system_prompt=f"""You are an entity extraction assistant. Extract entities and relationships from the text.
+            result = await use_llm_func(
+                content,
+                system_prompt=f"""You are an entity extraction assistant. Extract entities and relationships from the text.
 Entity types: {", ".join(entity_types)}.
 Return a JSON with 'entities' (name, type, description) and 'relationships' (source, target, description, weight).""",
-                    response_format=EntityExtractionOutput,
-                )
-                if isinstance(result, str):
-                    try:
-                        parsed_data = json.loads(result)
-                        result = EntityExtractionOutput(**parsed_data)
-                    except Exception as e:
-                        logger.warning(f"Failed to parse structured output from string: {e}")
-                        result = None
-
-                if isinstance(result, EntityExtractionOutput):
-                    maybe_nodes = {
-                        clean_str(e.entity_name.upper()): [
-                            {
-                                "entity_name": clean_str(e.entity_name.upper()),
-                                "entity_type": clean_str(e.entity_type.upper()),
-                                "description": e.description,
-                                "source_id": chunk_key,
-                            }
-                        ]
-                        for e in result.entities
-                    }
-                    maybe_edges = {
-                        tuple(sorted([clean_str(r.source.upper()), clean_str(r.target.upper())])): [
-                            {
-                                "src_id": clean_str(r.source.upper()),
-                                "tgt_id": clean_str(r.target.upper()),
-                                "description": r.description,
-                                "weight": r.weight,
-                                "source_id": chunk_key,
-                            }
-                        ]
-                        for r in result.relationships
-                    }
-                else:
-                    maybe_nodes, maybe_edges = {}, {}
-            else:
-                maybe_nodes, maybe_edges = {}, {}
-
-            if not maybe_nodes or not use_structured_output:
-                entity_extract_prompt = PROMPTS["entity_extraction"]
-                context_base = dict(
-                    tuple_delimiter=PROMPTS["DEFAULT_TUPLE_DELIMITER"],
-                    record_delimiter=PROMPTS["DEFAULT_RECORD_DELIMITER"],
-                    completion_delimiter=PROMPTS["DEFAULT_COMPLETION_DELIMITER"],
-                    entity_types=",".join(entity_types),
-                )
-                hint_prompt = entity_extract_prompt.format(**context_base, input_text=content)
-                final_result = await use_llm_func(hint_prompt)
-
-                records = split_string_by_multi_markers(
-                    final_result,
-                    [context_base["record_delimiter"], context_base["completion_delimiter"]],
-                )
-                maybe_nodes = defaultdict(list)
-                maybe_edges = defaultdict(list)
-                for record in records:
-                    record_match = re.search(r"\((.*)\)", record)
-                    if record_match is None:
-                        continue
-                    record_attrs = split_string_by_multi_markers(
-                        record_match.group(1), [context_base["tuple_delimiter"]]
-                    )
-                    if len(record_attrs) >= 4 and record_attrs[0] == '"entity"':
-                        entity_data = {
-                            "entity_name": clean_str(record_attrs[1].upper()),
-                            "entity_type": clean_str(record_attrs[2].upper()),
-                            "description": clean_str(record_attrs[3]),
-                            "source_id": chunk_key,
-                        }
-                        if entity_data["entity_name"].strip():
-                            maybe_nodes[entity_data["entity_name"]].append(entity_data)
-                    elif len(record_attrs) >= 5 and record_attrs[0] == '"relationship"':
-                        rel_data = {
-                            "src_id": clean_str(record_attrs[1].upper()),
-                            "tgt_id": clean_str(record_attrs[2].upper()),
-                            "description": clean_str(record_attrs[3]),
-                            "weight": float(record_attrs[-1])
-                            if is_float_regex(record_attrs[-1])
-                            else 1.0,
-                            "source_id": chunk_key,
-                        }
-                        maybe_edges[tuple(sorted([rel_data["src_id"], rel_data["tgt_id"]]))].append(
-                            rel_data
-                        )
-
+                response_format=EntityExtractionOutput,
+            )
+            if isinstance(result, str):
+                result = EntityExtractionOutput(**json.loads(result))
         except Exception as e:
             logger.warning(f"Structured extraction failed for chunk {chunk_key}: {e}")
-            if not fallback_to_parsing:
-                raise
-            maybe_nodes, maybe_edges = {}, {}
+            if fallback_to_parsing:
+                logger.info(f"Falling back to legacy parsing for chunk {chunk_key}")
+                entities, relationships = await _process_chunk_with_legacy_prompt(chunk_key, content)
+                already_processed += 1
+                already_entities += len(entities)
+                already_relations += len(relationships)
+                now_ticks = PROMPTS["process_tickers"][
+                    already_processed % len(PROMPTS["process_tickers"])
+                ]
+                print(
+                    f"{now_ticks} Processed {already_processed}({already_processed * 100 // len(ordered_chunks)}%) chunks, {already_entities} entities, {already_relations} relations\r",
+                    end="",
+                    flush=True,
+                )
+                return entities, relationships
+            result = None
+
+        entities = {}
+        relationships = {}
+        entity_name_to_id = {}
+
+        if isinstance(result, EntityExtractionOutput):
+            for entity in result.entities:
+                entity_name = _normalize_entity_name(entity.entity_name)
+                if not entity_name:
+                    continue
+                entity_type = _normalize_entity_type(entity.entity_type)
+                entity_id = _upsert_document_entity(
+                    entities,
+                    entity_name,
+                    entity_type,
+                    entity.description,
+                    chunk_key,
+                )
+                entity_name_to_id[entity_name] = entity_id
+
+            for relationship in result.relationships:
+                src_name = _normalize_entity_name(relationship.source)
+                tgt_name = _normalize_entity_name(relationship.target)
+                if not src_name or not tgt_name:
+                    continue
+                if src_name not in entity_name_to_id:
+                    entity_name_to_id[src_name] = _upsert_document_entity(
+                        entities,
+                        src_name,
+                        '"UNKNOWN"',
+                        relationship.description,
+                        chunk_key,
+                    )
+                if tgt_name not in entity_name_to_id:
+                    entity_name_to_id[tgt_name] = _upsert_document_entity(
+                        entities,
+                        tgt_name,
+                        '"UNKNOWN"',
+                        relationship.description,
+                        chunk_key,
+                    )
+                _upsert_document_relationship(
+                    relationships,
+                    entity_name_to_id[src_name],
+                    entity_name_to_id[tgt_name],
+                    relationship.description,
+                    relationship.weight,
+                    chunk_key,
+                )
 
         already_processed += 1
-        already_entities += len(maybe_nodes)
-        already_relations += len(maybe_edges)
+        already_entities += len(entities)
+        already_relations += len(relationships)
         now_ticks = PROMPTS["process_tickers"][already_processed % len(PROMPTS["process_tickers"])]
         print(
             f"{now_ticks} Processed {already_processed}({already_processed * 100 // len(ordered_chunks)}%) chunks, {already_entities} entities, {already_relations} relations\r",
             end="",
             flush=True,
         )
-        return dict(maybe_nodes), dict(maybe_edges)
+        return entities, relationships
 
     results = await asyncio.gather(*[_process_single_content(c) for c in ordered_chunks])
     print()
-    maybe_nodes = defaultdict(list)
-    maybe_edges = defaultdict(list)
-    for m_nodes, m_edges in results:
-        for k, v in m_nodes.items():
-            maybe_nodes[k].extend(v)
-        for k, v in m_edges.items():
-            maybe_edges[tuple(sorted(k))].extend(v)
-
-    if not len(maybe_nodes):
-        logger.warning("Didn't extract any entities")
-        return None
-
-    all_entities_data = await asyncio.gather(
-        *[
-            _merge_nodes_then_upsert(k, v, knwoledge_graph_inst, global_config, tokenizer_wrapper)
-            for k, v in maybe_nodes.items()
-        ]
-    )
-    await asyncio.gather(
-        *[
-            _merge_edges_then_upsert(
-                k[0], k[1], v, knwoledge_graph_inst, global_config, tokenizer_wrapper
+    manifest = {"chunk_ids": list(chunks.keys()), "entities": {}, "relationships": {}}
+    for entities, relationships in results:
+        for entity_id, entity in entities.items():
+            _upsert_document_entity(
+                manifest["entities"],
+                entity["entity_name"],
+                entity["entity_type"],
+                _join_unique(entity["descriptions"]),
+                entity["source_chunk_ids"][0],
             )
-            for k, v in maybe_edges.items()
-        ]
-    )
+            manifest["entities"][entity_id]["descriptions"].extend(entity["descriptions"][1:])
+            manifest["entities"][entity_id]["source_chunk_ids"].extend(entity["source_chunk_ids"][1:])
+        for relationship_id, relationship in relationships.items():
+            _upsert_document_relationship(
+                manifest["relationships"],
+                relationship["src_entity_id"],
+                relationship["tgt_entity_id"],
+                _join_unique(relationship["descriptions"]),
+                relationship["weight"],
+                relationship["source_chunk_ids"][0],
+                relationship.get("relation_type", "related"),
+            )
+            manifest["relationships"][relationship_id]["descriptions"].extend(
+                relationship["descriptions"][1:]
+            )
+            manifest["relationships"][relationship_id]["source_chunk_ids"].extend(
+                relationship["source_chunk_ids"][1:]
+            )
+    return _normalize_document_manifest(manifest)
 
-    if entity_vdb is not None:
-        data_for_vdb = {
-            compute_mdhash_id(dp["entity_name"], prefix="ent-"): {
-                "content": dp["entity_name"] + dp["description"],
-                "entity_name": dp["entity_name"],
-            }
-            for dp in all_entities_data
-        }
-        await entity_vdb.upsert(data_for_vdb)
 
-    return knwoledge_graph_inst
-
-
-async def extract_entities(
+async def extract_document_entity_relationships_legacy(
     chunks: dict[str, TextChunkSchema],
-    knwoledge_graph_inst: BaseGraphStorage,
-    entity_vdb: BaseVectorStorage,
     tokenizer_wrapper,
     global_config: dict,
     using_amazon_bedrock: bool = False,
-) -> Union[BaseGraphStorage, None]:
-    if global_config.get("_use_structured_extraction", False):
-        return await extract_entities_structured(
-            chunks,
-            knwoledge_graph_inst,
-            entity_vdb,
-            tokenizer_wrapper,
-            global_config,
-            using_amazon_bedrock,
-        )
-
+) -> dict:
     use_llm_func: Callable[..., Any] = global_config["best_model_func"]
     entity_extract_max_gleaning = global_config["entity_extract_max_gleaning"]
-
     ordered_chunks = list(chunks.items())
 
     entity_extract_prompt = PROMPTS["entity_extraction"]
@@ -445,86 +573,375 @@ async def extract_entities(
         history = pack_user_ass_to_openai_messages(hint_prompt, final_result, using_amazon_bedrock)
         for now_glean_index in range(entity_extract_max_gleaning):
             glean_result = await use_llm_func(continue_prompt, history_messages=history)
-
             history += pack_user_ass_to_openai_messages(
                 continue_prompt, glean_result, using_amazon_bedrock
             )
             final_result += glean_result
             if now_glean_index == entity_extract_max_gleaning - 1:
                 break
-
             if_loop_result: str = await use_llm_func(if_loop_prompt, history_messages=history)
-            if_loop_result = if_loop_result.strip().strip('"').strip("'").lower()
-            if if_loop_result != "yes":
+            if if_loop_result.strip().strip('"').strip("'").lower() != "yes":
                 break
 
         records = split_string_by_multi_markers(
             final_result,
             [context_base["record_delimiter"], context_base["completion_delimiter"]],
         )
-
-        maybe_nodes = defaultdict(list)
-        maybe_edges = defaultdict(list)
+        entities = {}
+        relationships = {}
+        entity_name_to_id = {}
         for record in records:
-            record = re.search(r"\((.*)\)", record)
-            if record is None:
+            record_match = re.search(r"\((.*)\)", record)
+            if record_match is None:
                 continue
-            record = record.group(1)
             record_attributes = split_string_by_multi_markers(
-                record, [context_base["tuple_delimiter"]]
+                record_match.group(1), [context_base["tuple_delimiter"]]
             )
-            if_entities = await _handle_single_entity_extraction(record_attributes, chunk_key)
-            if if_entities is not None:
-                maybe_nodes[if_entities["entity_name"]].append(if_entities)
+            entity = await _handle_single_entity_extraction(record_attributes, chunk_key)
+            if entity is not None:
+                entity_id = _upsert_document_entity(
+                    entities,
+                    entity["entity_name"],
+                    entity["entity_type"],
+                    entity["description"],
+                    chunk_key,
+                )
+                entity_name_to_id[entity["entity_name"]] = entity_id
                 continue
 
-            if_relation = await _handle_single_relationship_extraction(record_attributes, chunk_key)
-            if if_relation is not None:
-                maybe_edges[(if_relation["src_id"], if_relation["tgt_id"])].append(if_relation)
+            relationship = await _handle_single_relationship_extraction(record_attributes, chunk_key)
+            if relationship is None:
+                continue
+            src_name = relationship["src_name"]
+            tgt_name = relationship["tgt_name"]
+            if src_name not in entity_name_to_id:
+                entity_name_to_id[src_name] = _upsert_document_entity(
+                    entities, src_name, '"UNKNOWN"', relationship["description"], chunk_key
+                )
+            if tgt_name not in entity_name_to_id:
+                entity_name_to_id[tgt_name] = _upsert_document_entity(
+                    entities, tgt_name, '"UNKNOWN"', relationship["description"], chunk_key
+                )
+            _upsert_document_relationship(
+                relationships,
+                entity_name_to_id[src_name],
+                entity_name_to_id[tgt_name],
+                relationship["description"],
+                relationship["weight"],
+                chunk_key,
+            )
+
         already_processed += 1
-        already_entities += len(maybe_nodes)
-        already_relations += len(maybe_edges)
+        already_entities += len(entities)
+        already_relations += len(relationships)
         now_ticks = PROMPTS["process_tickers"][already_processed % len(PROMPTS["process_tickers"])]
         print(
             f"{now_ticks} Processed {already_processed}({already_processed * 100 // len(ordered_chunks)}%) chunks,  {already_entities} entities(duplicated), {already_relations} relations(duplicated)\r",
             end="",
             flush=True,
         )
-        return dict(maybe_nodes), dict(maybe_edges)
+        return entities, relationships
 
     results = await asyncio.gather(*[_process_single_content(c) for c in ordered_chunks])
     print()
-    maybe_nodes = defaultdict(list)
-    maybe_edges = defaultdict(list)
-    for m_nodes, m_edges in results:
-        for k, v in m_nodes.items():
-            maybe_nodes[k].extend(v)
-        for k, v in m_edges.items():
-            maybe_edges[tuple(sorted(k))].extend(v)
-    all_entities_data = await asyncio.gather(
-        *[
-            _merge_nodes_then_upsert(k, v, knwoledge_graph_inst, global_config, tokenizer_wrapper)
-            for k, v in maybe_nodes.items()
-        ]
-    )
-    await asyncio.gather(
-        *[
-            _merge_edges_then_upsert(
-                k[0], k[1], v, knwoledge_graph_inst, global_config, tokenizer_wrapper
+    manifest = {"chunk_ids": list(chunks.keys()), "entities": {}, "relationships": {}}
+    for entities, relationships in results:
+        for entity in entities.values():
+            entity_id = generate_stable_entity_id(entity["entity_name"], entity["entity_type"])
+            target = manifest["entities"].setdefault(
+                entity_id,
+                {
+                    "entity_name": entity["entity_name"],
+                    "entity_type": entity["entity_type"],
+                    "descriptions": [],
+                    "source_chunk_ids": [],
+                },
             )
-            for k, v in maybe_edges.items()
-        ]
+            target["descriptions"].extend(entity["descriptions"])
+            target["source_chunk_ids"].extend(entity["source_chunk_ids"])
+        for relationship_id, relationship in relationships.items():
+            target = manifest["relationships"].setdefault(
+                relationship_id,
+                {
+                    "src_entity_id": relationship["src_entity_id"],
+                    "tgt_entity_id": relationship["tgt_entity_id"],
+                    "relation_type": relationship.get("relation_type", "related"),
+                    "descriptions": [],
+                    "weight": 0.0,
+                    "source_chunk_ids": [],
+                },
+            )
+            target["descriptions"].extend(relationship["descriptions"])
+            target["weight"] += relationship["weight"]
+            target["source_chunk_ids"].extend(relationship["source_chunk_ids"])
+    return _normalize_document_manifest(manifest)
+
+
+async def extract_document_entity_relationships(
+    chunks: dict[str, TextChunkSchema],
+    tokenizer_wrapper,
+    global_config: dict,
+    using_amazon_bedrock: bool = False,
+) -> dict:
+    manifest = (
+        await extract_document_entity_relationships_structured(
+            chunks,
+            tokenizer_wrapper,
+            global_config,
+        )
+        if global_config.get("_use_structured_extraction", False)
+        else await extract_document_entity_relationships_legacy(
+            chunks,
+            tokenizer_wrapper,
+            global_config,
+            using_amazon_bedrock,
+        )
     )
-    if not len(all_entities_data):
+    if not manifest["entities"]:
+        logger.warning("Didn't extract any entities, maybe your LLM is not working")
+    return manifest
+
+
+async def rebuild_knowledge_graph_for_documents(
+    document_index: BaseKVStorage[dict],
+    knowledge_graph_inst: BaseGraphStorage,
+    entity_vdb: Optional[BaseVectorStorage],
+    tokenizer_wrapper,
+    global_config: dict,
+    old_document_manifests: dict[str, dict],
+    new_document_manifests: dict[str, dict],
+):
+    affected_entity_ids: set[str] = set()
+    affected_relationship_ids: set[str] = set()
+    removed_relationship_lookup: dict[str, tuple[str, str]] = {}
+    all_changed_doc_ids = set(old_document_manifests.keys()).union(new_document_manifests.keys())
+    for doc_id in all_changed_doc_ids:
+        old_manifest = old_document_manifests.get(doc_id) or {}
+        new_manifest = new_document_manifests.get(doc_id) or {}
+        old_entities = old_manifest.get("entities", {})
+        new_entities = new_manifest.get("entities", {})
+        old_relationships = old_manifest.get("relationships", {})
+        new_relationships = new_manifest.get("relationships", {})
+        affected_entity_ids.update(old_entities.keys())
+        affected_entity_ids.update(new_entities.keys())
+        affected_relationship_ids.update(old_relationships.keys())
+        affected_relationship_ids.update(new_relationships.keys())
+        for relationship_id, relationship in old_relationships.items():
+            if relationship_id not in new_relationships:
+                removed_relationship_lookup[relationship_id] = (
+                    relationship["src_entity_id"],
+                    relationship["tgt_entity_id"],
+                )
+
+    if not affected_entity_ids and not affected_relationship_ids:
+        return knowledge_graph_inst
+
+    document_keys = await document_index.all_keys()
+    all_documents = await document_index.get_by_ids(document_keys)
+    entity_contributions: dict[str, list[dict]] = defaultdict(list)
+    relationship_contributions: dict[str, list[dict]] = defaultdict(list)
+
+    for document in all_documents:
+        if document is None:
+            continue
+        for entity_id, entity in document.get("entities", {}).items():
+            if entity_id in affected_entity_ids:
+                entity_contributions[entity_id].append(entity)
+        for relationship_id, relationship in document.get("relationships", {}).items():
+            if relationship_id in affected_relationship_ids:
+                relationship_contributions[relationship_id].append(relationship)
+
+    combined_entities = {
+        entity_id: _combine_entity_contributions(contributions)
+        for entity_id, contributions in entity_contributions.items()
+    }
+    combined_relationships = {
+        relationship_id: _combine_relationship_contributions(contributions)
+        for relationship_id, contributions in relationship_contributions.items()
+    }
+
+    for entity_id in affected_entity_ids:
+        combined = combined_entities.get(entity_id)
+        if combined is None:
+            await knowledge_graph_inst.delete_node(entity_id)
+            if entity_vdb is not None:
+                await entity_vdb.delete([entity_id])
+            continue
+        combined["description"] = await _handle_entity_relation_summary(
+            combined["entity_name"],
+            combined["description"],
+            global_config,
+            tokenizer_wrapper,
+        )
+        await knowledge_graph_inst.upsert_node(entity_id, combined)
+        if entity_vdb is not None:
+            await entity_vdb.upsert(
+                {
+                    entity_id: {
+                        "content": combined["entity_name"] + combined["description"],
+                        "entity_name": combined["entity_name"],
+                    }
+                }
+            )
+
+    for relationship_id in affected_relationship_ids:
+        combined = combined_relationships.get(relationship_id)
+        if combined is None:
+            removed_edge = removed_relationship_lookup.get(relationship_id)
+            if removed_edge is not None:
+                await knowledge_graph_inst.delete_edge(
+                    removed_edge[0], removed_edge[1]
+                )
+            continue
+        for endpoint in [combined["src_entity_id"], combined["tgt_entity_id"]]:
+            if not await knowledge_graph_inst.has_node(endpoint):
+                endpoint_combined = combined_entities.get(endpoint)
+                if endpoint_combined is not None:
+                    await knowledge_graph_inst.upsert_node(endpoint, endpoint_combined)
+        combined["description"] = await _handle_entity_relation_summary(
+            f"{combined['src_entity_id']}->{combined['tgt_entity_id']}",
+            combined["description"],
+            global_config,
+            tokenizer_wrapper,
+        )
+        await knowledge_graph_inst.upsert_edge(
+            combined["src_entity_id"],
+            combined["tgt_entity_id"],
+            {
+                "description": combined["description"],
+                "weight": combined["weight"],
+                "source_id": combined["source_id"],
+                "order": combined["order"],
+                "relationship_id": relationship_id,
+                "relation_type": combined["relation_type"],
+            },
+        )
+
+    return knowledge_graph_inst
+
+
+async def extract_entities_structured(
+    chunks: dict[str, TextChunkSchema],
+    knwoledge_graph_inst: BaseGraphStorage,
+    entity_vdb: BaseVectorStorage,
+    tokenizer_wrapper,
+    global_config: dict,
+    using_amazon_bedrock: bool = False,
+) -> Union[BaseGraphStorage, None]:
+    manifest = await extract_document_entity_relationships_structured(
+        chunks,
+        tokenizer_wrapper,
+        global_config,
+    )
+    if not manifest["entities"]:
+        return None
+    for entity_id, entity in manifest["entities"].items():
+        description = _join_unique(entity["descriptions"])
+        description = await _handle_entity_relation_summary(
+            entity["entity_name"], description, global_config, tokenizer_wrapper
+        )
+        await knwoledge_graph_inst.upsert_node(
+            entity_id,
+            {
+                "entity_name": entity["entity_name"],
+                "entity_type": entity["entity_type"],
+                "description": description,
+                "source_id": _join_unique(entity["source_chunk_ids"]),
+            },
+        )
+    for relationship_id, relationship in manifest["relationships"].items():
+        description = _join_unique(relationship["descriptions"])
+        description = await _handle_entity_relation_summary(
+            relationship_id, description, global_config, tokenizer_wrapper
+        )
+        await knwoledge_graph_inst.upsert_edge(
+            relationship["src_entity_id"],
+            relationship["tgt_entity_id"],
+            {
+                "description": description,
+                "weight": relationship["weight"],
+                "source_id": _join_unique(relationship["source_chunk_ids"]),
+                "order": 1,
+                "relationship_id": relationship_id,
+            },
+        )
+    if entity_vdb is not None:
+        await entity_vdb.upsert(
+            {
+                entity_id: {
+                    "content": entity["entity_name"] + _join_unique(entity["descriptions"]),
+                    "entity_name": entity["entity_name"],
+                }
+                for entity_id, entity in manifest["entities"].items()
+            }
+        )
+    return knwoledge_graph_inst
+
+
+async def extract_entities(
+    chunks: dict[str, TextChunkSchema],
+    knwoledge_graph_inst: BaseGraphStorage,
+    entity_vdb: BaseVectorStorage,
+    tokenizer_wrapper,
+    global_config: dict,
+    using_amazon_bedrock: bool = False,
+) -> Union[BaseGraphStorage, None]:
+    if global_config.get("_use_structured_extraction", False):
+        return await extract_entities_structured(
+            chunks,
+            knwoledge_graph_inst,
+            entity_vdb,
+            tokenizer_wrapper,
+            global_config,
+            using_amazon_bedrock,
+        )
+    manifest = await extract_document_entity_relationships_legacy(
+        chunks,
+        tokenizer_wrapper,
+        global_config,
+        using_amazon_bedrock,
+    )
+    if not manifest["entities"]:
         logger.warning("Didn't extract any entities, maybe your LLM is not working")
         return None
+    for entity_id, entity in manifest["entities"].items():
+        description = _join_unique(entity["descriptions"])
+        description = await _handle_entity_relation_summary(
+            entity["entity_name"], description, global_config, tokenizer_wrapper
+        )
+        await knwoledge_graph_inst.upsert_node(
+            entity_id,
+            {
+                "entity_name": entity["entity_name"],
+                "entity_type": entity["entity_type"],
+                "description": description,
+                "source_id": _join_unique(entity["source_chunk_ids"]),
+            },
+        )
+    for relationship_id, relationship in manifest["relationships"].items():
+        description = _join_unique(relationship["descriptions"])
+        description = await _handle_entity_relation_summary(
+            relationship_id, description, global_config, tokenizer_wrapper
+        )
+        await knwoledge_graph_inst.upsert_edge(
+            relationship["src_entity_id"],
+            relationship["tgt_entity_id"],
+            {
+                "description": description,
+                "weight": relationship["weight"],
+                "source_id": _join_unique(relationship["source_chunk_ids"]),
+                "order": 1,
+                "relationship_id": relationship_id,
+            },
+        )
     if entity_vdb is not None:
-        data_for_vdb = {
-            compute_mdhash_id(dp["entity_name"], prefix="ent-"): {
-                "content": dp["entity_name"] + dp["description"],
-                "entity_name": dp["entity_name"],
+        await entity_vdb.upsert(
+            {
+                entity_id: {
+                    "content": entity["entity_name"] + _join_unique(entity["descriptions"]),
+                    "entity_name": entity["entity_name"],
+                }
+                for entity_id, entity in manifest["entities"].items()
             }
-            for dp in all_entities_data
-        }
-        await entity_vdb.upsert(data_for_vdb)
+        )
     return knwoledge_graph_inst

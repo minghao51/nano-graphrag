@@ -1,7 +1,7 @@
 from typing import Dict, Union
 
 from .._splitter import SeparatorSplitter
-from .._utils import TokenizerWrapper, compute_mdhash_id
+from .._utils import TokenizerWrapper, compute_sha256_id
 from ..prompt import PROMPTS
 
 
@@ -85,5 +85,8 @@ def get_chunks(
         max_token_size=chunk_func_params.get("max_token_size", 1024),
     )
     for chunk in chunks:
-        inserting_chunks[compute_mdhash_id(chunk["content"], prefix="chunk-")] = chunk
+        chunk_key_base = (
+            f"{chunk['full_doc_id']}:{chunk['chunk_order_index']}:{chunk['content']}"
+        )
+        inserting_chunks[compute_sha256_id(chunk_key_base, prefix="chunk-")] = chunk
     return inserting_chunks

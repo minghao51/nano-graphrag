@@ -4,7 +4,12 @@ import shutil
 import asyncio
 import numpy as np
 from nano_graphrag import GraphRAG, QueryParam
-from nano_graphrag._utils import compute_mdhash_id, wrap_embedding_func_with_attrs
+from nano_graphrag._ops.extraction import extract_document_entity_relationships
+from nano_graphrag._utils import (
+    compute_mdhash_id,
+    generate_stable_entity_id,
+    wrap_embedding_func_with_attrs,
+)
 
 os.environ["OPENAI_API_KEY"] = "FAKE"
 
@@ -45,6 +50,18 @@ async def fake_json_model(prompt, system_prompt=None, history_messages=None, **k
     return FAKE_COMMUNITY_REPORT
 
 
+async def invalid_structured_model(prompt, system_prompt=None, history_messages=None, **kwargs) -> str:
+    if system_prompt is not None:
+        return "{not-json"
+    if prompt == "continue_prompt" or "MANY entities were missed" in prompt:
+        return ""
+    return (
+        '("entity"<|>CHARLES DICKENS<|>PERSON<|>Author of A Christmas Carol.)##'
+        '("entity"<|>A CHRISTMAS CAROL<|>WORK<|>A novella by Charles Dickens.)##'
+        '("relationship"<|>CHARLES DICKENS<|>A CHRISTMAS CAROL<|>Charles Dickens wrote A Christmas Carol.<|>1.0)<|COMPLETE|>'
+    )
+
+
 async def fake_entity_extraction(
     chunks,
     knwoledge_graph_inst,
@@ -54,25 +71,29 @@ async def fake_entity_extraction(
     using_amazon_bedrock=False,
 ):
     chunk_id = next(iter(chunks))
+    dickens_id = generate_stable_entity_id("CHARLES DICKENS", "PERSON")
+    carol_id = generate_stable_entity_id("A CHRISTMAS CAROL", "WORK")
     await knwoledge_graph_inst.upsert_node(
-        "CHARLES DICKENS",
+        dickens_id,
         {
+            "entity_name": "CHARLES DICKENS",
             "entity_type": "PERSON",
             "description": "Author of A Christmas Carol.",
             "source_id": chunk_id,
         },
     )
     await knwoledge_graph_inst.upsert_node(
-        "A CHRISTMAS CAROL",
+        carol_id,
         {
+            "entity_name": "A CHRISTMAS CAROL",
             "entity_type": "WORK",
             "description": "A novella by Charles Dickens.",
             "source_id": chunk_id,
         },
     )
     await knwoledge_graph_inst.upsert_edge(
-        "CHARLES DICKENS",
-        "A CHRISTMAS CAROL",
+        dickens_id,
+        carol_id,
         {
             "description": "Charles Dickens wrote A Christmas Carol.",
             "weight": 1.0,
@@ -82,11 +103,11 @@ async def fake_entity_extraction(
     if entity_vdb is not None:
         await entity_vdb.upsert(
             {
-                compute_mdhash_id("CHARLES DICKENS", prefix="ent-"): {
+                dickens_id: {
                     "content": "CHARLES DICKENS Author of A Christmas Carol.",
                     "entity_name": "CHARLES DICKENS",
                 },
-                compute_mdhash_id("A CHRISTMAS CAROL", prefix="ent-"): {
+                carol_id: {
                     "content": "A CHRISTMAS CAROL Novella by Dickens.",
                     "entity_name": "A CHRISTMAS CAROL",
                 },
@@ -112,6 +133,8 @@ def build_query_rag(best_model_func=fake_model, enable_naive_rag=False):
     )
     loop = asyncio.get_event_loop()
     chunk_id = "chunk-test-1"
+    dickens_id = generate_stable_entity_id("CHARLES DICKENS", "PERSON")
+    carol_id = generate_stable_entity_id("A CHRISTMAS CAROL", "WORK")
     loop.run_until_complete(
         rag.text_chunks.upsert(
             {
@@ -126,8 +149,9 @@ def build_query_rag(best_model_func=fake_model, enable_naive_rag=False):
     )
     loop.run_until_complete(
         rag.chunk_entity_relation_graph.upsert_node(
-            "CHARLES DICKENS",
+            dickens_id,
             {
+                "entity_name": "CHARLES DICKENS",
                 "entity_type": "PERSON",
                 "description": "Author of A Christmas Carol.",
                 "source_id": chunk_id,
@@ -137,8 +161,9 @@ def build_query_rag(best_model_func=fake_model, enable_naive_rag=False):
     )
     loop.run_until_complete(
         rag.chunk_entity_relation_graph.upsert_node(
-            "A CHRISTMAS CAROL",
+            carol_id,
             {
+                "entity_name": "A CHRISTMAS CAROL",
                 "entity_type": "WORK",
                 "description": "A novella by Charles Dickens.",
                 "source_id": chunk_id,
@@ -148,8 +173,8 @@ def build_query_rag(best_model_func=fake_model, enable_naive_rag=False):
     )
     loop.run_until_complete(
         rag.chunk_entity_relation_graph.upsert_edge(
-            "CHARLES DICKENS",
-            "A CHRISTMAS CAROL",
+            dickens_id,
+            carol_id,
             {
                 "description": "Charles Dickens wrote A Christmas Carol.",
                 "weight": 1.0,
@@ -160,7 +185,7 @@ def build_query_rag(best_model_func=fake_model, enable_naive_rag=False):
     loop.run_until_complete(
         rag.entities_vdb.upsert(
             {
-                compute_mdhash_id("CHARLES DICKENS", prefix="ent-"): {
+                dickens_id: {
                     "content": "CHARLES DICKENS Author of A Christmas Carol.",
                     "entity_name": "CHARLES DICKENS",
                 }
@@ -186,8 +211,8 @@ def build_query_rag(best_model_func=fake_model, enable_naive_rag=False):
                     "occurrence": 1.0,
                     "level": 0,
                     "title": "Charles Dickens",
-                    "edges": [["CHARLES DICKENS", "A CHRISTMAS CAROL"]],
-                    "nodes": ["CHARLES DICKENS", "A CHRISTMAS CAROL"],
+                    "edges": [[dickens_id, carol_id]],
+                    "nodes": [dickens_id, carol_id],
                     "chunk_ids": [chunk_id],
                     "sub_communities": [],
                 }
@@ -243,3 +268,65 @@ def test_subcommunity_insert():
     with open("./tests/mock_data.txt", encoding="utf-8-sig") as f:
         FAKE_TEXT = f.read()
     rag.insert(FAKE_TEXT)
+
+
+def test_structured_extraction_falls_back_to_legacy_parsing():
+    clean_working_dir()
+    rag = GraphRAG(
+        working_dir=WORKING_DIR,
+        best_model_func=invalid_structured_model,
+        cheap_model_func=invalid_structured_model,
+        embedding_func=local_embedding,
+    )
+    manifest = asyncio.get_event_loop().run_until_complete(
+        extract_document_entity_relationships(
+            {
+                "chunk-1": {
+                    "tokens": 8,
+                    "content": "Charles Dickens wrote A Christmas Carol.",
+                    "full_doc_id": "doc-test-1",
+                    "chunk_order_index": 0,
+                }
+            },
+            rag.tokenizer_wrapper,
+            {
+                **rag._runtime_config(),
+                "_use_structured_extraction": True,
+                "fallback_to_parsing": True,
+            },
+        )
+    )
+
+    assert len(manifest["entities"]) == 2
+    assert len(manifest["relationships"]) == 1
+
+
+def test_structured_extraction_can_disable_legacy_fallback():
+    clean_working_dir()
+    rag = GraphRAG(
+        working_dir=WORKING_DIR,
+        best_model_func=invalid_structured_model,
+        cheap_model_func=invalid_structured_model,
+        embedding_func=local_embedding,
+    )
+    manifest = asyncio.get_event_loop().run_until_complete(
+        extract_document_entity_relationships(
+            {
+                "chunk-1": {
+                    "tokens": 8,
+                    "content": "Charles Dickens wrote A Christmas Carol.",
+                    "full_doc_id": "doc-test-1",
+                    "chunk_order_index": 0,
+                }
+            },
+            rag.tokenizer_wrapper,
+            {
+                **rag._runtime_config(),
+                "_use_structured_extraction": True,
+                "fallback_to_parsing": False,
+            },
+        )
+    )
+
+    assert manifest["entities"] == {}
+    assert manifest["relationships"] == {}

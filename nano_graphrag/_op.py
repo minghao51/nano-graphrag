@@ -7,6 +7,7 @@ from ._ops import (
     _merge_nodes_then_upsert,
     chunking_by_seperators,
     chunking_by_token_size,
+    extract_document_entity_relationships,
     extract_entities,
     extract_entities_structured,
     generate_community_report,
@@ -14,6 +15,7 @@ from ._ops import (
     global_query,
     local_query,
     naive_query,
+    rebuild_knowledge_graph_for_documents,
 )
 
 __all__ = [
@@ -21,6 +23,7 @@ __all__ = [
     "_handle_single_relationship_extraction",
     "_merge_edges_then_upsert",
     "_merge_nodes_then_upsert",
+    "extract_document_entity_relationships",
     "chunking_by_seperators",
     "chunking_by_token_size",
     "extract_entities",
@@ -30,4 +33,5 @@ __all__ = [
     "global_query",
     "local_query",
     "naive_query",
+    "rebuild_knowledge_graph_for_documents",
 ]

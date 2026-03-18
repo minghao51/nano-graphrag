@@ -129,6 +129,16 @@ class HNSWVectorStorage(BaseVectorStorage):
             for label, distance in zip(labels[0], distances[0])
         ]
 
+    async def delete(self, ids: list[str]):
+        if not ids:
+            return
+        for id in ids:
+            id_int = xxhash.xxh32_intdigest(id.encode())
+            if id_int in self._metadata:
+                if hasattr(self._index, "mark_deleted"):
+                    self._index.mark_deleted(id_int)
+                self._metadata.pop(id_int, None)
+
     async def index_done_callback(self):
         self._index.save_index(self._index_file_name)
         with open(self._metadata_file_name, "wb") as f:

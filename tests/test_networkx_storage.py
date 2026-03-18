@@ -375,3 +375,71 @@ async def test_error_handling(networkx_storage):
 
     with pytest.raises(ValueError, match="Node embedding algorithm invalid_algo not supported"):
         await networkx_storage.embed_nodes("invalid_algo")
+
+
+@pytest.mark.asyncio
+async def test_incremental_clustering_updates_frontier_only(networkx_storage):
+    networkx_storage.global_config["addon_params"]["community_update_max_frontier_ratio"] = 0.9
+    for node_id in ["A", "B", "C", "D", "E", "F"]:
+        await networkx_storage.upsert_node(node_id, {"source_id": f"chunk-{node_id}"})
+    for source, target in [
+        ("A", "B"),
+        ("B", "C"),
+        ("C", "A"),
+        ("C", "D"),
+        ("D", "E"),
+        ("E", "F"),
+        ("F", "D"),
+    ]:
+        await networkx_storage.upsert_edge(source, target, {"weight": 1.0})
+
+    await networkx_storage.clustering("leiden")
+    far_node_before = (await networkx_storage.get_node("F"))["clusters"]
+
+    await networkx_storage.upsert_node("X", {"source_id": "chunk-X"})
+    await networkx_storage.upsert_edge("A", "X", {"weight": 1.0})
+    await networkx_storage.upsert_edge("B", "X", {"weight": 1.0})
+
+    await networkx_storage.clustering("leiden", affected_node_ids={"A", "B", "X"})
+
+    far_node_after = (await networkx_storage.get_node("F"))["clusters"]
+    affected_node_after = json.loads((await networkx_storage.get_node("A"))["clusters"])
+    new_node_after = json.loads((await networkx_storage.get_node("X"))["clusters"])
+
+    assert networkx_storage._last_clustering_was_incremental is True
+    assert far_node_after == far_node_before
+    assert affected_node_after[0]["cluster"].startswith("inc-")
+    assert len(new_node_after) == 1
+    assert new_node_after[0]["level"] == 0
+    assert len(networkx_storage._last_affected_community_ids) > 0
+
+
+@pytest.mark.asyncio
+async def test_incremental_clustering_falls_back_for_multi_level_graphs(networkx_storage):
+    networkx_storage.global_config["addon_params"]["community_update_max_frontier_ratio"] = 0.9
+    networkx_storage.global_config["max_graph_cluster_size"] = 2
+    networkx_storage.global_config["graph_cluster_seed"] = 1
+
+    nodes = [f"N{i}" for i in range(16)]
+    for node_id in nodes:
+        await networkx_storage.upsert_node(node_id, {"source_id": f"chunk-{node_id}"})
+    for i, node_id in enumerate(nodes):
+        await networkx_storage.upsert_edge(node_id, nodes[(i + 1) % len(nodes)], {"weight": 1.0})
+        await networkx_storage.upsert_edge(node_id, nodes[(i + 2) % len(nodes)], {"weight": 1.0})
+
+    await networkx_storage.clustering("leiden")
+    baseline_levels = json.loads((await networkx_storage.get_node("N0"))["clusters"])
+    assert len(baseline_levels) > 1
+
+    await networkx_storage.upsert_node("X", {"source_id": "chunk-X"})
+    await networkx_storage.upsert_edge("N0", "X", {"weight": 1.0})
+    await networkx_storage.upsert_edge("N1", "X", {"weight": 1.0})
+
+    await networkx_storage.clustering("leiden", affected_node_ids={"N0", "N1", "X"})
+
+    x_clusters = json.loads((await networkx_storage.get_node("X"))["clusters"])
+    n0_clusters = json.loads((await networkx_storage.get_node("N0"))["clusters"])
+
+    assert networkx_storage._last_clustering_was_incremental is False
+    assert len(x_clusters) == len(n0_clusters)
+    assert len(x_clusters) > 1

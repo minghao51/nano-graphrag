@@ -41,7 +41,9 @@ class NetworkXStorage(BaseGraphStorage):
 
         graph = graph.copy()
         graph = cast(nx.Graph, largest_connected_component(graph))
-        node_mapping = {node: html.unescape(node.upper().strip()) for node in graph.nodes()}  # type: ignore
+        # Preserve stable hashed node IDs exactly as stored. Uppercasing here breaks
+        # incremental entity identities because SHA-256 ids are case-sensitive.
+        node_mapping = {node: html.unescape(str(node).strip()) for node in graph.nodes()}  # type: ignore
         graph = nx.relabel_nodes(graph, node_mapping)
         return NetworkXStorage._stabilize_graph(graph)
 
@@ -94,6 +96,8 @@ class NetworkXStorage(BaseGraphStorage):
         self._node_embed_algorithms = {
             "node2vec": self._node2vec_embed,
         }
+        self._last_affected_community_ids = set()
+        self._last_clustering_was_incremental = False
 
     async def index_done_callback(self):
         NetworkXStorage.write_nx_graph(self._graph, self._graphml_xml_file)
@@ -167,10 +171,28 @@ class NetworkXStorage(BaseGraphStorage):
             ]
         )
 
-    async def clustering(self, algorithm: str):
+    async def delete_node(self, node_id: str):
+        if self._graph.has_node(node_id):
+            self._graph.remove_node(node_id)
+
+    async def delete_nodes_batch(self, node_ids: list[str]):
+        for node_id in node_ids:
+            if self._graph.has_node(node_id):
+                self._graph.remove_node(node_id)
+
+    async def delete_edge(self, source_node_id: str, target_node_id: str):
+        if self._graph.has_edge(source_node_id, target_node_id):
+            self._graph.remove_edge(source_node_id, target_node_id)
+
+    async def delete_edges_batch(self, edge_pairs: list[tuple[str, str]]):
+        for source_node_id, target_node_id in edge_pairs:
+            if self._graph.has_edge(source_node_id, target_node_id):
+                self._graph.remove_edge(source_node_id, target_node_id)
+
+    async def clustering(self, algorithm: str, affected_node_ids: Union[set[str], None] = None):
         if algorithm not in self._clustering_algorithms:
             raise ValueError(f"Clustering algorithm {algorithm} not supported")
-        await self._clustering_algorithms[algorithm]()
+        await self._clustering_algorithms[algorithm](affected_node_ids=affected_node_ids)
 
     async def community_schema(self) -> dict[str, SingleCommunitySchema]:
         results = defaultdict(
@@ -230,8 +252,135 @@ class NetworkXStorage(BaseGraphStorage):
         for node_id, clusters in cluster_data.items():
             self._graph.nodes[node_id]["clusters"] = json.dumps(clusters)
 
-    async def _leiden_clustering(self):
+    def _next_incremental_cluster_prefix(self) -> str:
+        counter = int(self._graph.graph.get("community_update_counter", 0)) + 1
+        self._graph.graph["community_update_counter"] = counter
+        return f"inc-{counter}"
+
+    def _extract_existing_clusters(self, node_id: str) -> list[dict[str, str]]:
+        node_data = self._graph.nodes.get(node_id, {})
+        raw_clusters = node_data.get("clusters")
+        if not raw_clusters:
+            return []
+        return json.loads(raw_clusters)
+
+    def _compute_frontier_nodes(self, affected_node_ids: set[str]) -> set[str]:
+        radius = self.global_config["addon_params"].get("community_update_neighbor_radius", 1)
+        frontier = {node_id for node_id in affected_node_ids if self._graph.has_node(node_id)}
+        current_layer = set(frontier)
+        for _ in range(radius):
+            next_layer = set()
+            for node_id in current_layer:
+                next_layer.update(self._graph.neighbors(node_id))
+            frontier.update(next_layer)
+            current_layer = next_layer
+        return frontier
+
+    def _collect_level0_starting_communities(self, frontier_nodes: set[str]) -> dict[str, int]:
+        cluster_lookup = {}
+        next_cluster_id = 0
+        starting = {}
+        for node_id in frontier_nodes:
+            level0 = next(
+                (
+                    cluster["cluster"]
+                    for cluster in self._extract_existing_clusters(node_id)
+                    if cluster["level"] == 0
+                ),
+                None,
+            )
+            if level0 is None:
+                continue
+            if level0 not in cluster_lookup:
+                cluster_lookup[level0] = next_cluster_id
+                next_cluster_id += 1
+            starting[node_id] = cluster_lookup[level0]
+        return starting
+
+    def _graph_has_multi_level_clusters(self) -> bool:
+        for node_id in self._graph.nodes:
+            if any(cluster["level"] > 0 for cluster in self._extract_existing_clusters(node_id)):
+                return True
+        return False
+
+    def _assign_singleton_clusters(self):
+        node_communities = {
+            node_id: [{"level": 0, "cluster": f"singleton-{index}"}]
+            for index, node_id in enumerate(sorted(self._graph.nodes()))
+        }
+        self._cluster_data_to_subgraphs(node_communities)
+        self._last_affected_community_ids = {
+            cluster["cluster"]
+            for clusters in node_communities.values()
+            for cluster in clusters
+        }
+        self._last_clustering_was_incremental = False
+
+    async def _leiden_clustering(self, affected_node_ids: Union[set[str], None] = None):
         from graspologic.partition import hierarchical_leiden
+
+        if self._graph.number_of_nodes() == 0:
+            self._last_affected_community_ids = set()
+            self._last_clustering_was_incremental = False
+            return
+        if self._graph.number_of_edges() == 0:
+            self._assign_singleton_clusters()
+            return
+
+        frontier_ratio_limit = self.global_config["addon_params"].get(
+            "community_update_max_frontier_ratio", 0.5
+        )
+        should_try_incremental = bool(affected_node_ids)
+        if should_try_incremental:
+            if self._graph_has_multi_level_clusters():
+                should_try_incremental = False
+            frontier_nodes = self._compute_frontier_nodes(affected_node_ids or set())
+            if should_try_incremental:
+                has_existing_clusters = any(
+                    self._graph.nodes[node_id].get("clusters")
+                    for node_id in frontier_nodes
+                    if self._graph.has_node(node_id)
+                )
+                if (
+                    not frontier_nodes
+                    or len(frontier_nodes) < 2
+                    or len(frontier_nodes) / max(1, self._graph.number_of_nodes()) > frontier_ratio_limit
+                    or not has_existing_clusters
+                ):
+                    should_try_incremental = False
+
+        if should_try_incremental:
+            old_community_ids = {
+                str(cluster["cluster"])
+                for node_id in frontier_nodes
+                for cluster in self._extract_existing_clusters(node_id)
+            }
+            frontier_graph = NetworkXStorage._stabilize_graph(self._graph.subgraph(frontier_nodes).copy())
+            starting_communities = self._collect_level0_starting_communities(frontier_nodes)
+            community_mapping = hierarchical_leiden(
+                frontier_graph,
+                max_cluster_size=self.global_config["max_graph_cluster_size"],
+                random_seed=self.global_config["graph_cluster_seed"],
+                starting_communities=starting_communities or None,
+                extra_forced_iterations=1,
+            )
+            cluster_prefix = self._next_incremental_cluster_prefix()
+            new_level0_ids = {}
+            for partition in community_mapping:
+                if partition.level != 0:
+                    continue
+                node_id = partition.node
+                level0_cluster = f"{cluster_prefix}-l0-{partition.cluster}"
+                self._graph.nodes[node_id]["clusters"] = json.dumps(
+                    [{"level": 0, "cluster": level0_cluster}]
+                )
+                new_level0_ids[node_id] = level0_cluster
+            self._last_affected_community_ids = old_community_ids.union(new_level0_ids.values())
+            self._last_clustering_was_incremental = True
+            logger.info(
+                f"Incremental Leiden updated {len(frontier_nodes)} frontier nodes across {len(self._last_affected_community_ids)} communities"
+            )
+            return
 
         graph = NetworkXStorage.stable_largest_connected_component(self._graph)
         community_mapping = hierarchical_leiden(
@@ -251,6 +400,12 @@ class NetworkXStorage(BaseGraphStorage):
         __levels = {k: len(v) for k, v in __levels.items()}
         logger.info(f"Each level has communities: {dict(__levels)}")
         self._cluster_data_to_subgraphs(node_communities)
+        self._last_affected_community_ids = {
+            str(cluster["cluster"])
+            for clusters in node_communities.values()
+            for cluster in clusters
+        }
+        self._last_clustering_was_incremental = False
 
     async def embed_nodes(self, algorithm: str) -> tuple[np.ndarray, list[str]]:
         if algorithm not in self._node_embed_algorithms:

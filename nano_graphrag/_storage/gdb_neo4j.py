@@ -373,7 +373,40 @@ class Neo4jStorage(BaseGraphStorage):
                 edges=edges_params,
             )
 
-    async def clustering(self, algorithm: str):
+    async def delete_node(self, node_id: str):
+        await self.delete_nodes_batch([node_id])
+
+    async def delete_nodes_batch(self, node_ids: list[str]):
+        if not node_ids:
+            return
+        async with self.async_driver.session() as session:
+            await session.run(
+                f"""
+                UNWIND $node_ids AS node_id
+                MATCH (n:`{self.namespace}` {{id: node_id}})
+                DETACH DELETE n
+                """,
+                node_ids=node_ids,
+            )
+
+    async def delete_edge(self, source_node_id: str, target_node_id: str):
+        await self.delete_edges_batch([(source_node_id, target_node_id)])
+
+    async def delete_edges_batch(self, edge_pairs: list[tuple[str, str]]):
+        if not edge_pairs:
+            return
+        edges_params = [{"source_id": src, "target_id": tgt} for src, tgt in edge_pairs]
+        async with self.async_driver.session() as session:
+            await session.run(
+                f"""
+                UNWIND $edges AS edge
+                MATCH (s:`{self.namespace}` {{id: edge.source_id}})-[r]->(t:`{self.namespace}` {{id: edge.target_id}})
+                DELETE r
+                """,
+                edges=edges_params,
+            )
+
+    async def clustering(self, algorithm: str, affected_node_ids=None):
         if algorithm != "leiden":
             raise ValueError(
                 f"Clustering algorithm {algorithm} not supported in Neo4j implementation"
