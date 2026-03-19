@@ -67,11 +67,13 @@ Additional persisted state for incremental indexing:
 `GraphRAG.insert` / `ainsert` performs:
 
 1. Normalize inputs into logical document IDs plus content hashes
+   `insert` also checks for a legacy MD5-based doc ID before creating a new SHA-256 doc ID so older stores can be updated in place.
 2. Skip unchanged logical documents by comparing stored content hashes
 3. Build document-scoped chunks only for changed/new docs
 4. Extract per-document entities/relationships into a manifest using stable SHA-256 entity IDs
 5. Replace changed-document chunks and update the persisted `document_index`
 6. Rebuild only affected graph nodes/edges by aggregating document manifests
+   During rebuild, entities with the same normalized name can be remapped onto a canonical entity ID so a later `"UNKNOWN"` extraction does not fork the graph identity for an existing entity.
 7. Recompute graph clustering
 8. Regenerate only affected community reports when incremental clustering can stay local
 9. Persist full docs, chunks, vectors, graph, manifests, and cache state

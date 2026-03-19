@@ -535,11 +535,19 @@ class GraphRAG:
     async def ainsert(self, string_or_strings):
         if isinstance(string_or_strings, str):
             string_or_strings = [string_or_strings]
-        documents = {
-            compute_sha256_id(content.strip(), prefix="doc-"): content
-            for content in string_or_strings
-            if content.strip()
-        }
+        normalized_contents = [content.strip() for content in string_or_strings if content.strip()]
+        legacy_doc_ids = [compute_mdhash_id(content, prefix="doc-") for content in normalized_contents]
+        legacy_docs = await self.full_docs.get_by_ids(legacy_doc_ids)
+        documents = {}
+        for content, legacy_doc_id, legacy_doc in zip(
+            normalized_contents, legacy_doc_ids, legacy_docs
+        ):
+            doc_id = (
+                legacy_doc_id
+                if legacy_doc is not None
+                else compute_sha256_id(content, prefix="doc-")
+            )
+            documents[doc_id] = content
         return await self._ainsert_documents(documents, allow_legacy_custom=True)
 
     async def ainsert_documents(self, documents: dict[str, str]):

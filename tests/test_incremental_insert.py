@@ -5,7 +5,12 @@ import shutil
 import numpy as np
 
 from nano_graphrag import GraphRAG, QueryParam
-from nano_graphrag._utils import generate_stable_entity_id, wrap_embedding_func_with_attrs
+from nano_graphrag._utils import (
+    compute_mdhash_id,
+    compute_sha256_id,
+    generate_stable_entity_id,
+    wrap_embedding_func_with_attrs,
+)
 
 os.environ["OPENAI_API_KEY"] = "FAKE"
 
@@ -75,6 +80,30 @@ def test_insert_documents_and_skip_unchanged():
     assert initial_doc["content"] == "Charles Dickens wrote A Christmas Carol."
     assert initial_manifest["content_hash"] == after_manifest["content_hash"]
     assert len(initial_manifest["chunk_ids"]) == len(after_manifest["chunk_ids"])
+
+
+def test_insert_reuses_legacy_md5_document_ids():
+    rag = build_incremental_rag()
+    content = "Charles Dickens wrote A Christmas Carol."
+    legacy_doc_id = compute_mdhash_id(content, prefix="doc-")
+    sha_doc_id = compute_sha256_id(content, prefix="doc-")
+
+    asyncio.get_event_loop().run_until_complete(
+        rag.full_docs.upsert(
+            {
+                legacy_doc_id: {
+                    "content": content,
+                    "content_hash": compute_sha256_id(content),
+                }
+            }
+        )
+    )
+
+    rag.insert(content)
+
+    all_doc_keys = asyncio.get_event_loop().run_until_complete(rag.full_docs.all_keys())
+    assert legacy_doc_id in all_doc_keys
+    assert sha_doc_id not in all_doc_keys
 
 
 def test_insert_documents_replaces_changed_version():
@@ -166,6 +195,45 @@ def test_insert_documents_persists_delta_state():
 
     manifest = asyncio.get_event_loop().run_until_complete(reloaded.document_index.get_by_id("doc-1"))
     assert len(manifest["entities"]) == 2
+
+
+def test_incremental_update_keeps_entity_identity_when_new_extract_is_unknown():
+    clean_working_dir()
+    state = {"relationship_only": False}
+
+    async def type_drift_model(prompt, system_prompt=None, history_messages=None, **kwargs) -> str:
+        if system_prompt is not None:
+            return FAKE_COMMUNITY_REPORT
+        if prompt == "continue_prompt" or "MANY entities were missed" in prompt:
+            return ""
+        if not state["relationship_only"] and "Charles Dickens wrote Oliver Twist" in prompt:
+            return (
+                '("entity"<|>CHARLES DICKENS<|>PERSON<|>Author of Oliver Twist.)##'
+                '("entity"<|>OLIVER TWIST<|>WORK<|>A novel by Charles Dickens.)##'
+                '("relationship"<|>CHARLES DICKENS<|>OLIVER TWIST<|>Charles Dickens wrote Oliver Twist.<|>1.0)<|COMPLETE|>'
+            )
+        return (
+            '("relationship"<|>CHARLES DICKENS<|>OLIVER TWIST<|>Charles Dickens wrote Oliver Twist.<|>1.0)<|COMPLETE|>'
+        )
+
+    rag = GraphRAG(
+        working_dir=WORKING_DIR,
+        best_model_func=type_drift_model,
+        cheap_model_func=type_drift_model,
+        embedding_func=local_embedding,
+        enable_naive_rag=True,
+    )
+
+    rag.insert_documents({"doc-1": "Charles Dickens wrote Oliver Twist."})
+    state["relationship_only"] = True
+    rag.insert_documents({"doc-1": "Charles Dickens wrote Oliver Twist again."})
+
+    loop = asyncio.get_event_loop()
+    person_id = generate_stable_entity_id("CHARLES DICKENS", "PERSON")
+    unknown_id = generate_stable_entity_id("CHARLES DICKENS", '"UNKNOWN"')
+
+    assert loop.run_until_complete(rag.chunk_entity_relation_graph.has_node(person_id))
+    assert not loop.run_until_complete(rag.chunk_entity_relation_graph.has_node(unknown_id))
 
 
 def test_local_query_context_uses_human_readable_names():
