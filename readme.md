@@ -179,7 +179,7 @@ with open("./book.txt") as f:
     graph_func.insert(book[half_len:])
 ```
 
-> `nano-graphrag` use md5-hash of the content as the key, so there is no duplicated chunk.
+> `nano-graphrag` derives stable content-based document IDs and reuses legacy MD5 document IDs when they already exist, so repeated inserts do not duplicate stored documents or chunks.
 >
 > However, each time you insert, the communities of graph will be re-computed and the community reports will be re-generated
 
@@ -448,9 +448,9 @@ You can refer to `nano_graphrag.base` to see detailed interfaces for each compon
 
 
 
-## FQA
+## FAQ
 
-Check [FQA](./docs/FAQ.md).
+Check [FAQ](./docs/FAQ.md).
 
 
 
@@ -461,6 +461,7 @@ See [ROADMAP.md](./docs/ROADMAP.md)
 ## Architecture
 
 See [20260317-architecture.md](./docs/20260317-architecture.md) for the current pipeline, storage model, and extension points.
+For incremental clustering follow-up ideas, see [20260318-incremental-community-update-research.md](./docs/20260318-incremental-community-update-research.md).
 
 
 
