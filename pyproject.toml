@@ -38,9 +38,6 @@ neo4j = ["neo4j"]
 milvus = ["pymilvus"]
 qdrant = ["qdrant-client"]
 
-# Entity extraction with DSPy
-dspy = ["dspy-ai"]
-
 # Local embedding models (optional - LiteLLM can call remote)
 local-embedding = [
     "sentence-transformers",
@@ -58,12 +55,11 @@ dev = [
     "pytest-asyncio",
     "pytest-cov",
     "ruff",
-    "dspy-ai",
 ]
 
 # All extras combined
 all = [
-    "nano-graphrag[storage,anthropic,aws,neo4j,milvus,qdrant,dspy,local-embedding,tokenizer,dev]",
+    "nano-graphrag[storage,anthropic,aws,neo4j,milvus,qdrant,local-embedding,tokenizer,dev]",
 ]
 
 # Convenience: sensible defaults for most users
@@ -90,7 +86,6 @@ asyncio_mode = "auto"
 
 [tool.uv]
 dev-dependencies = [
-    "dspy-ai>=2.0.0",
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0.0",

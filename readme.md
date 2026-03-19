@@ -71,7 +71,6 @@ uv sync
 pip install nano-graphrag
 
 # Optional extras
-pip install nano-graphrag[dspy]
 pip install nano-graphrag[neo4j]
 ```
 
@@ -85,7 +84,6 @@ pip install nano-graphrag[neo4j]
 | `neo4j` | Neo4j graph storage |
 | `milvus` | Milvus vector DB |
 | `qdrant` | Qdrant vector DB |
-| `dspy` | Experimental DSPy helpers in `nano_graphrag.contrib.dspy` |
 | `local-embedding` | Sentence-transformers |
 | `dev` | Development tools |
 | `default` | storage + neo4j |
@@ -269,8 +267,6 @@ The maintained examples focus on a small cookbook:
 - generic OpenAI-compatible endpoint
 - Neo4j graph storage
 - custom embedding or extraction hooks
-
-DSPy is available as an experimental contrib integration through `nano_graphrag.contrib.dspy`.
 
 ## Advances
 

@@ -117,8 +117,4 @@ These hooks are supported, but they are considered advanced customization points
 
 ## Optional Integrations
 
-DSPy helpers are exposed from `nano_graphrag.contrib.dspy`.
-
-- They are optional and experimental
-- The legacy `nano_graphrag.entity_extraction` package remains as a compatibility shim with deprecation warnings
-- Core runtime behavior should not depend on DSPy being installed
+Optional integrations should stay outside the core runtime so the default package remains lightweight.
