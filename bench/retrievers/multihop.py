@@ -56,7 +56,13 @@ class MultiHopRetriever:
     async def _decompose(self, question: str, graph_rag: GraphRAG) -> list[str]:
         """Decompose question into sub-questions."""
         prompt = self._build_decompose_prompt(question)
-        response = await graph_rag._llm(prompt)
+        # Use best_model_func if available, otherwise cheap_model_func
+        if graph_rag.best_model_func is not None:
+            response = await graph_rag.best_model_func(prompt)
+        elif graph_rag.cheap_model_func is not None:
+            response = await graph_rag.cheap_model_func(prompt)
+        else:
+            raise ValueError("No model function available for query decomposition")
         return self._parse_sub_questions(response)
 
     async def _retrieve_hop(
