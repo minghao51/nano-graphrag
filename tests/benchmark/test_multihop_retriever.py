@@ -69,3 +69,31 @@ async def test_entity_carry_over():
 
     assert hop_count == 2
     assert result == "merged"
+
+
+@pytest.mark.asyncio
+async def test_context_merge_deduplication():
+    """Verify context merging deduplicates chunks."""
+    from bench.retrievers.multihop import MultiHopRetriever
+    from bench.retrievers.base import HopState
+
+    retriever = MultiHopRetriever(context_token_budget=1000)
+
+    state1 = HopState(
+        sub_question="Q1",
+        context_chunks=["chunk A", "chunk B", "chunk C"],
+        retrieved_entities=[]
+    )
+    state2 = HopState(
+        sub_question="Q2",
+        context_chunks=["chunk B", "chunk D"],  # chunk B is duplicate
+        retrieved_entities=[]
+    )
+
+    merged = retriever._merge_contexts([state1, state2], budget=1000)
+
+    # Should deduplicate and reverse (later hops first)
+    assert "chunk D" in merged
+    assert "chunk B" in merged
+    assert "chunk A" in merged
+    assert merged.count("chunk B") == 1  # Only once
