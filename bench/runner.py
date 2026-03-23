@@ -2,16 +2,59 @@
 
 import asyncio
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from nano_graphrag.base import GraphRAGConfig, QueryParam
 from nano_graphrag.graphrag import GraphRAG
+
 from .cache import create_benchmark_cache
 from .datasets import BenchmarkDataset, MultiHopRAGDataset
-from .metrics import MetricSuite, get_baseline_suite
+from .metrics import MetricSuite
+
+
+class MultiHopGraphRAG(GraphRAG):
+    """GraphRAG subclass with multi-hop support."""
+
+    async def aquery(
+        self,
+        query: str,
+        param: QueryParam = QueryParam(mode="local"),
+        injected_context: Optional[str] = None,
+    ) -> str:
+        """Query with optional injected context.
+
+        Args:
+            query: User question
+            param: Query parameters
+            injected_context: Optional pre-retrieved context to use
+
+        Returns:
+            Answer string
+        """
+        if injected_context:
+            # Use injected context for generation
+            return await self._generate_answer(query, injected_context)
+        else:
+            # Use standard retrieval + generation
+            return await super().aquery(query, param=param)
+
+    async def _generate_answer(self, question: str, context: str) -> str:
+        """Generate answer from question + context."""
+        prompt = f"""Context: {context}
+
+Question: {question}
+
+Answer the question using only the context above."""
+        # Use best_model_func if available, otherwise cheap_model_func
+        if self.best_model_func is not None:
+            return await self.best_model_func(prompt)
+        elif self.cheap_model_func is not None:
+            return await self.cheap_model_func(prompt)
+        else:
+            raise ValueError("No model function available for generation")
 
 
 @dataclass
@@ -189,7 +232,9 @@ class ExperimentResult:
     timestamp: str
     config: BenchmarkConfig
     mode_results: Dict[str, Dict[str, float]]  # mode -> metric_scores
-    predictions: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)  # mode -> list of {question, prediction, gold}
+    predictions: Dict[str, List[Dict[str, Any]]] = field(
+        default_factory=dict
+    )  # mode -> list of {question, prediction, gold}
     duration_seconds: float = 0.0
     cache_stats: Optional[Dict[str, Any]] = None
 
@@ -303,7 +348,12 @@ class ExperimentRunner:
     def _create_graphrag(self) -> GraphRAG:
         """Create GraphRAG instance from config."""
         rag_config = GraphRAGConfig.from_dict(self.config.graphrag_config)
-        rag = GraphRAG.from_config(rag_config)
+
+        # Use MultiHopGraphRAG if multihop mode is enabled
+        if "multihop" in self.config.query_modes:
+            rag = MultiHopGraphRAG.from_config(rag_config)
+        else:
+            rag = GraphRAG.from_config(rag_config)
 
         # Wrap LLM functions with cache if enabled
         if self._cache is not None and self._cache.enabled:
@@ -351,7 +401,9 @@ class ExperimentRunner:
         questions_list = list(self._dataset.questions(split=self.config.dataset_split))
         corpus_list = list(self._dataset.corpus())
 
-        print(f"[Dataset] Loaded {len(questions_list)} questions and {len(corpus_list)} corpus documents")
+        print(
+            f"[Dataset] Loaded {len(questions_list)} questions and {len(corpus_list)} corpus documents"
+        )
 
         # Create GraphRAG instance
         self._rag = self._create_graphrag()
@@ -377,11 +429,27 @@ class ExperimentRunner:
                 question = qa.question
                 gold = qa.answer
 
-                # Build query params
-                query_param = QueryParam(mode=mode, **self.config.query_params)  # type: ignore[arg-type]
+                # Run query based on mode
+                if mode == "multihop":
+                    # Use MultiHopRetriever
+                    from .retrievers.multihop import MultiHopRetriever
 
-                # Run query
-                prediction = await self._rag.aquery(question, query_param)
+                    retriever = MultiHopRetriever(
+                        max_hops=self.config.query_params.get("max_hops", 4),
+                        entities_per_hop=self.config.query_params.get("entities_per_hop", 10),
+                        context_token_budget=self.config.query_params.get("context_token_budget", 8000),
+                    )
+                    context = await retriever.retrieve(question, self._rag)
+                    # Generate answer with retrieved context
+                    prediction = await self._rag.aquery(
+                        question,
+                        param=QueryParam(mode="local"),
+                        injected_context=context,
+                    )
+                else:
+                    # Use standard GraphRAG modes
+                    query_param = QueryParam(mode=mode, **self.config.query_params)  # type: ignore[arg-type]
+                    prediction = await self._rag.aquery(question, query_param)
 
                 predictions.append(prediction)
                 golds.append(gold)
@@ -409,7 +477,9 @@ class ExperimentRunner:
         cache_stats = None
         if self._cache is not None:
             cache_stats = await self._cache.stats()
-            print(f"\n[Cache] Hits: {cache_stats['hits']}, Misses: {cache_stats['misses']}, Hit Rate: {cache_stats['hit_rate']:.2%}")
+            print(
+                f"\n[Cache] Hits: {cache_stats['hits']}, Misses: {cache_stats['misses']}, Hit Rate: {cache_stats['hit_rate']:.2%}"
+            )
 
         # Create result
         result = ExperimentResult(
@@ -432,3 +502,111 @@ class ExperimentRunner:
         """Synchronous wrapper for run()."""
         loop = asyncio.get_event_loop()
         return loop.run_until_complete(self.run())
+
+
+@dataclass
+class ABConfig:
+    """A/B test configuration supporting side-by-side variant comparison."""
+
+    experiment_name: str = "ab_experiment"
+    version: str = "1.0"
+    description: str = ""
+
+    shared: Dict[str, Any] = field(default_factory=dict)
+
+    variant_a_label: str = "variant_a"
+    variant_a_config: Dict[str, Any] = field(default_factory=dict)
+
+    variant_b_label: str = "variant_b"
+    variant_b_config: Dict[str, Any] = field(default_factory=dict)
+
+    output_dir: str = "./benchmark_results"
+
+    @classmethod
+    def from_yaml(cls, path: str) -> "ABConfig":
+        """Load A/B config from YAML file."""
+        try:
+            import yaml
+        except ImportError:
+            raise ImportError(
+                "PyYAML is required to load YAML configs. Install with: uv add pyyaml"
+            )
+        with open(path, "r") as f:
+            data = yaml.safe_load(f)
+        return cls.from_dict(data)
+
+    @classmethod
+    def from_dict(cls, config: Dict[str, Any]) -> "ABConfig":
+        """Create A/B config from dictionary."""
+        shared = config.get("shared", {})
+
+        variant_a = config.get("variant_a", {})
+        variant_b = config.get("variant_b", {})
+
+        return cls(
+            experiment_name=config.get("name", config.get("experiment_name", "ab_experiment")),
+            version=config.get("version", "1.0"),
+            description=config.get("description", ""),
+            shared=shared,
+            variant_a_label=variant_a.get("label", "variant_a"),
+            variant_a_config=variant_a,
+            variant_b_label=variant_b.get("label", "variant_b"),
+            variant_b_config=variant_b,
+            output_dir=config.get("output", {}).get("results_dir", "./benchmark_results"),
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "name": self.experiment_name,
+            "version": self.version,
+            "description": self.description,
+            "shared": self.shared,
+            "variant_a": {
+                "label": self.variant_a_label,
+                **self.variant_a_config,
+            },
+            "variant_b": {
+                "label": self.variant_b_label,
+                **self.variant_b_config,
+            },
+            "output": {
+                "results_dir": self.output_dir,
+            },
+        }
+
+
+class ABExperimentRunner:
+    """Run A/B experiments comparing two variants."""
+
+    def __init__(self, config: ABConfig):
+        self.config = config
+        self.variant_a_runner = ExperimentRunner(self._build_variant_config("a"))
+        self.variant_b_runner = ExperimentRunner(self._build_variant_config("b"))
+
+    def _build_variant_config(self, variant: str) -> BenchmarkConfig:
+        """Build BenchmarkConfig for a variant by merging shared + variant config."""
+        if variant == "a":
+            base = self.config.shared.copy()
+            base.update(self.config.variant_a_config)
+        else:
+            base = self.config.shared.copy()
+            base.update(self.config.variant_b_config)
+
+        return BenchmarkConfig.from_dict(
+            {
+                "experiment_name": f"{self.config.experiment_name}_{self.config.variant_a_label if variant == 'a' else self.config.variant_b_label}",
+                **base,
+                "output_dir": self.config.output_dir,
+            }
+        )
+
+    async def run(self) -> tuple[ExperimentResult, ExperimentResult]:
+        """Run both variants and return (variant_a_result, variant_b_result)."""
+        print(f"[A/B] Running variant A: {self.config.variant_a_label}")
+        result_a = await self.variant_a_runner.run()
+
+        print(f"[A/B] Running variant B: {self.config.variant_b_label}")
+        result_b = await self.variant_b_runner.run()
+
+        return result_a, result_b
