@@ -14,6 +14,9 @@ class BenchmarkLLMCache:
     """Persistent LLM cache using BaseKVStorage pattern.
 
     Wraps the existing hashing_kv pattern used in GraphRAG for benchmark experiments.
+
+    Note: Hit/miss counters are not thread-safe. This is acceptable for the current
+    use case (single-threaded benchmark runs).
     """
 
     storage: BaseKVStorage
@@ -98,8 +101,12 @@ class BenchmarkLLMCache:
             system_prompts: Optional list of system prompts (one per prompt)
 
         Returns:
-            List of cached responses (None if not found)
+            List of cached responses (None if not found or cache disabled)
         """
+        # Return list of None values if disabled (don't track)
+        if not self.enabled:
+            return [None] * len(prompts)
+
         if system_prompts is None:
             system_prompts = [None] * len(prompts)
 
