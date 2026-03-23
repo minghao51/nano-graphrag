@@ -97,3 +97,24 @@ async def test_context_merge_deduplication():
     assert "chunk B" in merged
     assert "chunk A" in merged
     assert merged.count("chunk B") == 1  # Only once
+
+
+@pytest.mark.asyncio
+async def test_token_budget_enforcement():
+    """Verify context merging respects token budget."""
+    from bench.retrievers.multihop import MultiHopRetriever
+    from bench.retrievers.base import HopState
+
+    retriever = MultiHopRetriever(context_token_budget=100)  # ~25 chars
+
+    # Create chunks that exceed budget
+    state = HopState(
+        sub_question="Q1",
+        context_chunks=["x" * 50 for _ in range(10)],  # 500 chars
+        retrieved_entities=[]
+    )
+
+    merged = retriever._merge_contexts([state], budget=100)
+
+    # Should truncate to fit budget
+    assert len(merged) <= 150  # Some margin
