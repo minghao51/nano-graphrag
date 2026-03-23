@@ -1,0 +1,41 @@
+name: multihop_2wiki
+version: "1.0"
+description: "Multi-hop RAG benchmark on 2WikiMHQA dataset"
+
+dataset:
+  name: 2wiki
+  path: ~/.cache/nano-bench/2wiki/dev.json
+  split: validation
+  max_samples: 200
+  auto_download: true
+
+graphrag:
+  working_dir: ./workdirs/2wiki_benchmark
+  llm_model: gpt-4o-mini
+  embedding_model: text-embedding-3-small
+  chunk_func: chunking_by_token_size
+  chunk_token_size: 1200
+  chunk_overlap_token_size: 100
+  enable_llm_cache: true
+
+query:
+  modes:
+    - naive
+    - local
+    - multihop
+  param_overrides:
+    max_hops: 4
+    entities_per_hop: 10
+    context_token_budget: 8000
+
+cache:
+  enabled: true
+  backend: disk
+
+metrics:
+  exact_match: true
+  token_f1: true
+
+output:
+  results_dir: ./results/2wiki_benchmark
+  save_predictions: true

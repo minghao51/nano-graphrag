@@ -1,0 +1,26 @@
+name: ablation_chunker_size
+ab_test: true
+
+shared:
+  dataset:
+    name: musique
+    split: validation
+    max_samples: 200
+    auto_download: true
+  metrics:
+    exact_match: true
+    token_f1: true
+  output:
+    results_dir: ./benchmark_results
+
+variant_a:
+  label: "chunk_1200"
+  graphrag:
+    working_dir: ./workdirs/chunk_1200
+    chunk_token_size: 1200
+
+variant_b:
+  label: "chunk_400"
+  graphrag:
+    working_dir: ./workdirs/chunk_400
+    chunk_token_size: 400
