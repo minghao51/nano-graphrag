@@ -27,3 +27,20 @@ async def test_retriever_result_dataclass():
     assert result.context == "test context"
     assert result.entities == ["entity1", "entity2"]
     assert result.hops == 2
+
+
+@pytest.mark.asyncio
+async def test_hop_state_dataclass():
+    """Verify HopState has all required fields from roadmap."""
+    from bench.retrievers.base import HopState
+
+    state = HopState(
+        sub_question="What is X?",
+        retrieved_entities=["entity1"],
+        context_chunks=["chunk1"],
+        answer_fragment=""
+    )
+    assert state.sub_question == "What is X?"
+    assert state.retrieved_entities == ["entity1"]
+    assert state.context_chunks == ["chunk1"]
+    assert state.answer_fragment == ""

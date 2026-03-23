@@ -15,6 +15,15 @@ class RetrieverResult:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass
+class HopState:
+    """State for a single hop in multi-hop retrieval."""
+    sub_question: str  # Question for this hop
+    retrieved_entities: list[str] = field(default_factory=list)
+    context_chunks: list[str] = field(default_factory=list)
+    answer_fragment: str = ""  # Partial answer from this hop
+
+
 class Retriever(Protocol):
     """Protocol for retrieval strategies."""
 
