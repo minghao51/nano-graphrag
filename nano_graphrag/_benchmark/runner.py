@@ -260,17 +260,17 @@ class ExperimentRunner:
 
         # Load dataset
         self._dataset = self._load_dataset()
-        questions = self._dataset.questions(split=self.config.dataset_split)
-        corpus = self._dataset.corpus()
+        questions_list = list(self._dataset.questions(split=self.config.dataset_split))
+        corpus_list = list(self._dataset.corpus())
 
-        print(f"[Dataset] Loaded {len(questions)} questions and {len(corpus)} corpus documents")
+        print(f"[Dataset] Loaded {len(questions_list)} questions and {len(corpus_list)} corpus documents")
 
         # Create GraphRAG instance
         self._rag = self._create_graphrag()
 
         # Insert corpus
-        print(f"[Index] Inserting {len(corpus)} documents into GraphRAG...")
-        await self._rag.ainsert_documents({f"doc_{i}": doc for i, doc in enumerate(corpus)})
+        print(f"[Index] Inserting {len(corpus_list)} documents into GraphRAG...")
+        await self._rag.ainsert_documents({doc.id: doc.text for doc in corpus_list})
         print("[Index] Insertion complete")
 
         # Create metric suite
@@ -285,9 +285,9 @@ class ExperimentRunner:
             predictions = []
             golds = []
 
-            for i, qa in enumerate(questions):
-                question = qa["question"]
-                gold = qa.get("answer", "")
+            for i, qa in enumerate(questions_list):
+                question = qa.question
+                gold = qa.answer
 
                 # Build query params
                 query_param = QueryParam(mode=mode, **self.config.query_params)  # type: ignore[arg-type]
@@ -299,7 +299,7 @@ class ExperimentRunner:
                 golds.append(gold)
 
                 if (i + 1) % 10 == 0:
-                    print(f"  Processed {i + 1}/{len(questions)} queries")
+                    print(f"  Processed {i + 1}/{len(questions_list)} queries")
 
             # Compute metrics
             scores = await self._metric_suite.compute_batch(predictions, golds)
@@ -307,8 +307,8 @@ class ExperimentRunner:
 
             # Store predictions
             all_predictions[mode] = [
-                {"question": qa["question"], "prediction": pred, "gold": qa.get("answer", "")}
-                for qa, pred in zip(questions, predictions)
+                {"question": qa.question, "prediction": pred, "gold": qa.answer}
+                for qa, pred in zip(questions_list, predictions)
             ]
 
             print(f"[Query] {mode} results: {scores}")
