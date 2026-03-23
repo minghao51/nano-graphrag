@@ -70,3 +70,34 @@ async def test_cache_hit_rate_with_no_calls():
         assert stats["hit_rate"] == 0.0
         assert stats["hits"] == 0
         assert stats["misses"] == 0
+
+
+@pytest.mark.asyncio
+async def test_cache_wrapper_decorates_llm_function():
+    """Cache.wrap() should add caching to any LLM function."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cache = create_benchmark_cache(tmpdir, enabled=True)
+        call_count = {"value": 0}
+
+        # Mock LLM function
+        async def mock_llm(prompt, model="gpt-4o-mini", system_prompt=None):
+            call_count["value"] += 1
+            return f"Response to: {prompt}"
+
+        # Wrap the function
+        wrapped_llm = cache.wrap(mock_llm)
+
+        # First call should invoke the function
+        result1 = await wrapped_llm("test prompt", model="gpt-4o-mini")
+        assert result1 == "Response to: test prompt"
+        assert call_count["value"] == 1
+
+        # Second call should hit cache
+        result2 = await wrapped_llm("test prompt", model="gpt-4o-mini")
+        assert result2 == "Response to: test prompt"
+        assert call_count["value"] == 1  # No additional call
+
+        # Different prompt should miss
+        result3 = await wrapped_llm("different prompt", model="gpt-4o-mini")
+        assert result3 == "Response to: different prompt"
+        assert call_count["value"] == 2

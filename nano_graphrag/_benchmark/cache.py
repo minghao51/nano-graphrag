@@ -211,6 +211,45 @@ class BenchmarkLLMCache:
         """Flush cache to disk (if applicable)."""
         await self.storage.index_done_callback()
 
+    def wrap(self, llm_func):
+        """Wrap an LLM function with transparent caching.
+
+        The wrapped function will check the cache before calling the original
+        LLM function, and store results in the cache after calls.
+
+        Args:
+            llm_func: An async LLM function with signature:
+                (prompt, model=None, system_prompt=None, **kwargs) -> str
+
+        Returns:
+            A wrapped async function with the same signature that uses caching.
+        """
+
+        async def wrapped(
+            prompt: str,
+            model: Optional[str] = None,
+            system_prompt: Optional[str] = None,
+            **kwargs,
+        ) -> str:
+            # Normalize model parameter (can be in kwargs or as explicit param)
+            if model is None:
+                model = kwargs.get("model", "gpt-4o-mini")
+
+            # Check cache
+            cached_response = await self.get(prompt, model, system_prompt)
+            if cached_response is not None:
+                return cached_response
+
+            # Cache miss - call original function
+            response = await llm_func(prompt, model=model, system_prompt=system_prompt, **kwargs)
+
+            # Store in cache
+            await self.set(prompt, model, response, system_prompt)
+
+            return response
+
+        return wrapped
+
 
 def create_benchmark_cache(
     working_dir: str,
