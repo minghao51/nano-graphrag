@@ -30,6 +30,12 @@ storage = [
     "hnswlib",
 ]
 
+# Benchmark evaluation (LLM-as-judge metrics)
+benchmark = [
+    "datasets>=2.0.0",
+    "ragas>=0.1.0",
+]
+
 anthropic = ["anthropic"]
 aws = ["aioboto3"]
 

@@ -1,0 +1,46 @@
+# Example Benchmark Configuration
+# Run with: uv run python examples/benchmarks/run_experiment.py --config examples/benchmarks/configs/example.yaml
+
+name: multihop_rag_example
+version: "1.0"
+description: "Example benchmark configuration with nested schema"
+
+dataset:
+  name: multihop_rag
+  path: ./fixtures/MultiHopRAG.json
+  corpus_path: ./fixtures/MultiHopRAG_corpus.json
+  split: test
+  max_samples: 100
+  auto_download: false
+
+graphrag:
+  working_dir: ./nano_graphrag_cache_benchmark
+  llm_model: gpt-4o-mini
+  embedding_model: text-embedding-3-small
+  enable_local: true
+  enable_naive_rag: false
+  enable_llm_cache: true
+  chunk_token_size: 1200
+  chunk_overlap_token_size: 100
+
+query:
+  modes:
+    - local
+    - global
+  param_overrides:
+    level: 2
+    top_k: 20
+
+cache:
+  enabled: true
+  backend: disk
+
+metrics:
+  exact_match: true
+  token_f1: true
+  llm_judge:
+    enabled: false
+
+output:
+  results_dir: ./benchmark_results
+  save_predictions: true

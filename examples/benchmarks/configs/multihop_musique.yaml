@@ -1,0 +1,41 @@
+# MuSiQue Multi-hop Benchmark Configuration
+# Run with: uv run python examples/benchmarks/run_experiment.py --config examples/benchmarks/configs/multihop_musique.yaml
+
+name: multihop_musique_baseline
+version: "1.0"
+description: "Local-mode GraphRAG baseline on MuSiQue dev set"
+
+dataset:
+  name: musique
+  split: validation
+  max_samples: 200
+  auto_download: true
+
+graphrag:
+  working_dir: ./workdirs/musique_baseline
+  llm_model: gpt-4o-mini
+  embedding_model: text-embedding-3-small
+  chunk_token_size: 1200
+  chunk_overlap_token_size: 100
+
+query:
+  modes:
+    - local
+    - naive
+  param_overrides:
+    top_k: 60
+
+cache:
+  enabled: true
+  backend: disk
+
+metrics:
+  exact_match: true
+  token_f1: true
+  llm_judge:
+    enabled: false
+    model: gpt-4o-mini
+
+output:
+  results_dir: ./results
+  save_predictions: true

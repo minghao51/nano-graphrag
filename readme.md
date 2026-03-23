@@ -472,11 +472,40 @@ For incremental clustering follow-up ideas, see [20260318-incremental-community-
 
 
 
-## Benchmark
+## Benchmarking
 
-- [benchmark for English](./docs/benchmark-en.md)
-- [benchmark for Chinese](./docs/benchmark-zh.md)
-- [An evaluation](./examples/benchmarks/eval_naive_graphrag_on_multi_hop.ipynb) notebook on a [multi-hop RAG task](https://github.com/yixuantt/MultiHop-RAG)
+nano-graphrag includes a comprehensive benchmark framework for evaluating multi-hop RAG performance.
+
+### Quick Start
+
+```bash
+# Run a benchmark experiment
+uv run python -m bench.run --config examples/benchmarks/configs/multihop_musique.yaml
+
+# Compare two experiments
+uv run python -m bench.compare results/exp1.json results/exp2.json
+```
+
+### Features
+
+- **4 Multi-hop datasets**: MultiHop-RAG, MuSiQue, HotpotQA, 2WikiMultiHopQA
+- **Auto-download**: Datasets download automatically from HuggingFace
+- **LLM caching**: Transparent caching saves API costs
+- **Metrics**: EM, F1, context recall
+- **A/B testing**: Built-in comparison tool
+- **Nested config**: Roadmap-compliant YAML configuration
+
+### Python API
+
+```python
+from bench import BenchmarkConfig, ExperimentRunner
+
+config = BenchmarkConfig.from_yaml("config.yaml")
+runner = ExperimentRunner(config)
+result = await runner.run()
+```
+
+See [Benchmark Documentation](./docs/benchmark-usage.md) for details.
 
 
 

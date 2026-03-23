@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from nano_graphrag._benchmark.datasets import (
+from bench.datasets import (
     MultiHopRAGDataset,
     Passage,
     QAPair,

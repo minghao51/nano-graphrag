@@ -7,8 +7,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ..base import GraphRAGConfig, QueryParam
-from ..graphrag import GraphRAG
+from nano_graphrag.base import GraphRAGConfig, QueryParam
+from nano_graphrag.graphrag import GraphRAG
 from .cache import create_benchmark_cache
 from .datasets import BenchmarkDataset, MultiHopRAGDataset
 from .metrics import MetricSuite, get_baseline_suite
@@ -18,13 +18,18 @@ from .metrics import MetricSuite, get_baseline_suite
 class BenchmarkConfig:
     """Experiment configuration (YAML-serializable)."""
 
+    # === Top-level ===
+    experiment_name: str = "experiment"
+    version: str = "1.0"
+    description: str = ""
+
     # === Dataset ===
-    dataset_name: str  # "multihop_rag", "hotpotqa", "musique", "2wiki"
-    dataset_path: str  # Path to questions JSON file
-    corpus_path: Optional[str] = None  # Path to corpus JSON file (for MultiHopRAG)
+    dataset_name: str = ""
+    dataset_path: str = ""
+    corpus_path: Optional[str] = None
     dataset_split: str = "test"
-    max_samples: int = -1  # -1 means all samples
-    auto_download: bool = False  # Enable auto-download from HuggingFace
+    max_samples: int = -1
+    auto_download: bool = False
 
     # === GraphRAG config ===
     graphrag_config: Dict[str, Any] = field(default_factory=dict)
@@ -38,11 +43,13 @@ class BenchmarkConfig:
 
     # === Output ===
     output_dir: str = "./benchmark_results"
-    experiment_name: str = "experiment"
 
     @classmethod
     def from_yaml(cls, path: str) -> "BenchmarkConfig":
-        """Load config from YAML file."""
+        """Load config from YAML file.
+
+        Supports both flat and nested schemas.
+        """
         try:
             import yaml
         except ImportError:
@@ -53,41 +60,112 @@ class BenchmarkConfig:
         with open(path, "r") as f:
             data = yaml.safe_load(f)
 
-        # Handle nested cache section
-        if "cache" in data and isinstance(data["cache"], dict):
-            cache_config = data["cache"]
-            if "enabled" in cache_config:
-                # Ensure graphrag_config exists
-                if "graphrag_config" not in data:
-                    data["graphrag_config"] = {}
-                data["graphrag_config"]["enable_llm_cache"] = cache_config["enabled"]
-            # Remove cache section to avoid dataclass error
-            del data["cache"]
+        normalized = cls._normalize_config(data)
+        return cls(**normalized)
 
-        return cls(**data)
+    @classmethod
+    def _normalize_config(cls, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize nested config schema to flat structure.
+
+        Handles both:
+        - Flat schema (backward compatible)
+        - Nested schema (roadmap compliant)
+        """
+        normalized = {}
+
+        normalized["experiment_name"] = data.get("name", data.get("experiment_name", "experiment"))
+        normalized["version"] = data.get("version", "1.0")
+        normalized["description"] = data.get("description", "")
+
+        if "dataset" in data:
+            dataset = data["dataset"]
+            normalized["dataset_name"] = dataset.get("name", "")
+            normalized["dataset_path"] = dataset.get("path", "")
+            normalized["corpus_path"] = dataset.get("corpus_path")
+            normalized["dataset_split"] = dataset.get("split", "test")
+            normalized["max_samples"] = dataset.get("max_samples", -1)
+            normalized["auto_download"] = dataset.get("auto_download", False)
+        else:
+            normalized["dataset_name"] = data.get("dataset_name", "")
+            normalized["dataset_path"] = data.get("dataset_path", "")
+            normalized["corpus_path"] = data.get("corpus_path")
+            normalized["dataset_split"] = data.get("dataset_split", "test")
+            normalized["max_samples"] = data.get("max_samples", -1)
+            normalized["auto_download"] = data.get("auto_download", False)
+
+        if "graphrag" in data:
+            normalized["graphrag_config"] = data["graphrag"]
+        else:
+            normalized["graphrag_config"] = data.get("graphrag_config", {})
+
+        if "query" in data:
+            query = data["query"]
+            normalized["query_modes"] = query.get("modes", ["local", "global"])
+            normalized["query_params"] = query.get("param_overrides", {})
+        else:
+            normalized["query_modes"] = data.get("query_modes", ["local", "global"])
+            normalized["query_params"] = data.get("query_params", {})
+
+        if "cache" in data:
+            cache = data["cache"]
+            if isinstance(cache, dict):
+                normalized["graphrag_config"]["enable_llm_cache"] = cache.get("enabled", False)
+
+        if "metrics" in data:
+            metrics = data["metrics"]
+            if isinstance(metrics, dict):
+                metric_list = []
+                if metrics.get("exact_match", False):
+                    metric_list.append("exact_match")
+                if metrics.get("token_f1", False):
+                    metric_list.append("token_f1")
+                if metrics.get("llm_judge", {}).get("enabled", False):
+                    metric_list.append("faithfulness")
+                    metric_list.append("answer_relevance")
+                normalized["metrics"] = metric_list
+            else:
+                normalized["metrics"] = metrics
+        else:
+            normalized["metrics"] = data.get("metrics", ["exact_match", "token_f1"])
+
+        if "output" in data:
+            output = data["output"]
+            normalized["output_dir"] = output.get("results_dir", "./benchmark_results")
+        else:
+            normalized["output_dir"] = data.get("output_dir", "./benchmark_results")
+
+        return normalized
 
     @classmethod
     def from_dict(cls, config: Dict[str, Any]) -> "BenchmarkConfig":
         """Create config from dictionary."""
-        # Filter out None values
-        filtered = {k: v for k, v in config.items() if v is not None}
+        normalized = cls._normalize_config(config)
+        filtered = {k: v for k, v in normalized.items() if v is not None}
         return cls(**filtered)
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert config to dictionary."""
+        """Convert config to dictionary (nested schema)."""
         return {
-            "dataset_name": self.dataset_name,
-            "dataset_path": self.dataset_path,
-            "corpus_path": self.corpus_path,
-            "dataset_split": self.dataset_split,
-            "max_samples": self.max_samples,
-            "auto_download": self.auto_download,
-            "graphrag_config": self.graphrag_config,
-            "query_modes": self.query_modes,
-            "query_params": self.query_params,
+            "name": self.experiment_name,
+            "version": "1.0",
+            "description": "",
+            "dataset": {
+                "name": self.dataset_name,
+                "path": self.dataset_path,
+                "corpus_path": self.corpus_path,
+                "split": self.dataset_split,
+                "max_samples": self.max_samples,
+                "auto_download": self.auto_download,
+            },
+            "graphrag": self.graphrag_config,
+            "query": {
+                "modes": self.query_modes,
+                "param_overrides": self.query_params,
+            },
             "metrics": self.metrics,
-            "output_dir": self.output_dir,
-            "experiment_name": self.experiment_name,
+            "output": {
+                "results_dir": self.output_dir,
+            },
         }
 
     def to_yaml(self, path: str) -> None:

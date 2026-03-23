@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from nano_graphrag._benchmark.cache import create_benchmark_cache
-from nano_graphrag._benchmark.runner import BenchmarkConfig, ExperimentRunner
+from bench.cache import create_benchmark_cache
+from bench.runner import BenchmarkConfig, ExperimentRunner
 
 
 @pytest.mark.asyncio
@@ -86,7 +86,7 @@ async def test_runner_includes_cache_stats_in_results():
         runner = ExperimentRunner(config)
 
         # Manually create a result with cache stats to test the structure
-        from nano_graphrag._benchmark.runner import ExperimentResult
+        from bench.runner import ExperimentResult
         from datetime import datetime
 
         # Simulate cache stats
@@ -135,7 +135,7 @@ async def test_runner_saves_cache_stats_to_json():
         runner = ExperimentRunner(config)
 
         # Manually create a result with cache stats
-        from nano_graphrag._benchmark.runner import ExperimentResult
+        from bench.runner import ExperimentResult
         from datetime import datetime
 
         cache_stats = await runner._cache.stats()

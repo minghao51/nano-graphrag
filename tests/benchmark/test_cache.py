@@ -2,7 +2,7 @@
 
 import tempfile
 import pytest
-from nano_graphrag._benchmark.cache import create_benchmark_cache
+from bench.cache import create_benchmark_cache
 
 
 @pytest.mark.asyncio

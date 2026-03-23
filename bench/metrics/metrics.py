@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
 
-from .datasets import QAPair
+from ..datasets import QAPair
 
 
 class Metric(ABC):
