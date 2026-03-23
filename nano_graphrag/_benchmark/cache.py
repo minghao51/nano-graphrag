@@ -1,8 +1,9 @@
 """LLM cache formalization for benchmark experiments."""
 
+import functools
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from .._storage import JsonKVStorage
 from .._utils import compute_args_hash
@@ -211,7 +212,7 @@ class BenchmarkLLMCache:
         """Flush cache to disk (if applicable)."""
         await self.storage.index_done_callback()
 
-    def wrap(self, llm_func):
+    def wrap(self, llm_func: Callable[..., Awaitable[str]]) -> Callable[..., Awaitable[str]]:
         """Wrap an LLM function with transparent caching.
 
         The wrapped function will check the cache before calling the original
@@ -225,26 +226,38 @@ class BenchmarkLLMCache:
             A wrapped async function with the same signature that uses caching.
         """
 
+        @functools.wraps(llm_func)
         async def wrapped(
             prompt: str,
             model: Optional[str] = None,
             system_prompt: Optional[str] = None,
             **kwargs,
         ) -> str:
-            # Normalize model parameter (can be in kwargs or as explicit param)
-            if model is None:
-                model = kwargs.get("model", "gpt-4o-mini")
+            # Extract model and system_prompt from kwargs to avoid duplicates
+            # Use explicit params if provided, otherwise fall back to kwargs
+            final_model = model if model is not None else kwargs.pop("model", None)
+            final_system_prompt = system_prompt if system_prompt is not None else kwargs.pop("system_prompt", None)
 
-            # Check cache
-            cached_response = await self.get(prompt, model, system_prompt)
-            if cached_response is not None:
-                return cached_response
+            # Check cache (skip if model is None - let original function handle defaults)
+            if final_model is not None:
+                cached_response = await self.get(prompt, final_model, final_system_prompt)
+                if cached_response is not None:
+                    return cached_response
 
-            # Cache miss - call original function
-            response = await llm_func(prompt, model=model, system_prompt=system_prompt, **kwargs)
+            # Cache miss - call original function with cleaned kwargs
+            # Pass model and system_prompt explicitly if we have them, otherwise let None
+            call_kwargs = {}
+            if final_model is not None:
+                call_kwargs["model"] = final_model
+            if final_system_prompt is not None:
+                call_kwargs["system_prompt"] = final_system_prompt
+            call_kwargs.update(kwargs)
 
-            # Store in cache
-            await self.set(prompt, model, response, system_prompt)
+            response = await llm_func(prompt, **call_kwargs)
+
+            # Store in cache (only if we have a model)
+            if final_model is not None:
+                await self.set(prompt, final_model, response, final_system_prompt)
 
             return response
 

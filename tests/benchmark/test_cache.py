@@ -101,3 +101,94 @@ async def test_cache_wrapper_decorates_llm_function():
         result3 = await wrapped_llm("different prompt", model="gpt-4o-mini")
         assert result3 == "Response to: different prompt"
         assert call_count["value"] == 2
+
+        # Verify cache stats
+        assert cache.hits == 1
+        assert cache.misses == 2
+
+
+@pytest.mark.asyncio
+async def test_cache_wrapper_with_model_in_kwargs():
+    """Cache.wrap() should handle model parameter in kwargs."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cache = create_benchmark_cache(tmpdir, enabled=True)
+        call_count = {"value": 0}
+
+        # Mock LLM function with default model
+        async def mock_llm(prompt, model="gpt-4o", system_prompt=None):
+            call_count["value"] += 1
+            return f"Response from {model} to: {prompt}"
+
+        # Wrap the function
+        wrapped_llm = cache.wrap(mock_llm)
+
+        # Call with model in kwargs
+        result1 = await wrapped_llm("test prompt", model="gpt-4o-mini")
+        assert result1 == "Response from gpt-4o-mini to: test prompt"
+        assert call_count["value"] == 1
+
+        # Same call should hit cache
+        result2 = await wrapped_llm("test prompt", model="gpt-4o-mini")
+        assert result2 == "Response from gpt-4o-mini to: test prompt"
+        assert call_count["value"] == 1
+
+        # Different model should miss
+        result3 = await wrapped_llm("test prompt", model="gpt-4o")
+        assert result3 == "Response from gpt-4o to: test prompt"
+        assert call_count["value"] == 2
+
+
+@pytest.mark.asyncio
+async def test_cache_wrapper_with_system_prompt():
+    """Cache.wrap() should handle system_prompt parameter correctly."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cache = create_benchmark_cache(tmpdir, enabled=True)
+        call_count = {"value": 0}
+
+        # Mock LLM function
+        async def mock_llm(prompt, model="gpt-4o-mini", system_prompt=None):
+            call_count["value"] += 1
+            sys_prefix = f"[{system_prompt}] " if system_prompt else ""
+            return f"{sys_prefix}Response to: {prompt}"
+
+        # Wrap the function
+        wrapped_llm = cache.wrap(mock_llm)
+
+        # Call with system_prompt
+        result1 = await wrapped_llm("test prompt", model="gpt-4o-mini", system_prompt="You are helpful")
+        assert result1 == "[You are helpful] Response to: test prompt"
+        assert call_count["value"] == 1
+
+        # Same call should hit cache
+        result2 = await wrapped_llm("test prompt", model="gpt-4o-mini", system_prompt="You are helpful")
+        assert result2 == "[You are helpful] Response to: test prompt"
+        assert call_count["value"] == 1
+
+        # Different system_prompt should miss
+        result3 = await wrapped_llm("test prompt", model="gpt-4o-mini", system_prompt="You are terse")
+        assert result3 == "[You are terse] Response to: test prompt"
+        assert call_count["value"] == 2
+
+        # No system_prompt should also miss
+        result4 = await wrapped_llm("test prompt", model="gpt-4o-mini")
+        assert result4 == "Response to: test prompt"
+        assert call_count["value"] == 3
+
+
+@pytest.mark.asyncio
+async def test_cache_wrapper_preserves_function_metadata():
+    """Cache.wrap() should preserve original function's metadata."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cache = create_benchmark_cache(tmpdir, enabled=True)
+
+        # Mock LLM function with metadata
+        async def mock_llm(prompt, model="gpt-4o-mini", system_prompt=None):
+            """This is the original LLM function."""
+            return f"Response to: {prompt}"
+
+        # Wrap the function
+        wrapped_llm = cache.wrap(mock_llm)
+
+        # Verify metadata is preserved
+        assert wrapped_llm.__name__ == "mock_llm"
+        assert wrapped_llm.__doc__ == "This is the original LLM function."
