@@ -1,8 +1,10 @@
 """Multi-hop retrieval implementation for complex queries."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+
 from nano_graphrag import GraphRAG
 from nano_graphrag.base import QueryParam
+
 from .base import HopState
 
 
@@ -40,11 +42,9 @@ class MultiHopRetriever:
         hop_states: list[HopState] = []
         carry_entities: list[str] = []
 
-        for sub_q in sub_questions[:self.max_hops]:
+        for sub_q in sub_questions[: self.max_hops]:
             state = HopState(sub_question=sub_q)
-            context = await self._retrieve_hop(
-                sub_q, graph_rag, seed_entities=carry_entities
-            )
+            context = await self._retrieve_hop(sub_q, graph_rag, seed_entities=carry_entities)
             state.context_chunks = context["chunks"]
             state.retrieved_entities = context["entities"]
             carry_entities = state.retrieved_entities
@@ -124,9 +124,43 @@ Output only a JSON array of strings.
             return [line.strip() for line in response.split("\n") if line.strip()]
 
     def _parse_context(self, context_str: str) -> dict:
-        """Parse context string into chunks and entities."""
-        # Simple implementation - can be enhanced
+        """Parse context string into chunks and entities.
+
+        Extracts entities using simple heuristics:
+        - Capitalized words/phrases (potential proper nouns)
+        - Words in quotes (potential named entities)
+        - Common entity patterns (dates, numbers with units)
+        """
+        import re
+
+        # Split context into chunks by double newlines (paragraphs)
+        chunks = [c.strip() for c in context_str.split("\n\n") if c.strip()]
+
+        # Extract entities using simple heuristics
+        entities = set()
+
+        for chunk in chunks:
+            # Pattern 1: Words in quotes (likely named entities)
+            quoted = re.findall(r'"([^"]+)"', chunk)
+            entities.update(quoted)
+
+            # Pattern 2: Capitalized words (potential proper nouns)
+            # Look for words starting with capital letter in the middle of sentences
+            caps = re.findall(r"\b[A-Z][a-z]+\b", chunk)
+            # Filter out common sentence starters
+            caps = [
+                c for c in caps if c not in {"The", "This", "That", "These", "Those", "A", "An"}
+            ]
+            entities.update(caps)
+
+            # Pattern 3: Entity-like patterns (e.g., "Entity X", "Person Y")
+            entity_refs = re.findall(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b", chunk)
+            entities.update(entity_refs)
+
+        # Convert to list and limit to most relevant entities
+        entity_list = list(entities)[: self.entities_per_hop]
+
         return {
-            "chunks": [context_str],
-            "entities": [],
+            "chunks": chunks,
+            "entities": entity_list,
         }

@@ -1,7 +1,8 @@
 """Base retriever protocol and result types."""
 
 from dataclasses import dataclass, field
-from typing import Protocol, Any
+from typing import Any, Protocol
+
 from nano_graphrag import GraphRAG
 from nano_graphrag.base import QueryParam
 
@@ -9,6 +10,7 @@ from nano_graphrag.base import QueryParam
 @dataclass
 class RetrieverResult:
     """Result from a retrieval operation."""
+
     context: str  # Retrieved context text
     entities: list[str] = field(default_factory=list)  # Entities discovered
     hops: int = 0  # Number of hops taken
@@ -18,6 +20,7 @@ class RetrieverResult:
 @dataclass
 class HopState:
     """State for a single hop in multi-hop retrieval."""
+
     sub_question: str  # Question for this hop
     retrieved_entities: list[str] = field(default_factory=list)
     context_chunks: list[str] = field(default_factory=list)

@@ -1,21 +1,18 @@
-name: multihop_musique
+# MuSiQue Benchmark Configuration
+
+name: musique_benchmark
 version: "1.0"
-description: "Multi-hop RAG benchmark on MuSiQue dataset"
+description: "Multi-hop RAG evaluation on MuSiQue dataset"
 
 dataset:
   name: musique
   path: ~/.cache/nano-bench/musique/dev.json
   split: validation
-  max_samples: 200
+  max_samples: 50
   auto_download: true
 
 graphrag:
-  working_dir: ./workdirs/musique_benchmark
-  llm_model: gpt-4o-mini
-  embedding_model: text-embedding-3-small
-  chunk_func: chunking_by_token_size
-  chunk_token_size: 1200
-  chunk_overlap_token_size: 100
+  working_dir: ./workdirs/musique
   enable_llm_cache: true
 
 query:
@@ -27,6 +24,7 @@ query:
     max_hops: 4
     entities_per_hop: 10
     context_token_budget: 8000
+    top_k: 60
 
 cache:
   enabled: true
@@ -37,5 +35,5 @@ metrics:
   token_f1: true
 
 output:
-  results_dir: ./results/musique_benchmark
+  results_dir: ./results/musique
   save_predictions: true

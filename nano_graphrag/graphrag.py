@@ -536,7 +536,9 @@ class GraphRAG:
         if isinstance(string_or_strings, str):
             string_or_strings = [string_or_strings]
         normalized_contents = [content.strip() for content in string_or_strings if content.strip()]
-        legacy_doc_ids = [compute_mdhash_id(content, prefix="doc-") for content in normalized_contents]
+        legacy_doc_ids = [
+            compute_mdhash_id(content, prefix="doc-") for content in normalized_contents
+        ]
         legacy_docs = await self.full_docs.get_by_ids(legacy_doc_ids)
         documents = {}
         for content, legacy_doc_id, legacy_doc in zip(
@@ -652,7 +654,10 @@ class GraphRAG:
             for doc_id, new_doc, existing_doc in zip(
                 normalized_docs.keys(), normalized_docs.values(), existing_docs
             ):
-                if existing_doc is None or existing_doc.get("content_hash") != new_doc["content_hash"]:
+                if (
+                    existing_doc is None
+                    or existing_doc.get("content_hash") != new_doc["content_hash"]
+                ):
                     docs_to_process[doc_id] = new_doc
                     if existing_doc is not None:
                         changed_doc_ids.append(doc_id)
@@ -730,7 +735,8 @@ class GraphRAG:
             )
             affected_entity_ids_for_clustering = {
                 entity_id
-                for manifest in list(old_manifest_lookup.values()) + list(new_document_index_entries.values())
+                for manifest in list(old_manifest_lookup.values())
+                + list(new_document_index_entries.values())
                 if manifest is not None
                 for entity_id in manifest.get("entities", {}).keys()
             }

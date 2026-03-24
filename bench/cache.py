@@ -236,7 +236,9 @@ class BenchmarkLLMCache:
             # Extract model and system_prompt from kwargs to avoid duplicates
             # Use explicit params if provided, otherwise fall back to kwargs
             final_model = model if model is not None else kwargs.pop("model", None)
-            final_system_prompt = system_prompt if system_prompt is not None else kwargs.pop("system_prompt", None)
+            final_system_prompt = (
+                system_prompt if system_prompt is not None else kwargs.pop("system_prompt", None)
+            )
 
             # Check cache (skip if model is None - let original function handle defaults)
             if final_model is not None:

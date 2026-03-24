@@ -3,7 +3,7 @@
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Protocol
+from typing import Any, Dict, Iterator, List, Protocol
 
 
 @dataclass
@@ -112,6 +112,7 @@ class MultiHopRAGDataset:
     questions_path: str
     corpus_path: str
     max_samples: int = -1  # -1 means all samples
+    max_corpus_samples: int = -1  # -1 means all corpus documents
     name: str = "multihop-rag"
 
     def questions(self, split: str = "test") -> Iterator[QAPair]:
@@ -139,6 +140,10 @@ class MultiHopRAGDataset:
         """Load corpus documents from JSON file."""
         with open(self.corpus_path, "r", encoding="utf-8") as f:
             data = json.load(f)
+
+        # Apply max_corpus_samples limit
+        if self.max_corpus_samples > 0:
+            data = data[: self.max_corpus_samples]
 
         for idx, doc in enumerate(data):
             if isinstance(doc, dict):
@@ -173,8 +178,8 @@ class MultiHopRAGDataset:
         dataset_dir = cache_path / "multihoprag"
         dataset_dir.mkdir(parents=True, exist_ok=True)
 
-        print(f"[Download] Loading MultiHopRAG from HuggingFace...")
-        hf_dataset = load_dataset("yixuantt/MultiHopRAG", split="train")
+        print("[Download] Loading MultiHopRAG from HuggingFace...")
+        hf_dataset = load_dataset("yixuantt/MultiHopRAG", "MultiHopRAG", split="train")
 
         questions_data = []
         corpus_data = []
@@ -193,17 +198,27 @@ class MultiHopRAGDataset:
                     if fact:
                         supporting_facts.append(fact)
                     if title or fact:
-                        corpus_texts.append({"id": f"doc_{len(corpus_data)}", "title": title, "content": fact or title})
+                        corpus_texts.append(
+                            {
+                                "id": f"doc_{len(corpus_data)}",
+                                "title": title,
+                                "content": fact or title,
+                            }
+                        )
                 elif isinstance(ev, str):
                     supporting_facts.append(ev)
-                    corpus_texts.append({"id": f"doc_{len(corpus_data)}", "title": "", "content": ev})
+                    corpus_texts.append(
+                        {"id": f"doc_{len(corpus_data)}", "title": "", "content": ev}
+                    )
 
-            questions_data.append({
-                "id": qa_id,
-                "question": item["query"],
-                "answer": item["answer"],
-                "supporting_facts": supporting_facts,
-            })
+            questions_data.append(
+                {
+                    "id": qa_id,
+                    "question": item["query"],
+                    "answer": item["answer"],
+                    "supporting_facts": supporting_facts,
+                }
+            )
 
             for doc in corpus_texts:
                 if doc["content"]:
@@ -236,6 +251,7 @@ class HotpotQADataset:
     data_path: str
     split: str = "dev"
     max_samples: int = -1
+    max_corpus_samples: int = -1
     name: str = "hotpotqa"
 
     def questions(self, split: str = "test") -> Iterator[QAPair]:
@@ -270,8 +286,13 @@ class HotpotQADataset:
         with open(self.data_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
+        # Apply max_samples limit to questions for corpus extraction
+        if self.max_samples > 0:
+            data = data[: self.max_samples]
+
         # Collect all unique context documents
         seen = set()
+        corpus_count = 0
         for item in data:
             for title, sentences in item.get("context", []):
                 doc_id = compute_mdhash_id(title, prefix="hotpot_")
@@ -279,6 +300,10 @@ class HotpotQADataset:
                     seen.add(doc_id)
                     content = f"{title}\n{' '.join(sentences)}"
                     yield Passage(id=doc_id, title=title, text=content.strip())
+                    corpus_count += 1
+                    # Apply max_corpus_samples limit
+                    if self.max_corpus_samples > 0 and corpus_count >= self.max_corpus_samples:
+                        return
 
     def download(self, cache_dir: str = "~/.cache/nano-bench") -> None:
         """Download HotpotQA dataset from HuggingFace.
@@ -325,16 +350,18 @@ class HotpotQADataset:
                     if fact_title in corpus_docs:
                         supporting_facts.append(fact_title)
 
-            questions_data.append({
-                "id": qa_id,
-                "question": item["question"],
-                "answer": item["answer"],
-                "supporting_facts": supporting_facts,
-                "metadata": {
-                    "type": item.get("type", "unknown"),
-                    "level": item.get("level", "unknown"),
-                },
-            })
+            questions_data.append(
+                {
+                    "id": qa_id,
+                    "question": item["question"],
+                    "answer": item["answer"],
+                    "supporting_facts": supporting_facts,
+                    "metadata": {
+                        "type": item.get("type", "unknown"),
+                        "level": item.get("level", "unknown"),
+                    },
+                }
+            )
 
         output_path = dataset_dir / f"{self.split}.json"
         with open(output_path, "w", encoding="utf-8") as f:
@@ -360,6 +387,7 @@ class MuSiQueDataset:
     data_path: str
     split: str = "dev"
     max_samples: int = -1
+    max_corpus_samples: int = -1
     name: str = "musique"
 
     def questions(self, split: str = "test") -> Iterator[QAPair]:
@@ -387,7 +415,12 @@ class MuSiQueDataset:
         with open(self.data_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
+        # Apply max_samples limit to questions for corpus extraction
+        if self.max_samples > 0:
+            data = data[: self.max_samples]
+
         doc_idx = 0
+        corpus_count = 0
         for item in data:
             for para in item.get("context", []):
                 if isinstance(para, dict):
@@ -402,6 +435,10 @@ class MuSiQueDataset:
                 if content.strip():
                     yield Passage(id=f"musique_doc_{doc_idx}", title=title, text=content.strip())
                     doc_idx += 1
+                    corpus_count += 1
+                    # Apply max_corpus_samples limit
+                    if self.max_corpus_samples > 0 and corpus_count >= self.max_corpus_samples:
+                        return
 
     def download(self, cache_dir: str = "~/.cache/nano-bench") -> None:
         """Download MuSiQue dataset from HuggingFace.
@@ -442,22 +479,28 @@ class MuSiQueDataset:
                         doc_key = f"{title}_{para_idx}"
                         if doc_key not in corpus_docs:
                             doc_id = f"musique_doc_{len(corpus_docs)}"
-                            corpus_docs[doc_key] = {"id": doc_id, "title": title, "content": content}
+                            corpus_docs[doc_key] = {
+                                "id": doc_id,
+                                "title": title,
+                                "content": content,
+                            }
 
                     decomp = para.get("decomposition", [])
                     for d in decomp:
                         if isinstance(d, dict) and d.get("answer"):
                             supporting_facts.append(d["answer"])
 
-            questions_data.append({
-                "id": qa_id,
-                "question": item["question"],
-                "answer": item["answer"],
-                "supporting_facts": supporting_facts[:2] if supporting_facts else [],
-                "metadata": {
-                    "decomposition": item.get("question_decomposition", []),
-                },
-            })
+            questions_data.append(
+                {
+                    "id": qa_id,
+                    "question": item["question"],
+                    "answer": item["answer"],
+                    "supporting_facts": supporting_facts[:2] if supporting_facts else [],
+                    "metadata": {
+                        "decomposition": item.get("question_decomposition", []),
+                    },
+                }
+            )
 
         output_path = dataset_dir / f"{self.split}.json"
         with open(output_path, "w", encoding="utf-8") as f:
@@ -483,6 +526,7 @@ class TwoWikiMultiHopQADataset:
     data_path: str
     split: str = "dev"
     max_samples: int = -1
+    max_corpus_samples: int = -1
     name: str = "2wikimultihopqa"
 
     def questions(self, split: str = "test") -> Iterator[QAPair]:
@@ -510,7 +554,12 @@ class TwoWikiMultiHopQADataset:
         with open(self.data_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
+        # Apply max_samples limit to questions for corpus extraction
+        if self.max_samples > 0:
+            data = data[: self.max_samples]
+
         doc_idx = 0
+        corpus_count = 0
         for item in data:
             for evidence in item.get("evidence", []):
                 if isinstance(evidence, dict):
@@ -525,6 +574,10 @@ class TwoWikiMultiHopQADataset:
                 if content.strip():
                     yield Passage(id=f"2wiki_doc_{doc_idx}", title=title, text=content.strip())
                     doc_idx += 1
+                    corpus_count += 1
+                    # Apply max_corpus_samples limit
+                    if self.max_corpus_samples > 0 and corpus_count >= self.max_corpus_samples:
+                        return
 
     def download(self, cache_dir: str = "~/.cache/nano-bench") -> None:
         """Download 2WikiMultiHopQA dataset from HuggingFace.
@@ -561,7 +614,11 @@ class TwoWikiMultiHopQADataset:
 
                 for i, title in enumerate(titles):
                     if isinstance(sentences, list) and i < len(sentences):
-                        content = " ".join(sentences[i]) if isinstance(sentences[i], list) else str(sentences[i])
+                        content = (
+                            " ".join(sentences[i])
+                            if isinstance(sentences[i], list)
+                            else str(sentences[i])
+                        )
                     else:
                         content = ""
 
@@ -569,7 +626,11 @@ class TwoWikiMultiHopQADataset:
                         doc_key = f"{title}_{i}"
                         if doc_key not in corpus_docs:
                             doc_id = f"2wiki_doc_{len(corpus_docs)}"
-                            corpus_docs[doc_key] = {"id": doc_id, "title": title, "content": content}
+                            corpus_docs[doc_key] = {
+                                "id": doc_id,
+                                "title": title,
+                                "content": content,
+                            }
 
             sp = item.get("supporting_facts", {})
             if isinstance(sp, dict):
@@ -578,15 +639,17 @@ class TwoWikiMultiHopQADataset:
                     if t not in supporting_facts:
                         supporting_facts.append(t)
 
-            questions_data.append({
-                "id": qa_id,
-                "question": item["question"],
-                "answer": item["answer"],
-                "supporting_facts": supporting_facts,
-                "metadata": {
-                    "type": item.get("type", "unknown"),
-                },
-            })
+            questions_data.append(
+                {
+                    "id": qa_id,
+                    "question": item["question"],
+                    "answer": item["answer"],
+                    "supporting_facts": supporting_facts,
+                    "metadata": {
+                        "type": item.get("type", "unknown"),
+                    },
+                }
+            )
 
         output_path = dataset_dir / f"{self.split}.json"
         with open(output_path, "w", encoding="utf-8") as f:

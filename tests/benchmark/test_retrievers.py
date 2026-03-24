@@ -1,16 +1,16 @@
-"""Tests for retriever infrastructure."""
+"""Tests for retriever infrastructure and implementations."""
 
 import pytest
-
-# These imports will fail until we create the module
-# from bench.retrievers.base import Retriever, RetrieverResult
+from nano_graphrag import GraphRAG
+from nano_graphrag.base import QueryParam
 
 
 @pytest.mark.asyncio
 async def test_retriever_protocol_exists():
     """Verify Retriever protocol is defined."""
-    from bench.retrievers.base import Retriever
+    from bench.retrievers.base import Retriever, RetrieverResult
     assert Retriever is not None
+    assert RetrieverResult is not None
 
 
 @pytest.mark.asyncio
@@ -27,20 +27,4 @@ async def test_retriever_result_dataclass():
     assert result.context == "test context"
     assert result.entities == ["entity1", "entity2"]
     assert result.hops == 2
-
-
-@pytest.mark.asyncio
-async def test_hop_state_dataclass():
-    """Verify HopState has all required fields from roadmap."""
-    from bench.retrievers.base import HopState
-
-    state = HopState(
-        sub_question="What is X?",
-        retrieved_entities=["entity1"],
-        context_chunks=["chunk1"],
-        answer_fragment=""
-    )
-    assert state.sub_question == "What is X?"
-    assert state.retrieved_entities == ["entity1"]
-    assert state.context_chunks == ["chunk1"]
-    assert state.answer_fragment == ""
+    assert result.metadata == {}

@@ -72,6 +72,7 @@ class BenchmarkConfig:
     corpus_path: Optional[str] = None
     dataset_split: str = "test"
     max_samples: int = -1
+    max_corpus_samples: int = -1
     auto_download: bool = False
 
     # === GraphRAG config ===
@@ -127,6 +128,7 @@ class BenchmarkConfig:
             normalized["corpus_path"] = dataset.get("corpus_path")
             normalized["dataset_split"] = dataset.get("split", "test")
             normalized["max_samples"] = dataset.get("max_samples", -1)
+            normalized["max_corpus_samples"] = dataset.get("max_corpus_samples", -1)
             normalized["auto_download"] = dataset.get("auto_download", False)
         else:
             normalized["dataset_name"] = data.get("dataset_name", "")
@@ -134,6 +136,7 @@ class BenchmarkConfig:
             normalized["corpus_path"] = data.get("corpus_path")
             normalized["dataset_split"] = data.get("dataset_split", "test")
             normalized["max_samples"] = data.get("max_samples", -1)
+            normalized["max_corpus_samples"] = data.get("max_corpus_samples", -1)
             normalized["auto_download"] = data.get("auto_download", False)
 
         if "graphrag" in data:
@@ -309,6 +312,7 @@ class ExperimentRunner:
                 questions_path=self.config.dataset_path,
                 corpus_path=self.config.corpus_path,
                 max_samples=self.config.max_samples,
+                max_corpus_samples=self.config.max_corpus_samples,
             )
         elif dataset_name == "hotpotqa":
             from .datasets import HotpotQADataset
@@ -317,6 +321,7 @@ class ExperimentRunner:
                 data_path=self.config.dataset_path,
                 split=self.config.dataset_split,
                 max_samples=self.config.max_samples,
+                max_corpus_samples=self.config.max_corpus_samples,
             )
         elif dataset_name == "musique":
             from .datasets import MuSiQueDataset
@@ -325,6 +330,7 @@ class ExperimentRunner:
                 data_path=self.config.dataset_path,
                 split=self.config.dataset_split,
                 max_samples=self.config.max_samples,
+                max_corpus_samples=self.config.max_corpus_samples,
             )
         elif dataset_name == "2wiki":
             from .datasets import TwoWikiMultiHopQADataset
@@ -333,6 +339,7 @@ class ExperimentRunner:
                 data_path=self.config.dataset_path,
                 split=self.config.dataset_split,
                 max_samples=self.config.max_samples,
+                max_corpus_samples=self.config.max_corpus_samples,
             )
         else:
             raise ValueError(f"Unknown dataset: {dataset_name}")
@@ -437,7 +444,9 @@ class ExperimentRunner:
                     retriever = MultiHopRetriever(
                         max_hops=self.config.query_params.get("max_hops", 4),
                         entities_per_hop=self.config.query_params.get("entities_per_hop", 10),
-                        context_token_budget=self.config.query_params.get("context_token_budget", 8000),
+                        context_token_budget=self.config.query_params.get(
+                            "context_token_budget", 8000
+                        ),
                     )
                     context = await retriever.retrieve(question, self._rag)
                     # Generate answer with retrieved context

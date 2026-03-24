@@ -120,3 +120,14 @@ These hooks are supported, but they are considered advanced customization points
 ## Optional Integrations
 
 Optional integrations should stay outside the core runtime so the default package remains lightweight.
+
+## Benchmark Layer
+
+The benchmark and experiment scaffolding lives outside the core package:
+
+- `bench/runner.py` turns YAML configs into dataset loading, indexing, querying, and result persistence
+- `bench/datasets/` adapts benchmark corpora into typed `QAPair` and `Passage` iterators
+- `bench/retrievers/multihop.py` provides the iterative retrieval path used by `mode="multihop"`
+- `experiments/` holds runnable YAMLs and helper scripts for benchmark execution and result comparison
+
+This separation keeps the GraphRAG runtime small while making benchmark changes easy to reason about and test.

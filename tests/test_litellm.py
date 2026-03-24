@@ -6,8 +6,11 @@ import pytest
 
 from nano_graphrag._llm_litellm import (
     LiteLLMWrapper,
+    build_provider_requirements,
+    build_json_schema_response_format,
     litellm_completion,
     detect_provider,
+    should_fallback_without_structured_output,
     supports_structured_output,
 )
 from nano_graphrag._schemas import EntityExtractionOutput
@@ -39,6 +42,7 @@ class TestDetectProvider:
     def test_explicit_provider_prefix(self):
         assert detect_provider("openai/gpt-4o") == "openai"
         assert detect_provider("anthropic/claude-3-sonnet-20240229") == "anthropic"
+        assert detect_provider("openrouter/qwen/qwen3-235b-a22b") == "openrouter"
         assert detect_provider("ollama/llama3.2") == "ollama"
         assert detect_provider("ollama/mistral") == "ollama"
 
@@ -67,6 +71,7 @@ class TestSupportsStructuredOutput:
     def test_openai_supports_structured_output(self):
         assert supports_structured_output("gpt-4o") is True
         assert supports_structured_output("openai/gpt-4o") is True
+        assert supports_structured_output("openrouter/qwen/qwen3-235b-a22b") is True
 
     def test_anthropic_supports_structured_output(self):
         assert supports_structured_output("claude-3-sonnet-20240229") is True
@@ -104,6 +109,30 @@ class TestLiteLLMCompletion:
             assert isinstance(result, EntityExtractionOutput)
             assert result.entities == []
             assert result.relationships == []
+            call_kwargs = mock_completion.call_args[1]
+            assert call_kwargs["response_format"]["type"] == "json_schema"
+            assert call_kwargs["response_format"]["json_schema"]["strict"] is True
+            assert call_kwargs["response_format"]["json_schema"]["name"] == "EntityExtractionOutput"
+            assert "provider" not in call_kwargs
+
+    async def test_openrouter_structured_output_requires_provider_parameters(self):
+        """OpenRouter structured-output calls should require compatible providers."""
+        with patch("nano_graphrag._llm_litellm.litellm.acompletion") as mock_completion:
+            mock_response = MagicMock()
+            mock_response.choices = [MagicMock()]
+            mock_response.choices[0].message.content = '{"entities": [], "relationships": []}'
+            mock_completion.return_value = mock_response
+
+            result = await litellm_completion(
+                model="openrouter/qwen/qwen3-235b-a22b-instruct-2507",
+                prompt="Test prompt",
+                response_format=EntityExtractionOutput,
+            )
+
+            assert isinstance(result, EntityExtractionOutput)
+            call_kwargs = mock_completion.call_args[1]
+            assert call_kwargs["provider"] == {"require_parameters": True}
+            assert call_kwargs["response_format"]["type"] == "json_schema"
 
     async def test_completion_with_api_base(self):
         """Test LiteLLM with custom API base."""
@@ -160,6 +189,55 @@ class TestLiteLLMCompletion:
             # Verify api_key was passed
             call_kwargs = mock_completion.call_args[1]
             assert call_kwargs["api_key"] == "sk-test-key"
+
+    async def test_completion_retries_without_structured_output_on_bad_request(self):
+        """Structured-output rejection should retry without response_format."""
+        bad_request = type("BadRequestError", (Exception,), {})
+
+        with patch("nano_graphrag._llm_litellm.UNSUPPORTED_STRUCTURED_OUTPUT_ERRORS", (bad_request,)):
+            with patch("nano_graphrag._llm_litellm.litellm.acompletion", new_callable=AsyncMock) as mock_completion:
+                mock_response = MagicMock()
+                mock_response.choices = [MagicMock()]
+                mock_response.choices[0].message.content = '{"entities": [], "relationships": []}'
+                mock_completion.side_effect = [
+                    bad_request("response_format is not supported"),
+                    mock_response,
+                ]
+
+                result = await litellm_completion(
+                    model="gpt-4o",
+                    prompt="Test prompt",
+                    response_format=EntityExtractionOutput,
+                )
+
+                assert isinstance(result, EntityExtractionOutput)
+                assert mock_completion.await_count == 2
+                first_call = mock_completion.await_args_list[0].kwargs
+                second_call = mock_completion.await_args_list[1].kwargs
+                assert "response_format" in first_call
+                assert "response_format" not in second_call
+
+    async def test_should_fallback_without_structured_output(self):
+        """Fallback detection should be message-based for LiteLLM compatibility."""
+        assert should_fallback_without_structured_output(Exception("response_format unsupported")) is True
+        assert should_fallback_without_structured_output(Exception("structured output is not available")) is True
+        assert should_fallback_without_structured_output(Exception("authentication failed")) is False
+
+    async def test_build_json_schema_response_format(self):
+        """Structured output payload should use the strict json_schema shape."""
+        payload = build_json_schema_response_format(EntityExtractionOutput)
+
+        assert payload["type"] == "json_schema"
+        assert payload["json_schema"]["name"] == "EntityExtractionOutput"
+        assert payload["json_schema"]["strict"] is True
+        assert payload["json_schema"]["schema"]["type"] == "object"
+
+    async def test_build_provider_requirements(self):
+        """OpenRouter should request providers that honor structured-output params."""
+        assert build_provider_requirements("openrouter/qwen/qwen3-235b-a22b") == {
+            "require_parameters": True
+        }
+        assert build_provider_requirements("gpt-4o") is None
 
 
 @pytest.mark.asyncio

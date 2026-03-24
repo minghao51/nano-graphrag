@@ -6,7 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from bench.compare import compare_results, print_diff_table, ComparisonResult
+from bench.compare import (
+    ComparisonResult,
+    compare_results,
+    compute_statistical_significance,
+    format_delta_table,
+    print_diff_table,
+)
 
 
 def test_compare_two_experiments():
@@ -92,3 +98,37 @@ def test_print_diff_table():
         assert "| Mode | Metric | Baseline | Challenger | Delta |" in output
         assert "local" in output
         assert "exact_match" in output
+
+
+def test_format_delta_table_renders_mode_sections_outside_code_fence():
+    """Delta tables should keep markdown headings outside fenced code blocks."""
+    comparison = ComparisonResult(
+        baseline="baseline.json",
+        challenger="challenger.json",
+        deltas={
+            "local": {
+                "exact_match": {
+                    "baseline": 0.5,
+                    "challenger": 0.6,
+                    "delta": 0.1,
+                }
+            }
+        },
+    )
+
+    output = format_delta_table(comparison, "baseline", "challenger")
+
+    assert "#### local\n\n```text" in output
+    assert "```text\nMetric" in output
+    assert "\n#### local\n" in output
+
+
+def test_compute_statistical_significance_uses_paired_differences():
+    """A constant paired uplift should be treated as a consistent win."""
+    mean_delta, is_significant = compute_statistical_significance(
+        [0.1, 0.2, 0.3],
+        [0.2, 0.3, 0.4],
+    )
+
+    assert mean_delta == pytest.approx(0.1)
+    assert is_significant is True

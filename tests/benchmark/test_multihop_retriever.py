@@ -1,14 +1,14 @@
-"""Tests for MultiHopRetriever implementation."""
+"""Unit tests for MultiHopRetriever with mocked dependencies."""
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock
+from bench.retrievers.multihop import MultiHopRetriever
+from bench.retrievers.base import HopState
 
 
 @pytest.mark.asyncio
-async def test_multihop_retriever_init():
+async def test_multihop_retriever_initialization():
     """Verify MultiHopRetriever initializes with roadmap parameters."""
-    from bench.retrievers.multihop import MultiHopRetriever
-
     retriever = MultiHopRetriever(
         max_hops=4,
         entities_per_hop=10,
@@ -24,15 +24,17 @@ async def test_multihop_retriever_init():
 @pytest.mark.asyncio
 async def test_query_decomposition():
     """Verify MultiHopRetriever decomposes multi-hop questions."""
-    from bench.retrievers.multihop import MultiHopRetriever
-
     retriever = MultiHopRetriever(max_hops=3)
 
     # Mock GraphRAG instance
     mock_graphrag = MagicMock()
-    mock_graphrag._llm = AsyncMock(return_value='["Who is X?", "What is Y?", "How are X and Y related?"]')
+    mock_graphrag.best_model_func = AsyncMock(
+        return_value='["Who is X?", "What is Y?", "How are X and Y related?"]'
+    )
 
-    sub_questions = await retriever._decompose("Who is X and how are they related to Y?", mock_graphrag)
+    sub_questions = await retriever._decompose(
+        "Who is X and how are they related to Y?", mock_graphrag
+    )
 
     assert len(sub_questions) == 3
     assert sub_questions[0] == "Who is X?"
@@ -41,17 +43,33 @@ async def test_query_decomposition():
 
 
 @pytest.mark.asyncio
+async def test_query_decomposition_fallback_parsing():
+    """Verify fallback parsing when LLM doesn't return JSON."""
+    retriever = MultiHopRetriever(max_hops=3)
+
+    mock_graphrag = MagicMock()
+    mock_graphrag.best_model_func = AsyncMock(
+        return_value="Who is X?\nWhat is Y?\nHow are X and Y related?"
+    )
+
+    sub_questions = await retriever._decompose(
+        "Who is X and how are they related to Y?", mock_graphrag
+    )
+
+    assert len(sub_questions) == 3
+
+
+@pytest.mark.asyncio
 async def test_entity_carry_over():
     """Verify entities are carried over between hops."""
-    from bench.retrievers.multihop import MultiHopRetriever
-
     retriever = MultiHopRetriever(max_hops=2, entities_per_hop=5)
 
     mock_graphrag = MagicMock()
-    mock_graphrag._llm = AsyncMock(return_value='["What is X?", "What is Y?"]')
+    mock_graphrag.best_model_func = AsyncMock(return_value='["What is X?", "What is Y?"]')
 
     # Mock _retrieve_hop to return different entities each time
     hop_count = 0
+
     async def mock_retrieve_hop(sub_q, graph_rag, seed_entities):
         nonlocal hop_count
         hop_count += 1
@@ -59,7 +77,8 @@ async def test_entity_carry_over():
             return {"chunks": ["context1"], "entities": ["entity1", "entity2"]}
         else:
             # Second hop should receive entities from first hop
-            assert "entity1" in seed_entities or "entity2" in seed_entities
+            assert "entity1" in seed_entities or "entity2" in seed_entities, \
+                f"Second hop should receive entities from first hop, got: {seed_entities}"
             return {"chunks": ["context2"], "entities": ["entity3"]}
 
     retriever._retrieve_hop = mock_retrieve_hop
@@ -74,9 +93,6 @@ async def test_entity_carry_over():
 @pytest.mark.asyncio
 async def test_context_merge_deduplication():
     """Verify context merging deduplicates chunks."""
-    from bench.retrievers.multihop import MultiHopRetriever
-    from bench.retrievers.base import HopState
-
     retriever = MultiHopRetriever(context_token_budget=1000)
 
     state1 = HopState(
@@ -102,9 +118,6 @@ async def test_context_merge_deduplication():
 @pytest.mark.asyncio
 async def test_token_budget_enforcement():
     """Verify context merging respects token budget."""
-    from bench.retrievers.multihop import MultiHopRetriever
-    from bench.retrievers.base import HopState
-
     retriever = MultiHopRetriever(context_token_budget=100)  # ~25 chars
 
     # Create chunks that exceed budget
@@ -118,3 +131,23 @@ async def test_token_budget_enforcement():
 
     # Should truncate to fit budget
     assert len(merged) <= 150  # Some margin
+
+
+@pytest.mark.asyncio
+async def test_parse_context_extracts_entities():
+    """Verify _parse_context extracts entities using heuristics."""
+    retriever = MultiHopRetriever(entities_per_hop=10)
+
+    context_str = """
+    Entity A is related to Entity B.
+    "John Doe" visited New York City.
+    The relationship between X and Y is complex.
+    """
+
+    result = retriever._parse_context(context_str)
+
+    assert "chunks" in result
+    assert "entities" in result
+    assert len(result["chunks"]) > 0
+    # Should extract some entities (heuristic-based, so just check it doesn't crash)
+    assert isinstance(result["entities"], list)

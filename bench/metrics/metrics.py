@@ -3,7 +3,7 @@
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union
 
 from ..datasets import QAPair
 
@@ -248,10 +248,7 @@ class NativeContextRecallMetric(Metric):
             return 0.0
 
         context_lower = context.lower()
-        found_count = sum(
-            1 for fact in supporting_facts
-            if fact.lower() in context_lower
-        )
+        found_count = sum(1 for fact in supporting_facts if fact.lower() in context_lower)
 
         return found_count / len(supporting_facts)
 
@@ -272,21 +269,19 @@ class RagasFaithfulnessMetric(Metric):
     ) -> float:
         """Compute faithfulness using Ragas."""
         try:
+            from datasets import Dataset
             from ragas import evaluate
             from ragas.metrics import faithfulness
-            from datasets import Dataset
         except ImportError:
             raise ImportError(
-                "Ragas is required for faithfulness metric. "
-                "Install with: uv add ragas"
+                "Ragas is required for faithfulness metric. Install with: uv add ragas"
             )
 
         # Extract gold answer string if needed
         if isinstance(gold, QAPair):
-            gold_str = gold.answer
             question = gold.question  # Use QAPair question if not provided
         else:
-            gold_str = gold
+            pass
 
         # Create dataset for Ragas
         data = {
@@ -319,21 +314,19 @@ class RagasAnswerRelevanceMetric(Metric):
     ) -> float:
         """Compute answer relevance using Ragas."""
         try:
+            from datasets import Dataset
             from ragas import evaluate
             from ragas.metrics import answer_relevance
-            from datasets import Dataset
         except ImportError:
             raise ImportError(
-                "Ragas is required for answer relevance metric. "
-                "Install with: uv add ragas"
+                "Ragas is required for answer relevance metric. Install with: uv add ragas"
             )
 
         # Extract gold answer string if needed
         if isinstance(gold, QAPair):
-            gold_str = gold.answer
             question = gold.question  # Use QAPair question if not provided
         else:
-            gold_str = gold
+            pass
 
         # Create dataset for Ragas
         data = {

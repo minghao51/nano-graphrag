@@ -1,15 +1,36 @@
 """End-to-end integration tests for multi-hop retrieval."""
 
 import json
+import os
 import pytest
 import shutil
 from pathlib import Path
+
+
+def _has_live_openai_key() -> bool:
+    api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        return False
+
+    placeholder_prefixes = ("fake", "test", "dummy", "example")
+    placeholder_values = {"fake", "test", "dummy", "changeme", "your-api-key"}
+    api_key_lower = api_key.lower()
+
+    if api_key_lower in placeholder_values:
+        return False
+    if any(api_key_lower.startswith(prefix) for prefix in placeholder_prefixes):
+        return False
+
+    return api_key.startswith("sk-")
 
 
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_multihop_e2e_small_dataset():
     """End-to-end test of multi-hop retrieval on small dataset."""
+    if not _has_live_openai_key():
+        pytest.skip("A live OpenAI API key is required for the integration benchmark test")
+
     from bench.runner import BenchmarkConfig, ExperimentRunner
 
     # Create small test dataset

@@ -310,9 +310,7 @@ class NetworkXStorage(BaseGraphStorage):
         }
         self._cluster_data_to_subgraphs(node_communities)
         self._last_affected_community_ids = {
-            cluster["cluster"]
-            for clusters in node_communities.values()
-            for cluster in clusters
+            cluster["cluster"] for clusters in node_communities.values() for cluster in clusters
         }
         self._last_clustering_was_incremental = False
 
@@ -344,7 +342,8 @@ class NetworkXStorage(BaseGraphStorage):
                 if (
                     not frontier_nodes
                     or len(frontier_nodes) < 2
-                    or len(frontier_nodes) / max(1, self._graph.number_of_nodes()) > frontier_ratio_limit
+                    or len(frontier_nodes) / max(1, self._graph.number_of_nodes())
+                    > frontier_ratio_limit
                     or not has_existing_clusters
                 ):
                     should_try_incremental = False
@@ -355,7 +354,9 @@ class NetworkXStorage(BaseGraphStorage):
                 for node_id in frontier_nodes
                 for cluster in self._extract_existing_clusters(node_id)
             }
-            frontier_graph = NetworkXStorage._stabilize_graph(self._graph.subgraph(frontier_nodes).copy())
+            frontier_graph = NetworkXStorage._stabilize_graph(
+                self._graph.subgraph(frontier_nodes).copy()
+            )
             starting_communities = self._collect_level0_starting_communities(frontier_nodes)
             community_mapping = hierarchical_leiden(
                 frontier_graph,

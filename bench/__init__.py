@@ -5,6 +5,7 @@ This package provides a minimal framework for running reproducible experiments
 on GraphRAG with multi-hop RAG benchmarks.
 """
 
+from .compare import compare_results, format_delta_table
 from .datasets import BenchmarkDataset, MultiHopRAGDataset, QAPair
 from .metrics import (
     ExactMatchMetric,
@@ -14,7 +15,30 @@ from .metrics import (
     TokenF1Metric,
     get_baseline_suite,
 )
-from .runner import BenchmarkConfig, ExperimentResult, ExperimentRunner
+from .registry import (
+    GlobalRetriever,
+    LocalRetriever,
+    NaiveRetriever,
+    SeparatorChunker,
+    TokenSizeChunker,
+    clear_registry,
+    list_registered,
+    register,
+    resolve,
+)
+from .results import (
+    JSONResultsBackend,
+    PredictionRecord,
+    ResultsBackend,
+    RunResult,
+)
+from .runner import (
+    ABConfig,
+    ABExperimentRunner,
+    BenchmarkConfig,
+    ExperimentResult,
+    ExperimentRunner,
+)
 
 __all__ = [
     # Datasets
@@ -32,4 +56,25 @@ __all__ = [
     "BenchmarkConfig",
     "ExperimentRunner",
     "ExperimentResult",
+    # A/B
+    "ABConfig",
+    "ABExperimentRunner",
+    # Registry
+    "register",
+    "resolve",
+    "list_registered",
+    "clear_registry",
+    "TokenSizeChunker",
+    "SeparatorChunker",
+    "LocalRetriever",
+    "GlobalRetriever",
+    "NaiveRetriever",
+    # Results
+    "ResultsBackend",
+    "JSONResultsBackend",
+    "RunResult",
+    "PredictionRecord",
+    # Compare
+    "compare_results",
+    "format_delta_table",
 ]

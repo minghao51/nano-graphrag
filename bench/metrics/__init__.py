@@ -1,9 +1,9 @@
 from .metrics import (
+    ExactMatchMetric,
     Metric,
     MetricSuite,
-    ExactMatchMetric,
-    TokenF1Metric,
     NativeContextRecallMetric,
+    TokenF1Metric,
     get_baseline_suite,
 )
 

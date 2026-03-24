@@ -1,0 +1,41 @@
+# MultiHop-RAG Benchmark Configuration
+
+name: multihop_rag_benchmark
+version: "1.0"
+description: "Multi-hop RAG evaluation on MultiHop-RAG dataset"
+
+dataset:
+  name: multihop_rag
+  path: ~/.cache/nano-bench/multihop_rag/questions.json
+  corpus_path: ~/.cache/nano-bench/multihop_rag/corpus.json
+  split: validation
+  max_samples: 50
+  max_corpus_samples: 500  # Limit corpus for faster testing (vs 6,084 full)
+  auto_download: true
+
+graphrag:
+  working_dir: ./workdirs/multihop_rag
+  enable_llm_cache: true
+
+query:
+  modes:
+    - naive
+    - local
+    - multihop
+  param_overrides:
+    max_hops: 4
+    entities_per_hop: 10
+    context_token_budget: 8000
+    top_k: 60
+
+cache:
+  enabled: true
+  backend: disk
+
+metrics:
+  exact_match: true
+  token_f1: true
+
+output:
+  results_dir: ./results/multihop_rag
+  save_predictions: true

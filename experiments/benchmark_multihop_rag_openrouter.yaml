@@ -1,0 +1,49 @@
+# MultiHop-RAG Benchmark Configuration - OpenRouter (Cost-Effective)
+# Dataset: https://huggingface.co/datasets/TIGER-Lab/MultiHop-RAG
+#
+# OpenRouter Setup:
+# 1. Get API key from https://openrouter.ai/keys
+# 2. Set OPENROUTER_API_KEY in .env file
+# 3. Run: uv run python -m bench.run --config experiments/benchmark_multihop_rag_openrouter.yaml
+
+name: multihop_rag_benchmark_openrouter
+version: "1.0"
+description: "Multi-hop RAG evaluation using OpenRouter (cost-effective)"
+
+dataset:
+  name: multihop_rag
+  path: ~/.cache/nano-bench/multihop_rag/questions.json
+  corpus_path: ~/.cache/nano-bench/multihop_rag/corpus.json
+  split: validation
+  max_samples: 50  # Start small, increase to 2556 for full evaluation
+  auto_download: true
+
+graphrag:
+  working_dir: ./workdirs/multihop_rag_openrouter
+  # OpenRouter models - cost-effective alternatives
+  llm_model: openrouter/anthropic/claude-3.5-sonnet
+  embedding_model: openrouter/microsoft/wizardlm-2-7b
+  enable_llm_cache: true
+
+query:
+  modes:
+    - naive
+    - local
+    - multihop
+  param_overrides:
+    max_hops: 4
+    entities_per_hop: 10
+    context_token_budget: 8000
+    top_k: 60
+
+cache:
+  enabled: true
+  backend: disk
+
+metrics:
+  exact_match: true
+  token_f1: true
+
+output:
+  results_dir: ./results/multihop_rag_openrouter
+  save_predictions: true

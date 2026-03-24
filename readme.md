@@ -11,516 +11,109 @@
     <a href="https://pypi.org/project/nano-graphrag/">
       <img src="https://img.shields.io/pypi/v/nano-graphrag.svg">
     </a>
-    <a href="https://codecov.io/github/gusye1234/nano-graphrag" > 
-     <img src="https://codecov.io/github/gusye1234/nano-graphrag/graph/badge.svg?token=YFPMj9uQo7"/> 
- 		</a>
+    <a href="https://codecov.io/github/gusye1234/nano-graphrag">
+      <img src="https://codecov.io/github/gusye1234/nano-graphrag/graph/badge.svg?token=YFPMj9uQo7"/>
+    </a>
     <a href="https://pepy.tech/project/nano-graphrag">
       <img src="https://static.pepy.tech/badge/nano-graphrag/month">
     </a>
   </p>
-  <p>
-  	<a href="https://discord.gg/sqCVzAhUY6">
-      <img src="https://dcbadge.limes.pink/api/server/sqCVzAhUY6?style=flat">
-    </a>
-    <a href="https://github.com/gusye1234/nano-graphrag/issues/8">
-       <img src="https://img.shields.io/badge/群聊-wechat-green">
-    </a>
-  </p>
 </div>
 
-
-
-
-
-
-
-
-
-😭 [GraphRAG](https://arxiv.org/pdf/2404.16130) is good and powerful, but the official [implementation](https://github.com/microsoft/graphrag/tree/main) is difficult/painful to **read or hack**.
-
-😊 This project provides a **smaller, faster, cleaner GraphRAG**, while remaining the core functionality(see [benchmark](#benchmark) and [issues](#Issues) ).
-
-🎁 Excluding `tests` and prompts,  `nano-graphrag` is about **1100 lines of code**.
-
-👌 Small yet [**portable**](#Components)(faiss, neo4j, ollama...), [**asynchronous**](#Async) and fully typed.
-
-
-
-> If you're looking for a multi-user RAG solution for long-term user memory, have a look at this project: [memobase](https://github.com/memodb-io/memobase) :)
-
-## Install
-
-> [!TIP]
-> **We recommend using [uv](https://github.com/astral-sh/uv) for Python package management.**
-
-### Using uv (recommended)
-
-```shell
-# Clone and install
-git clone https://github.com/gusye1234/nano-graphrag.git
-cd nano-graphrag
-
-# Install project and dev tools
-uv sync
-```
-
-### Using pip
-
-```shell
-# Core install
-pip install nano-graphrag
-
-# Optional extras
-pip install nano-graphrag[neo4j]
-```
-
-### Dependency Groups
-
-| Group | Description |
-|-------|-------------|
-| `storage` | Optional HNSW vector index |
-| `anthropic` | Direct Anthropic client |
-| `aws` | AWS/Bedrock |
-| `neo4j` | Neo4j graph storage |
-| `milvus` | Milvus vector DB |
-| `qdrant` | Qdrant vector DB |
-| `local-embedding` | Sentence-transformers |
-| `dev` | Development tools |
-| `default` | storage + neo4j |
-| `all` | Everything |
-
-
+`nano-graphrag` keeps the GraphRAG runtime small, hackable, and practical. The repo is organized so current docs, benchmark runbooks, and historical implementation notes are easy to tell apart.
 
 ## Quick Start
 
-> [!TIP]
-> **Default: OpenAI** - Just set `OPENAI_API_KEY` and go!
-> ```python
-> graph_func = GraphRAG(working_dir="./dickens")
-> ```
+Install with `uv`:
 
-> [!TIP]
-> **Using Ollama** - No API key needed!
-> ```python
-> graph_func = GraphRAG(
->     working_dir="./dickens",
->     llm_model="ollama/llama3.2",
->     llm_api_base="http://localhost:11434",
->     embedding_model="ollama/nomic-embed-text",
->     embedding_api_base="http://localhost:11434",
->     embedding_dim=768,
-> )
-> ```
-
-> [!TIP]
-> **Using vLLM or Custom API** - Any OpenAI-compatible endpoint!
-> ```python
-> graph_func = GraphRAG(
->     working_dir="./dickens",
->     llm_model="openai/llama3.1-8b",
->     llm_api_base="http://localhost:8000/v1",
->     embedding_model="openai/bge-small-en-v1.5",
->     embedding_api_base="http://localhost:8000/v1",
-> )
-> ```
-
-> [!TIP]
-> **Environment Variables** - Configure via env vars!
-> ```bash
-> export LLM_API_BASE="http://localhost:11434"
-> export LLM_MODEL="ollama/llama3.2"
-> export EMBEDDING_API_BASE="http://localhost:11434"
-> export EMBEDDING_MODEL="ollama/nomic-embed-text"
-> ```
-> Then use: `GraphRAG(working_dir="./dickens")`
-
-download a copy of A Christmas Carol by Charles Dickens:
-
-```shell
-curl https://raw.githubusercontent.com/gusye1234/nano-graphrag/main/tests/mock_data.txt > ./book.txt
+```bash
+git clone https://github.com/gusye1234/nano-graphrag.git
+cd nano-graphrag
+uv sync
 ```
 
-Use the below python snippet:
+Download a sample corpus:
+
+```bash
+curl https://raw.githubusercontent.com/gusye1234/nano-graphrag/main/tests/mock_data.txt > book.txt
+```
+
+Run a minimal example:
 
 ```python
 from nano_graphrag import GraphRAG, GraphRAGConfig, QueryParam
 
 config = GraphRAGConfig(working_dir="./dickens")
-graph_func = GraphRAG.from_config(config)
+graph = GraphRAG.from_config(config)
 
 with open("./book.txt") as f:
-    graph_func.insert(f.read())
+    graph.insert(f.read())
 
-# Perform global graphrag search
-print(graph_func.query("What are the top themes in this story?"))
-
-# Perform local graphrag search (I think is better and more scalable one)
-print(graph_func.query("What are the top themes in this story?", param=QueryParam(mode="local")))
+print(graph.query("What are the top themes in this story?"))
+print(graph.query("What are the top themes in this story?", param=QueryParam(mode="local")))
 ```
 
-Next time you initialize a `GraphRAG` from the same `working_dir`, it will reload all the contexts automatically.
+## Common Setup Paths
 
-#### Batch Insert
+- Default hosted path: set `OPENAI_API_KEY` and use `GraphRAG(working_dir="./dickens")`
+- Local Ollama path: set `llm_model="ollama/llama3.2"` and `embedding_model="ollama/nomic-embed-text"`
+- OpenAI-compatible endpoint: set `llm_api_base` and `embedding_api_base`
 
-```python
-graph_func.insert(["TEXT1", "TEXT2",...])
-```
-
-<details>
-<summary> Incremental Insert</summary>
-
-`nano-graphrag` supports incremental insert, no duplicated computation or data will be added:
+Example Ollama configuration:
 
 ```python
-with open("./book.txt") as f:
-    book = f.read()
-    half_len = len(book) // 2
-    graph_func.insert(book[:half_len])
-    graph_func.insert(book[half_len:])
-```
-
-> `nano-graphrag` derives stable content-based document IDs and reuses legacy MD5 document IDs when they already exist, so repeated inserts do not duplicate stored documents or chunks.
->
-> However, each time you insert, the communities of graph will be re-computed and the community reports will be re-generated
-
-</details>
-
-<details>
-<summary> Naive RAG</summary>
-
-`nano-graphrag` supports naive RAG insert and query as well:
-
-```python
-graph_func = GraphRAG(working_dir="./dickens", enable_naive_rag=True)
-...
-# Query
-print(rag.query(
-      "What are the top themes in this story?",
-      param=QueryParam(mode="naive")
+graph = GraphRAG(
+    working_dir="./dickens",
+    llm_model="ollama/llama3.2",
+    llm_api_base="http://localhost:11434",
+    embedding_model="ollama/nomic-embed-text",
+    embedding_api_base="http://localhost:11434",
+    embedding_dim=768,
 )
 ```
-</details>
 
+## Repo Guide
 
-### Async
+- Docs index: [`docs/README.md`](./docs/README.md)
+- Architecture: [`docs/architecture/architecture.md`](./docs/architecture/architecture.md)
+- Guides and troubleshooting: [`docs/guides/`](./docs/guides)
+- Benchmark workflow: [`experiments/README.md`](./experiments/README.md)
+- Benchmark docs map: [`docs/benchmarks/README.md`](./docs/benchmarks/README.md)
+- Contributor guide: [`CONTRIBUTING.md`](./CONTRIBUTING.md)
 
-For each method `NAME(...)` , there is a corresponding async method `aNAME(...)`
+## Runtime Notes
 
-```python
-await graph_func.ainsert(...)
-await graph_func.aquery(...)
-...
-```
-
-### Available Parameters
-
-`GraphRAGConfig` is the primary configuration surface, while `GraphRAG(...)` kwargs remain available as compatibility aliases. Use `help(GraphRAGConfig)` and `help(QueryParam)` to inspect the supported runtime parameters.
-
-
+- `GraphRAGConfig` is the canonical configuration surface.
+- `GraphRAG(...)` keyword arguments remain available as compatibility aliases.
+- Reusing the same `working_dir` lets the runtime reload persisted state automatically.
+- `insert` accepts either a single string or a list of strings.
+- Async variants are available as `ainsert(...)` and `aquery(...)`.
 
 ## Components
 
-nano-graphrag uses [LiteLLM](https://docs.litellm.ai/) for LLM and embedding, which provides unified access to 100+ providers via OpenAI-compatible APIs.
+| Type | Default | Alternatives |
+|------|---------|--------------|
+| LLM | OpenAI via LiteLLM | Ollama, Anthropic, OpenAI-compatible endpoints |
+| Embedding | OpenAI | Ollama, custom embedding functions |
+| Vector store | `nano-vectordb` | `hnswlib`, Milvus, Qdrant, Faiss |
+| Graph store | `networkx` | Neo4j |
 
-| Type | What | Configuration |
-| :-------------- | :----------------------------------------------------------: | :-----------------------------------------------: |
-| **LLM** | Any OpenAI-compatible API (Ollama, vLLM, LM Studio, etc.) | `llm_model`, `llm_api_base` |
-| | OpenAI | Default |
-| | Anthropic | `llm_model="claude-3-opus..."` |
-| | Azure OpenAI | Prefer a LiteLLM model/provider configuration |
-| | Amazon Bedrock | Prefer a LiteLLM model/provider configuration |
-| **Embedding** | Any OpenAI-compatible API | `embedding_model`, `embedding_api_base` |
-| | OpenAI | Default |
-| | Sentence-transformers | Custom function |
-| **Vector DB** | [`nano-vectordb`](https://github.com/gusye1234/nano-vectordb) | Built-in |
-| | [`hnswlib`](https://github.com/nmslib/hnswlib) | Built-in |
-| | [`milvus-lite`](https://github.com/milvus-io/milvus-lite) | [examples](./examples) |
-| | [faiss](https://github.com/facebookresearch/faiss) | [examples](./examples) |
-| | [qdrant](https://qdrant.tech/) | [examples](./examples) |
-| **Graph** | [`networkx`](https://networkx.org/) | Built-in |
-| | [`neo4j`](https://neo4j.com/) | [doc](./docs/use_neo4j_for_graphrag.md) |
-| **Chunking** | by token size | Built-in |
-| | by text splitter | Built-in |
+For Neo4j setup, see [`docs/guides/neo4j.md`](./docs/guides/neo4j.md).
 
-### Configuration via Environment Variables
+## Benchmarks
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `LLM_MODEL` | LLM model name | `gpt-4o-mini` |
-| `LLM_API_BASE` | LLM API base URL | - |
-| `LLM_API_KEY` | LLM API key | - |
-| `LLM_MAX_ASYNC` | Max concurrent LLM calls | 16 |
-| `EMBEDDING_MODEL` | Embedding model | `text-embedding-3-small` |
-| `EMBEDDING_API_BASE` | Embedding API base URL | - |
-| `EMBEDDING_DIM` | Embedding dimension | 1536 |
-| `GRAPH_WORKING_DIR` | Working directory | `./nano_graphrag` |
-| `EXTRACTION_MAX_ASYNC` | Entity extraction concurrency | 16 |
-| `GRAPH_CLUSTER_ALGORITHM` | `leiden` | `leiden` |
-| `ENABLE_NODE_EMBEDDING` | Enable node2vec | `false` |
+Benchmark configs, scripts, and provider-specific setup live under [`experiments/`](./experiments).
 
-## Cookbook
-
-The maintained examples focus on a small cookbook:
-
-- hosted model with the default LiteLLM path
-- local Ollama
-- generic OpenAI-compatible endpoint
-- Neo4j graph storage
-- custom embedding or extraction hooks
-
-## Advances
-
-
-
-<details>
-<summary>Some setup options</summary>
-
-- `GraphRAG(...,always_create_working_dir=False,...)` will skip the dir-creating step. Use it if you switch all your components to non-file storages.
-
-</details>
-
-
-
-<details>
-<summary>Only query the related context</summary>
-
-`graph_func.query` return the final answer without streaming. 
-
-If you like to interagte `nano-graphrag` in your project, you can use `param=QueryParam(..., only_need_context=True,...)`, which will only return the retrieved context from graph, something like:
-
-````
-# Local mode
------Reports-----
-```csv
-id,	content
-0,	# FOX News and Key Figures in Media and Politics...
-1, ...
-```
-...
-
-# Global mode
-----Analyst 3----
-Importance Score: 100
-Donald J. Trump: Frequently discussed in relation to his political activities...
-...
-````
-
-You can integrate that context into your customized prompt.
-
-</details>
-
-<details>
-<summary>Prompt</summary>
-
-`nano-graphrag` use prompts from `nano_graphrag.prompt.PROMPTS` dict object. You can play with it and replace any prompt inside.
-
-Some important prompts:
-
-- `PROMPTS["entity_extraction"]` is used to extract the entities and relations from a text chunk.
-- `PROMPTS["community_report"]` is used to organize and summary the graph cluster's description.
-- `PROMPTS["local_rag_response"]` is the system prompt template of the local search generation.
-- `PROMPTS["global_reduce_rag_response"]` is the system prompt template of the global search generation.
-- `PROMPTS["fail_response"]` is the fallback response when nothing is related to the user query.
-
-</details>
-
-<details>
-<summary>Customize Chunking</summary>
-
-
-`nano-graphrag` allow you to customize your own chunking method, check out the [example](./examples/using_custom_chunking_method.py).
-
-Switch to the built-in text splitter chunking method:
-
-```python
-from nano_graphrag._op import chunking_by_seperators
-
-GraphRAG(...,chunk_func=chunking_by_seperators,...)
-```
-
-</details>
-
-
-
-<details>
-<summary>LLM Function</summary>
-
-In `nano-graphrag`, we requires two types of LLM, a great one and a cheap one. The former is used to plan and respond, the latter is used to summary. By default, the great one is `gpt-4o` and the cheap one is `gpt-4o-mini`
-
-You can implement your own LLM function (refer to `_llm.gpt_4o_complete`):
-
-```python
-async def my_llm_complete(
-    prompt, system_prompt=None, history_messages=None, **kwargs
-) -> str:
-  # pop cache KV database if any
-  hashing_kv: BaseKVStorage = kwargs.pop("hashing_kv", None)
-  # the rest kwargs are for calling LLM, for example, `max_tokens=xxx`
-	...
-  # YOUR LLM calling
-  response = await call_your_LLM(messages, **kwargs)
-  return response
-```
-
-Replace the default one with:
-
-```python
-# Adjust the max token size or the max async requests if needed
-GraphRAG(best_model_func=my_llm_complete, best_model_max_token_size=..., best_model_max_async=...)
-GraphRAG(cheap_model_func=my_llm_complete, cheap_model_max_token_size=..., cheap_model_max_async=...)
-```
-
-You can refer to this [example](./examples/using_deepseek_as_llm.py) that use [`deepseek-chat`](https://platform.deepseek.com/api-docs/) as the LLM model
-
-You can refer to this [example](./examples/using_ollama_new.py) that uses [`ollama`](https://github.com/ollama/ollama) through the default LiteLLM configuration
-
-#### Json Output
-
-`nano-graphrag` will use `best_model_func` to output JSON with params `"response_format": {"type": "json_object"}`. However there are some open-source model maybe produce unstable JSON. 
-
-`nano-graphrag` introduces a post-process interface for you to convert the response to JSON. This func's signature is below:
-
-```python
-def YOUR_STRING_TO_JSON_FUNC(response: str) -> dict:
-  "Convert the string response to JSON"
-  ...
-```
-
-And pass your own func by `GraphRAG(...convert_response_to_json_func=YOUR_STRING_TO_JSON_FUNC,...)`.
-
-For example, you can refer to [json_repair](https://github.com/mangiucugna/json_repair) to repair the JSON string returned by LLM. 
-</details>
-
-
-
-<details>
-<summary>Embedding Function</summary>
-
-You can replace the default embedding functions with any `_utils.EmbedddingFunc` instance.
-
-For example, the default one is using OpenAI embedding API:
-
-```python
-@wrap_embedding_func_with_attrs(embedding_dim=1536, max_token_size=8192)
-async def openai_embedding(texts: list[str]) -> np.ndarray:
-    openai_async_client = AsyncOpenAI()
-    response = await openai_async_client.embeddings.create(
-        model="text-embedding-3-small", input=texts, encoding_format="float"
-    )
-    return np.array([dp.embedding for dp in response.data])
-```
-
-Replace default embedding function with:
-
-```python
-GraphRAG(embedding_func=your_embed_func, embedding_batch_size=..., embedding_func_max_async=...)
-```
-
-You can refer to an [example](./examples/using_local_embedding_model.py) that use `sentence-transformer` to locally compute embeddings.
-</details>
-
-
-<details>
-<summary>Storage Component</summary>
-
-You can replace all storage-related components to your own implementation, `nano-graphrag` mainly uses three kinds of storage:
-
-**`base.BaseKVStorage` for storing key-json pairs of data** 
-
-- By default we use disk file storage as the backend. 
-- `GraphRAG(.., key_string_value_json_storage_cls=YOURS,...)`
-
-**`base.BaseVectorStorage` for indexing embeddings**
-
-- By default we use [`nano-vectordb`](https://github.com/gusye1234/nano-vectordb) as the backend.
-- We have a built-in [`hnswlib`](https://github.com/nmslib/hnswlib) storage also, check out this [example](./examples/using_hnsw_as_vectorDB.py).
-- Check out this [example](./examples/using_milvus_as_vectorDB.py) that implements [`milvus-lite`](https://github.com/milvus-io/milvus-lite) as the backend (not available in Windows).
-- `GraphRAG(.., vector_db_storage_cls=YOURS,...)`
-
-**`base.BaseGraphStorage` for storing knowledge graph**
-
-- By default we use [`networkx`](https://github.com/networkx/networkx) as the backend.
-- We have a built-in `Neo4jStorage` for graph, check out this [tutorial](./docs/use_neo4j_for_graphrag.md).
-- `GraphRAG(.., graph_storage_cls=YOURS,...)`
-
-You can refer to `nano_graphrag.base` to see detailed interfaces for each components.
-</details>
-
-
-
-## FAQ
-
-Check [FAQ](./docs/FAQ.md).
-
-
-
-## Roadmap
-
-See [ROADMAP.md](./docs/ROADMAP.md)
-
-## Architecture
-
-See [20260317-architecture.md](./docs/20260317-architecture.md) for the current pipeline, storage model, and extension points.
-For incremental clustering follow-up ideas, see [20260318-incremental-community-update-research.md](./docs/20260318-incremental-community-update-research.md).
-
-
-
-## Contribute
-
-`nano-graphrag` is open to any kind of contribution. Read [this](./docs/CONTRIBUTING.md) before you contribute.
-
-
-
-
-## Benchmarking
-
-nano-graphrag includes a comprehensive benchmark framework for evaluating multi-hop RAG performance.
-
-### Quick Start
+Typical flow:
 
 ```bash
-# Run a benchmark experiment
-uv run python -m bench.run --config examples/benchmarks/configs/multihop_musique.yaml
-
-# Compare two experiments
-uv run python -m bench.compare results/exp1.json results/exp2.json
+cp .env.example .env
+uv sync
+uv run python experiments/validate_setup.py
+./experiments/run_all_benchmarks.sh --quick
+uv run python experiments/compare_results.py
 ```
 
-### Features
+## Historical Material
 
-- **4 Multi-hop datasets**: MultiHop-RAG, MuSiQue, HotpotQA, 2WikiMultiHopQA
-- **Auto-download**: Datasets download automatically from HuggingFace
-- **LLM caching**: Transparent caching saves API costs
-- **Metrics**: EM, F1, context recall
-- **A/B testing**: Built-in comparison tool
-- **Nested config**: Roadmap-compliant YAML configuration
-
-### Python API
-
-```python
-from bench import BenchmarkConfig, ExperimentRunner
-
-config = BenchmarkConfig.from_yaml("config.yaml")
-runner = ExperimentRunner(config)
-result = await runner.run()
-```
-
-See [Benchmark Documentation](./docs/benchmark-usage.md) for details.
-
-
-
-## Projects that used `nano-graphrag`
-
-- [Medical Graph RAG](https://github.com/MedicineToken/Medical-Graph-RAG): Graph RAG for the Medical Data
-- [LightRAG](https://github.com/HKUDS/LightRAG): Simple and Fast Retrieval-Augmented Generation
-- [fast-graphrag](https://github.com/circlemind-ai/fast-graphrag): RAG that intelligently adapts to your use case, data, and queries
-- [HiRAG](https://github.com/hhy-huang/HiRAG): Retrieval-Augmented Generation with Hierarchical Knowledge
-
-> Welcome to pull requests if your project uses `nano-graphrag`, it will help others to trust this repo❤️
-
-
-
-## Issues
-
-- `nano-graphrag` didn't implement the `covariates` feature of `GraphRAG`
-- `nano-graphrag` implements the global search different from the original. The original use a map-reduce-like style to fill all the communities into context, while `nano-graphrag` only use the top-K important and central communites (use `QueryParam.global_max_consider_community` to control, default to 512 communities).
+Older planning notes, verification reports, and superseded benchmark docs live under [`docs/archive/`](./docs/archive).

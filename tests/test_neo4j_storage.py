@@ -1,4 +1,7 @@
 import os
+import socket
+from urllib.parse import urlparse
+
 import pytest
 import numpy as np
 from functools import wraps
@@ -11,6 +14,23 @@ if os.environ.get("NANO_GRAPHRAG_TEST_IGNORE_NEO4J", False):
 
 if Neo4jStorage is None:
     pytest.skip("neo4j dependency is not installed", allow_module_level=True)
+
+
+def _neo4j_is_reachable() -> bool:
+    neo4j_url = os.environ.get("NEO4J_URL", "bolt://localhost:7687")
+    parsed = urlparse(neo4j_url)
+    host = parsed.hostname or "localhost"
+    port = parsed.port or 7687
+
+    try:
+        with socket.create_connection((host, port), timeout=1):
+            return True
+    except OSError:
+        return False
+
+
+if not _neo4j_is_reachable():
+    pytest.skip("neo4j service is not reachable", allow_module_level=True)
 
 
 @pytest.fixture(scope="module")

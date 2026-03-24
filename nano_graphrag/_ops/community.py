@@ -251,10 +251,14 @@ async def generate_community_report(
     existing_report_keys = await community_report_kv.all_keys()
     existing_reports = await community_report_kv.get_by_ids(existing_report_keys)
     seeded_reports = {
-        key: value for key, value in zip(existing_report_keys, existing_reports) if value is not None
+        key: value
+        for key, value in zip(existing_report_keys, existing_reports)
+        if value is not None
     }
     for level in levels:
-        level_pairs = [(k, v) for k, v in zip(community_keys, community_values) if v["level"] == level]
+        level_pairs = [
+            (k, v) for k, v in zip(community_keys, community_values) if v["level"] == level
+        ]
         if not level_pairs:
             continue
         this_level_community_keys, this_level_community_values = zip(*level_pairs)

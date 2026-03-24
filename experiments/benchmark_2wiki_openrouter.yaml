@@ -1,0 +1,40 @@
+# 2WikiMultiHopQA Benchmark Configuration - OpenRouter
+name: 2wiki_benchmark_openrouter
+version: "1.0"
+description: "2WikiMultiHopQA evaluation using OpenRouter (cost-effective)"
+
+dataset:
+  name: 2wiki
+  path: ~/.cache/nano-bench/2wiki/dev.json
+  split: validation
+  max_samples: 50
+  auto_download: true
+
+graphrag:
+  working_dir: ./workdirs/2wiki_openrouter
+  llm_model: openrouter/anthropic/claude-3.5-sonnet
+  embedding_model: openrouter/microsoft/wizardlm-2-7b
+  enable_llm_cache: true
+
+query:
+  modes:
+    - naive
+    - local
+    - multihop
+  param_overrides:
+    max_hops: 4
+    entities_per_hop: 10
+    context_token_budget: 8000
+    top_k: 60
+
+cache:
+  enabled: true
+  backend: disk
+
+metrics:
+  exact_match: true
+  token_f1: true
+
+output:
+  results_dir: ./results/2wiki_openrouter
+  save_predictions: true

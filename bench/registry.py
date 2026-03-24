@@ -282,8 +282,13 @@ class NaiveRetriever:
 class MultiHopRetrieverWrapper:
     """Wrapper around MultiHopRetriever for registry compatibility."""
 
-    def __init__(self, max_hops: int = 4, entities_per_hop: int = 10,
-                 context_token_budget: int = 8000, decompose_model: str = "gpt-4o-mini"):
+    def __init__(
+        self,
+        max_hops: int = 4,
+        entities_per_hop: int = 10,
+        context_token_budget: int = 8000,
+        decompose_model: str = "gpt-4o-mini",
+    ):
         from .retrievers.multihop import MultiHopRetriever
 
         self._retriever = MultiHopRetriever(

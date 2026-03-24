@@ -73,9 +73,7 @@ async def _find_most_related_text_unit_from_entities(
     text_units = [
         split_string_by_multi_markers(dp["source_id"], [GRAPH_FIELD_SEP]) for dp in node_datas
     ]
-    edges = await knowledge_graph_inst.get_nodes_edges_batch(
-        [dp["id"] for dp in node_datas]
-    )
+    edges = await knowledge_graph_inst.get_nodes_edges_batch([dp["id"] for dp in node_datas])
     all_one_hop_nodes = set()
     for this_edges in edges:
         if not this_edges:
@@ -182,9 +180,7 @@ async def _build_local_query_context(
     node_datas = await knowledge_graph_inst.get_nodes_batch([r["id"] for r in results])
     if not all([n is not None for n in node_datas]):
         logger.warning("Some nodes are missing, maybe the storage is damaged")
-    node_degrees = await knowledge_graph_inst.node_degrees_batch(
-        [r["id"] for r in results]
-    )
+    node_degrees = await knowledge_graph_inst.node_degrees_batch([r["id"] for r in results])
     node_datas = [
         {**n, "id": k["id"], "entity_name": n.get("entity_name", k["entity_name"]), "rank": d}
         for k, n, d in zip(results, node_datas, node_degrees)

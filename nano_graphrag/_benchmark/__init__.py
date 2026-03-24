@@ -17,8 +17,8 @@ warnings.warn(
     stacklevel=2,
 )
 
-from .datasets import BenchmarkDataset, MultiHopRAGDataset, QAPair
-from .metrics import (
+from .datasets import BenchmarkDataset, MultiHopRAGDataset, QAPair  # noqa: E402
+from .metrics import (  # noqa: E402
     ExactMatchMetric,
     Metric,
     MetricSuite,
@@ -26,7 +26,7 @@ from .metrics import (
     TokenF1Metric,
     get_baseline_suite,
 )
-from .runner import BenchmarkConfig, ExperimentResult, ExperimentRunner
+from .runner import BenchmarkConfig, ExperimentResult, ExperimentRunner  # noqa: E402
 
 __all__ = [
     # Datasets

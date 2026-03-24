@@ -3,7 +3,7 @@
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Protocol
+from typing import Any, Dict, Iterator, List, Protocol
 
 
 @dataclass
@@ -173,7 +173,7 @@ class MultiHopRAGDataset:
         dataset_dir = cache_path / "multihoprag"
         dataset_dir.mkdir(parents=True, exist_ok=True)
 
-        print(f"[Download] Loading MultiHopRAG from HuggingFace...")
+        print("[Download] Loading MultiHopRAG from HuggingFace...")
         hf_dataset = load_dataset("yixuantt/MultiHopRAG", split="train")
 
         questions_data = []
@@ -193,17 +193,27 @@ class MultiHopRAGDataset:
                     if fact:
                         supporting_facts.append(fact)
                     if title or fact:
-                        corpus_texts.append({"id": f"doc_{len(corpus_data)}", "title": title, "content": fact or title})
+                        corpus_texts.append(
+                            {
+                                "id": f"doc_{len(corpus_data)}",
+                                "title": title,
+                                "content": fact or title,
+                            }
+                        )
                 elif isinstance(ev, str):
                     supporting_facts.append(ev)
-                    corpus_texts.append({"id": f"doc_{len(corpus_data)}", "title": "", "content": ev})
+                    corpus_texts.append(
+                        {"id": f"doc_{len(corpus_data)}", "title": "", "content": ev}
+                    )
 
-            questions_data.append({
-                "id": qa_id,
-                "question": item["query"],
-                "answer": item["answer"],
-                "supporting_facts": supporting_facts,
-            })
+            questions_data.append(
+                {
+                    "id": qa_id,
+                    "question": item["query"],
+                    "answer": item["answer"],
+                    "supporting_facts": supporting_facts,
+                }
+            )
 
             for doc in corpus_texts:
                 if doc["content"]:
@@ -325,16 +335,18 @@ class HotpotQADataset:
                     if fact_title in corpus_docs:
                         supporting_facts.append(fact_title)
 
-            questions_data.append({
-                "id": qa_id,
-                "question": item["question"],
-                "answer": item["answer"],
-                "supporting_facts": supporting_facts,
-                "metadata": {
-                    "type": item.get("type", "unknown"),
-                    "level": item.get("level", "unknown"),
-                },
-            })
+            questions_data.append(
+                {
+                    "id": qa_id,
+                    "question": item["question"],
+                    "answer": item["answer"],
+                    "supporting_facts": supporting_facts,
+                    "metadata": {
+                        "type": item.get("type", "unknown"),
+                        "level": item.get("level", "unknown"),
+                    },
+                }
+            )
 
         output_path = dataset_dir / f"{self.split}.json"
         with open(output_path, "w", encoding="utf-8") as f:
@@ -442,22 +454,28 @@ class MuSiQueDataset:
                         doc_key = f"{title}_{para_idx}"
                         if doc_key not in corpus_docs:
                             doc_id = f"musique_doc_{len(corpus_docs)}"
-                            corpus_docs[doc_key] = {"id": doc_id, "title": title, "content": content}
+                            corpus_docs[doc_key] = {
+                                "id": doc_id,
+                                "title": title,
+                                "content": content,
+                            }
 
                     decomp = para.get("decomposition", [])
                     for d in decomp:
                         if isinstance(d, dict) and d.get("answer"):
                             supporting_facts.append(d["answer"])
 
-            questions_data.append({
-                "id": qa_id,
-                "question": item["question"],
-                "answer": item["answer"],
-                "supporting_facts": supporting_facts[:2] if supporting_facts else [],
-                "metadata": {
-                    "decomposition": item.get("question_decomposition", []),
-                },
-            })
+            questions_data.append(
+                {
+                    "id": qa_id,
+                    "question": item["question"],
+                    "answer": item["answer"],
+                    "supporting_facts": supporting_facts[:2] if supporting_facts else [],
+                    "metadata": {
+                        "decomposition": item.get("question_decomposition", []),
+                    },
+                }
+            )
 
         output_path = dataset_dir / f"{self.split}.json"
         with open(output_path, "w", encoding="utf-8") as f:
@@ -561,7 +579,11 @@ class TwoWikiMultiHopQADataset:
 
                 for i, title in enumerate(titles):
                     if isinstance(sentences, list) and i < len(sentences):
-                        content = " ".join(sentences[i]) if isinstance(sentences[i], list) else str(sentences[i])
+                        content = (
+                            " ".join(sentences[i])
+                            if isinstance(sentences[i], list)
+                            else str(sentences[i])
+                        )
                     else:
                         content = ""
 
@@ -569,7 +591,11 @@ class TwoWikiMultiHopQADataset:
                         doc_key = f"{title}_{i}"
                         if doc_key not in corpus_docs:
                             doc_id = f"2wiki_doc_{len(corpus_docs)}"
-                            corpus_docs[doc_key] = {"id": doc_id, "title": title, "content": content}
+                            corpus_docs[doc_key] = {
+                                "id": doc_id,
+                                "title": title,
+                                "content": content,
+                            }
 
             sp = item.get("supporting_facts", {})
             if isinstance(sp, dict):
@@ -578,15 +604,17 @@ class TwoWikiMultiHopQADataset:
                     if t not in supporting_facts:
                         supporting_facts.append(t)
 
-            questions_data.append({
-                "id": qa_id,
-                "question": item["question"],
-                "answer": item["answer"],
-                "supporting_facts": supporting_facts,
-                "metadata": {
-                    "type": item.get("type", "unknown"),
-                },
-            })
+            questions_data.append(
+                {
+                    "id": qa_id,
+                    "question": item["question"],
+                    "answer": item["answer"],
+                    "supporting_facts": supporting_facts,
+                    "metadata": {
+                        "type": item.get("type", "unknown"),
+                    },
+                }
+            )
 
         output_path = dataset_dir / f"{self.split}.json"
         with open(output_path, "w", encoding="utf-8") as f:

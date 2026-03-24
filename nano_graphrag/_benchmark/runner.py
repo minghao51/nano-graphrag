@@ -2,7 +2,7 @@
 
 import asyncio
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -11,7 +11,7 @@ from ..base import GraphRAGConfig, QueryParam
 from ..graphrag import GraphRAG
 from .cache import create_benchmark_cache
 from .datasets import BenchmarkDataset, MultiHopRAGDataset
-from .metrics import MetricSuite, get_baseline_suite
+from .metrics import MetricSuite
 
 
 @dataclass
@@ -111,7 +111,9 @@ class ExperimentResult:
     timestamp: str
     config: BenchmarkConfig
     mode_results: Dict[str, Dict[str, float]]  # mode -> metric_scores
-    predictions: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)  # mode -> list of {question, prediction, gold}
+    predictions: Dict[str, List[Dict[str, Any]]] = field(
+        default_factory=dict
+    )  # mode -> list of {question, prediction, gold}
     duration_seconds: float = 0.0
     cache_stats: Optional[Dict[str, Any]] = None
 
@@ -273,7 +275,9 @@ class ExperimentRunner:
         questions_list = list(self._dataset.questions(split=self.config.dataset_split))
         corpus_list = list(self._dataset.corpus())
 
-        print(f"[Dataset] Loaded {len(questions_list)} questions and {len(corpus_list)} corpus documents")
+        print(
+            f"[Dataset] Loaded {len(questions_list)} questions and {len(corpus_list)} corpus documents"
+        )
 
         # Create GraphRAG instance
         self._rag = self._create_graphrag()
@@ -331,7 +335,9 @@ class ExperimentRunner:
         cache_stats = None
         if self._cache is not None:
             cache_stats = await self._cache.stats()
-            print(f"\n[Cache] Hits: {cache_stats['hits']}, Misses: {cache_stats['misses']}, Hit Rate: {cache_stats['hit_rate']:.2%}")
+            print(
+                f"\n[Cache] Hits: {cache_stats['hits']}, Misses: {cache_stats['misses']}, Hit Rate: {cache_stats['hit_rate']:.2%}"
+            )
 
         # Create result
         result = ExperimentResult(

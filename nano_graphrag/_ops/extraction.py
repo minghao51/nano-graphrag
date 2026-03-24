@@ -224,9 +224,7 @@ def _upsert_document_relationship(
     chunk_key: str,
     relation_type: str = "related",
 ) -> str:
-    relationship_id = generate_stable_relationship_id(
-        src_entity_id, tgt_entity_id, relation_type
-    )
+    relationship_id = generate_stable_relationship_id(src_entity_id, tgt_entity_id, relation_type)
     relationship_entry = relationships.setdefault(
         relationship_id,
         {
@@ -351,6 +349,10 @@ async def extract_document_entity_relationships_structured(
     already_relations = 0
     fallback_to_parsing = global_config.get("fallback_to_parsing", True)
 
+    # Concurrency limit for entity extraction
+    max_concurrent = global_config.get("extraction_max_async", 16)
+    semaphore = asyncio.Semaphore(max_concurrent)
+
     async def _process_chunk_with_legacy_prompt(
         chunk_key: str, content: str
     ) -> tuple[dict[str, dict], dict[str, dict]]:
@@ -404,7 +406,9 @@ async def extract_document_entity_relationships_structured(
                 entity_name_to_id[entity["entity_name"]] = entity_id
                 continue
 
-            relationship = await _handle_single_relationship_extraction(record_attributes, chunk_key)
+            relationship = await _handle_single_relationship_extraction(
+                record_attributes, chunk_key
+            )
             if relationship is None:
                 continue
             src_name = relationship["src_name"]
@@ -446,7 +450,9 @@ Return a JSON with 'entities' (name, type, description) and 'relationships' (sou
             logger.warning(f"Structured extraction failed for chunk {chunk_key}: {e}")
             if fallback_to_parsing:
                 logger.info(f"Falling back to legacy parsing for chunk {chunk_key}")
-                entities, relationships = await _process_chunk_with_legacy_prompt(chunk_key, content)
+                entities, relationships = await _process_chunk_with_legacy_prompt(
+                    chunk_key, content
+                )
                 already_processed += 1
                 already_entities += len(entities)
                 already_relations += len(relationships)
@@ -521,7 +527,13 @@ Return a JSON with 'entities' (name, type, description) and 'relationships' (sou
         )
         return entities, relationships
 
-    results = await asyncio.gather(*[_process_single_content(c) for c in ordered_chunks])
+    async def _process_single_content_with_semaphore(chunk_item):
+        async with semaphore:
+            return await _process_single_content(chunk_item)
+
+    results = await asyncio.gather(
+        *[_process_single_content_with_semaphore(c) for c in ordered_chunks]
+    )
     print()
     manifest = {"chunk_ids": list(chunks.keys()), "entities": {}, "relationships": {}}
     for entities, relationships in results:
@@ -534,7 +546,9 @@ Return a JSON with 'entities' (name, type, description) and 'relationships' (sou
                 entity["source_chunk_ids"][0],
             )
             manifest["entities"][entity_id]["descriptions"].extend(entity["descriptions"][1:])
-            manifest["entities"][entity_id]["source_chunk_ids"].extend(entity["source_chunk_ids"][1:])
+            manifest["entities"][entity_id]["source_chunk_ids"].extend(
+                entity["source_chunk_ids"][1:]
+            )
         for relationship_id, relationship in relationships.items():
             _upsert_document_relationship(
                 manifest["relationships"],
@@ -577,6 +591,10 @@ async def extract_document_entity_relationships_legacy(
     already_processed = 0
     already_entities = 0
     already_relations = 0
+
+    # Concurrency limit for entity extraction
+    max_concurrent = global_config.get("extraction_max_async", 16)
+    semaphore = asyncio.Semaphore(max_concurrent)
 
     async def _process_single_content(chunk_key_dp: tuple[str, TextChunkSchema]):
         nonlocal already_processed, already_entities, already_relations
@@ -627,7 +645,9 @@ async def extract_document_entity_relationships_legacy(
                 entity_name_to_id[entity["entity_name"]] = entity_id
                 continue
 
-            relationship = await _handle_single_relationship_extraction(record_attributes, chunk_key)
+            relationship = await _handle_single_relationship_extraction(
+                record_attributes, chunk_key
+            )
             if relationship is None:
                 continue
             src_name = relationship["src_name"]
@@ -660,7 +680,13 @@ async def extract_document_entity_relationships_legacy(
         )
         return entities, relationships
 
-    results = await asyncio.gather(*[_process_single_content(c) for c in ordered_chunks])
+    async def _process_single_content_with_semaphore(chunk_item):
+        async with semaphore:
+            return await _process_single_content(chunk_item)
+
+    results = await asyncio.gather(
+        *[_process_single_content_with_semaphore(c) for c in ordered_chunks]
+    )
     print()
     manifest = {"chunk_ids": list(chunks.keys()), "entities": {}, "relationships": {}}
     for entities, relationships in results:
@@ -784,7 +810,10 @@ async def rebuild_knowledge_graph_for_documents(
             if entity.get("entity_name")
         }
         for entity_id, entity in document.get("entities", {}).items():
-            if entity_id in affected_entity_ids or entity.get("entity_name") in affected_entity_names:
+            if (
+                entity_id in affected_entity_ids
+                or entity.get("entity_name") in affected_entity_names
+            ):
                 entity_contributions[entity_id].append(entity)
         for relationship_id, relationship in document.get("relationships", {}).items():
             src_name = document_entity_names.get(relationship["src_entity_id"])
@@ -819,8 +848,12 @@ async def rebuild_knowledge_graph_for_documents(
 
     canonical_relationship_contributions: dict[str, list[dict]] = defaultdict(list)
     for relationship in relationship_contributions:
-        src_entity_id = entity_id_remap.get(relationship["src_entity_id"], relationship["src_entity_id"])
-        tgt_entity_id = entity_id_remap.get(relationship["tgt_entity_id"], relationship["tgt_entity_id"])
+        src_entity_id = entity_id_remap.get(
+            relationship["src_entity_id"], relationship["src_entity_id"]
+        )
+        tgt_entity_id = entity_id_remap.get(
+            relationship["tgt_entity_id"], relationship["tgt_entity_id"]
+        )
         canonical_relationship_id = generate_stable_relationship_id(
             src_entity_id,
             tgt_entity_id,
@@ -869,7 +902,9 @@ async def rebuild_knowledge_graph_for_documents(
                 }
             )
 
-    relationship_ids_to_refresh = set(affected_relationship_ids).union(combined_relationships.keys())
+    relationship_ids_to_refresh = set(affected_relationship_ids).union(
+        combined_relationships.keys()
+    )
     for relationship_id in relationship_ids_to_refresh:
         removed_edge = removed_relationship_lookup.get(relationship_id)
         if removed_edge is not None:
@@ -885,9 +920,7 @@ async def rebuild_knowledge_graph_for_documents(
             combined = combined_relationships.get(canonical_relationship_id)
         if combined is None:
             if removed_edge is not None:
-                await knowledge_graph_inst.delete_edge(
-                    removed_edge[0], removed_edge[1]
-                )
+                await knowledge_graph_inst.delete_edge(removed_edge[0], removed_edge[1])
             continue
         for endpoint in [combined["src_entity_id"], combined["tgt_entity_id"]]:
             if not await knowledge_graph_inst.has_node(endpoint):

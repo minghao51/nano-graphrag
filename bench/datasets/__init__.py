@@ -1,10 +1,10 @@
 from .datasets import (
     BenchmarkDataset,
+    HotpotQADataset,
+    MultiHopRAGDataset,
+    MuSiQueDataset,
     Passage,
     QAPair,
-    MultiHopRAGDataset,
-    HotpotQADataset,
-    MuSiQueDataset,
     TwoWikiMultiHopQADataset,
 )
 

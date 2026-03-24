@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 
 PROVIDERS_SUPPORTING_STRUCTURED_OUTPUT = {
     "openai",
+    "openrouter",
     "azure",
     "anthropic",
     "google_genai",
@@ -29,6 +30,15 @@ PROVIDER_MODEL_PREFIXES = {
     "ollama": ["llama", "mistral", "gemma", "phi", "qwen", "yi"],
 }
 
+UNSUPPORTED_STRUCTURED_OUTPUT_ERRORS = tuple(
+    exc
+    for exc in (
+        getattr(litellm, "UnsupportedAPIError", None),
+        getattr(litellm, "BadRequestError", None),
+    )
+    if isinstance(exc, type)
+)
+
 
 def detect_provider(model: str) -> str:
     """Detect LiteLLM provider from model name.
@@ -42,6 +52,8 @@ def detect_provider(model: str) -> str:
     # Explicit provider prefix
     if "/" in model:
         provider, model_only = model.split("/", 1)
+        if provider == "openrouter":
+            return provider
         if provider in PROVIDERS_SUPPORTING_STRUCTURED_OUTPUT:
             return provider
         # For unknown providers, try to detect from model name
@@ -64,6 +76,41 @@ def detect_provider(model: str) -> str:
 def supports_structured_output(model: str) -> bool:
     provider = detect_provider(model)
     return provider in PROVIDERS_SUPPORTING_STRUCTURED_OUTPUT
+
+
+def should_fallback_without_structured_output(exc: Exception) -> bool:
+    """Return True when the provider rejected structured output parameters."""
+    message = str(exc).lower()
+    return any(
+        pattern in message
+        for pattern in (
+            "response_format",
+            "json_schema",
+            "structured output",
+            "json_object",
+        )
+    )
+
+
+def build_json_schema_response_format(response_format: Type[BaseModel]) -> dict[str, Any]:
+    """Build a provider-native json_schema response_format payload."""
+    schema = response_format.model_json_schema()
+    schema_name = schema.get("title") or response_format.__name__
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": schema_name,
+            "strict": True,
+            "schema": schema,
+        },
+    }
+
+
+def build_provider_requirements(model: str) -> Optional[dict[str, Any]]:
+    """Build provider-specific routing requirements for structured output calls."""
+    if detect_provider(model) == "openrouter":
+        return {"require_parameters": True}
+    return None
 
 
 @retry(
@@ -122,8 +169,11 @@ async def litellm_completion(
     # Choose between native structured output or JSON schema
     if response_format is not None and supports_structured_output(model):
         if use_native_structured_output:
-            # Use provider's native structured output
-            litellm_kwargs["response_format"] = {"type": "json_object"}
+            # Use provider-native strict schema mode when available.
+            litellm_kwargs["response_format"] = build_json_schema_response_format(response_format)
+            provider_requirements = build_provider_requirements(model)
+            if provider_requirements is not None:
+                litellm_kwargs["provider"] = provider_requirements
         else:
             # Legacy route: Add schema to system prompt
             import json
@@ -140,15 +190,15 @@ Respond with valid JSON matching this schema:
     try:
         response = await litellm.acompletion(**litellm_kwargs)
         result = response.choices[0].message.content
-    except litellm.UnsupportedAPIError as e:
-        # Only fallback for specific API errors
-        logger.warning(f"Structured output not supported: {e}")
-        if "response_format" in litellm_kwargs:
-            litellm_kwargs.pop("response_format", None)
-            response = await litellm.acompletion(**litellm_kwargs)
-            result = response.choices[0].message.content
-        else:
+    except UNSUPPORTED_STRUCTURED_OUTPUT_ERRORS as e:
+        if "response_format" not in litellm_kwargs or not should_fallback_without_structured_output(
+            e
+        ):
             raise
+        logger.warning(f"Structured output not supported, retrying without it: {e}")
+        litellm_kwargs.pop("response_format", None)
+        response = await litellm.acompletion(**litellm_kwargs)
+        result = response.choices[0].message.content
     except Exception as e:
         # Let other errors propagate
         logger.error(f"LiteLLM call failed: {e}")
