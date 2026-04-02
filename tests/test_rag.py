@@ -64,7 +64,7 @@ async def invalid_structured_model(prompt, system_prompt=None, history_messages=
 
 async def fake_entity_extraction(
     chunks,
-    knwoledge_graph_inst,
+    knowledge_graph_inst,
     entity_vdb,
     tokenizer_wrapper,
     global_config,
@@ -73,7 +73,7 @@ async def fake_entity_extraction(
     chunk_id = next(iter(chunks))
     dickens_id = generate_stable_entity_id("CHARLES DICKENS", "PERSON")
     carol_id = generate_stable_entity_id("A CHRISTMAS CAROL", "WORK")
-    await knwoledge_graph_inst.upsert_node(
+    await knowledge_graph_inst.upsert_node(
         dickens_id,
         {
             "entity_name": "CHARLES DICKENS",
@@ -82,7 +82,7 @@ async def fake_entity_extraction(
             "source_id": chunk_id,
         },
     )
-    await knwoledge_graph_inst.upsert_node(
+    await knowledge_graph_inst.upsert_node(
         carol_id,
         {
             "entity_name": "A CHRISTMAS CAROL",
@@ -91,7 +91,7 @@ async def fake_entity_extraction(
             "source_id": chunk_id,
         },
     )
-    await knwoledge_graph_inst.upsert_edge(
+    await knowledge_graph_inst.upsert_edge(
         dickens_id,
         carol_id,
         {
@@ -113,7 +113,7 @@ async def fake_entity_extraction(
                 },
             }
         )
-    return knwoledge_graph_inst
+    return knowledge_graph_inst
 
 
 def clean_working_dir():

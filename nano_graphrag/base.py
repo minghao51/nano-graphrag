@@ -40,7 +40,7 @@ SingleCommunitySchema = TypedDict(
     {
         "level": int,
         "title": str,
-        "edges": list[list[str, str]],
+        "edges": list[tuple[str, str]],
         "nodes": list[str],
         "chunk_ids": list[str],
         "occurrence": float,
@@ -158,18 +158,18 @@ class BaseGraphStorage(StorageNameSpace):
     async def get_nodes_edges_batch(self, node_ids: list[str]) -> list[list[tuple[str, str]]]:
         raise NotImplementedError
 
-    async def upsert_node(self, node_id: str, node_data: dict[str, str]):
+    async def upsert_node(self, node_id: str, node_data: dict[str, Any]):
         raise NotImplementedError
 
-    async def upsert_nodes_batch(self, nodes_data: list[tuple[str, dict[str, str]]]):
+    async def upsert_nodes_batch(self, nodes_data: list[tuple[str, dict[str, Any]]]):
         raise NotImplementedError
 
     async def upsert_edge(
-        self, source_node_id: str, target_node_id: str, edge_data: dict[str, str]
+        self, source_node_id: str, target_node_id: str, edge_data: dict[str, Any]
     ):
         raise NotImplementedError
 
-    async def upsert_edges_batch(self, edges_data: list[tuple[str, str, dict[str, str]]]):
+    async def upsert_edges_batch(self, edges_data: list[tuple[str, str, dict[str, Any]]]):
         raise NotImplementedError
 
     async def delete_node(self, node_id: str):

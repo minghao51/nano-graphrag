@@ -4,19 +4,9 @@ import warnings
 from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
 from functools import partial
-from typing import Any, Callable, Dict, List, Optional, Type, Union, cast
+from typing import Any, Callable, Dict, List, Optional, Type, Union
 
-from ._llm import (
-    amazon_bedrock_embedding,
-    azure_gpt_4o_complete,
-    azure_gpt_4o_mini_complete,
-    azure_openai_embedding,
-    create_amazon_bedrock_complete_function,
-    gpt_4o_complete,
-    gpt_4o_mini_complete,
-    openai_embedding,
-)
-from ._op import (
+from ._ops import (
     chunking_by_token_size,
     extract_document_entity_relationships,
     extract_entities,
@@ -53,7 +43,6 @@ from .base import (
     BaseVectorStorage,
     GraphRAGConfig,
     QueryParam,
-    StorageNameSpace,
 )
 
 
@@ -73,9 +62,9 @@ class GraphRAG:
     enable_naive_rag: bool = False
 
     # === Text Chunking ===
-    tokenizer_type: str = "tiktoken"  # or 'huggingface'
+    tokenizer_type: str = "tiktoken"
     tiktoken_model_name: str = "gpt-4o"
-    huggingface_model_name: str = "bert-base-uncased"  # default HF model
+    huggingface_model_name: str = "bert-base-uncased"
     chunk_func: Callable[
         [
             list[list[int]],
@@ -92,14 +81,14 @@ class GraphRAG:
     # === Entity Extraction ===
     entity_extract_max_gleaning: int = 1
     entity_summary_to_max_tokens: int = 500
-    extraction_max_async: int = 16  # NEW: control entity extraction concurrency
+    extraction_max_async: int = 16
 
     # === Graph Clustering ===
     graph_cluster_algorithm: str = "leiden"
     max_graph_cluster_size: int = 10
     graph_cluster_seed: int = 0xDEADBEEF
 
-    # === Node Embedding (disabled by default for local) ===
+    # === Node Embedding ===
     node_embedding_algorithm: str = "node2vec"
     node2vec_params: dict = field(
         default_factory=lambda: {
@@ -111,44 +100,40 @@ class GraphRAG:
             "random_seed": 3,
         }
     )
-    enable_node_embedding: bool = False  # NEW: disabled by default
+    enable_node_embedding: bool = False
 
     # === Community Reports ===
     special_community_report_llm_kwargs: dict = field(
         default_factory=lambda: {"response_format": {"type": "json_object"}}
     )
 
-    # === Embedding (NEW CONFIG) ===
-    embedding_func: EmbeddingFunc = field(default_factory=lambda: openai_embedding)
-    embedding_model: str = DEFAULT_EMBEDDING_MODEL  # NEW
-    embedding_api_base: Optional[str] = None  # NEW: for Ollama, vLLM, custom
-    embedding_api_key: Optional[str] = None  # NEW
-    embedding_dim: int = DEFAULT_EMBEDDING_DIM  # NEW
+    # === Embedding ===
+    embedding_func: Optional[EmbeddingFunc] = None
+    embedding_model: str = DEFAULT_EMBEDDING_MODEL
+    embedding_api_base: Optional[str] = None
+    embedding_api_key: Optional[str] = None
+    embedding_dim: int = DEFAULT_EMBEDDING_DIM
     embedding_max_async: Optional[int] = None
     embedding_batch_size: Optional[int] = None
     embedding_batch_num: int = 32
     embedding_func_max_async: int = 16
 
-    # === LLM (NEW CONFIG) ===
-    using_azure_openai: bool = False
-    using_amazon_bedrock: bool = False
-    best_model_id: str = "us.anthropic.claude-3-sonnet-20240229-v1:0"
-    cheap_model_id: str = "us.anthropic.claude-3-haiku-20240307-v1:0"
-    best_model_func: Callable[..., Any] = gpt_4o_complete
+    # === LLM ===
+    best_model_func: Optional[Callable[..., Any]] = None
     best_model_max_token_size: int = 32768
     best_model_max_async: int = 16
-    cheap_model_func: Callable[..., Any] = gpt_4o_mini_complete
+    cheap_model_func: Optional[Callable[..., Any]] = None
     cheap_model_max_token_size: int = 32768
     cheap_model_max_async: int = 16
 
-    # === LiteLLM (Default Runtime) ===
-    llm_model: str = DEFAULT_LLM_MODEL  # NEW: e.g., "ollama/llama3.2", "gpt-4o-mini"
-    llm_cheap_model: str = DEFAULT_CHEAP_MODEL  # NEW
-    llm_api_base: Optional[str] = None  # NEW: e.g., "http://localhost:11434"
-    llm_api_key: Optional[str] = None  # NEW
+    # === LiteLLM Runtime ===
+    llm_model: str = DEFAULT_LLM_MODEL
+    llm_cheap_model: str = DEFAULT_CHEAP_MODEL
+    llm_api_base: Optional[str] = None
+    llm_api_key: Optional[str] = None
     llm_max_async: Optional[int] = None
-    llm_max_tokens: int = 32768  # NEW
-    llm_timeout: int = 120  # NEW
+    llm_max_tokens: int = 32768
+    llm_timeout: int = 120
 
     structured_output: bool = True
     use_pydantic_structured_output: bool = True
@@ -156,7 +141,7 @@ class GraphRAG:
 
     # === Entity Extraction ===
     entity_extraction_func: Callable[..., Any] = extract_entities
-    entity_extraction_quality: str = "balanced"  # NEW: "fast" | "balanced" | "thorough"
+    entity_extraction_quality: str = "balanced"
 
     # === Storage ===
     key_string_value_json_storage_cls: Type[BaseKVStorage] = JsonKVStorage
@@ -172,38 +157,30 @@ class GraphRAG:
 
     @classmethod
     def from_config(cls, config: GraphRAGConfig) -> "GraphRAG":
-        """Create GraphRAG from GraphRAGConfig object.
-
-        This is the recommended way to create a GraphRAG instance.
-
-        Example:
-            config = GraphRAGConfig.from_env()
-            rag = GraphRAG.from_config(config)
-        """
+        """Create GraphRAG from GraphRAGConfig object."""
         config_dict = config.to_dict()
-        valid_fields = {field_def.name for field_def in fields(cls)}
-        return cls(**{key: value for key, value in config_dict.items() if key in valid_fields})
+        valid_fields = {f.name for f in fields(cls)}
+        return cls(**{k: v for k, v in config_dict.items() if k in valid_fields})
 
     def __post_init__(self):
-        self._normalize_runtime_settings()
+        self._normalize_settings()
         self._configure_logging()
         self._build_tokenizer()
         self._configure_runtime()
         self._build_storages()
 
-    def _normalize_runtime_settings(self):
+    def _normalize_settings(self):
         if self.graph_cluster_algorithm not in SUPPORTED_GRAPH_CLUSTERING:
-            supported = ", ".join(SUPPORTED_GRAPH_CLUSTERING)
             raise ValueError(
                 f"Unsupported graph_cluster_algorithm={self.graph_cluster_algorithm!r}. "
-                f"Supported values: {supported}"
+                f"Supported: {', '.join(SUPPORTED_GRAPH_CLUSTERING)}"
             )
 
         if self.embedding_batch_size is not None:
             self.embedding_batch_num = self.embedding_batch_size
         elif self.embedding_batch_num != 32:
             warnings.warn(
-                "`embedding_batch_num` is deprecated; use `embedding_batch_size` instead.",
+                "`embedding_batch_num` is deprecated; use `embedding_batch_size`.",
                 DeprecationWarning,
                 stacklevel=2,
             )
@@ -217,233 +194,149 @@ class GraphRAG:
         if self.embedding_max_async is not None:
             self.embedding_func_max_async = self.embedding_max_async
 
-        if self.using_azure_openai:
-            warnings.warn(
-                "`using_azure_openai` is deprecated; prefer LiteLLM with `llm_model`, "
-                "`llm_api_base`, and `llm_api_key`.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-        if self.using_amazon_bedrock:
-            warnings.warn(
-                "`using_amazon_bedrock` is deprecated; prefer LiteLLM-compatible "
-                "model configuration unless you need the legacy Bedrock path.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-
     def _configure_logging(self):
-        # === Configure logging ===
         import logging
 
         numeric_level = getattr(logging, self.log_level.upper(), logging.INFO)
         logger.setLevel(numeric_level)
         formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
-        if not any(
-            getattr(handler, "_nano_graphrag_console", False) for handler in logger.handlers
-        ):
+        if not any(getattr(h, "_nano_graphrag_console", False) for h in logger.handlers):
             console_handler = logging.StreamHandler()
             console_handler.setLevel(numeric_level)
             console_handler.setFormatter(formatter)
             console_handler._nano_graphrag_console = True
             logger.addHandler(console_handler)
 
-        # File handler (optional)
         if self.log_file:
-            existing_file_handler = any(
-                getattr(handler, "_nano_graphrag_file", None) == self.log_file
-                for handler in logger.handlers
-            )
-            if not existing_file_handler:
+            if not any(
+                getattr(h, "_nano_graphrag_file", None) == self.log_file for h in logger.handlers
+            ):
                 file_handler = logging.FileHandler(self.log_file)
                 file_handler.setLevel(numeric_level)
                 file_handler.setFormatter(formatter)
                 file_handler._nano_graphrag_file = self.log_file
                 logger.addHandler(file_handler)
 
-        # === Print config ===
-        _print_config = ",\n  ".join([f"{k} = {v}" for k, v in asdict(self).items()])
-        logger.debug(f"GraphRAG init with param:\n\n  {_print_config}\n")
+        params_str = ",\n  ".join(f"{k} = {v}" for k, v in asdict(self).items())
+        logger.debug(f"GraphRAG init with param:\n  {params_str}")
 
     def _build_tokenizer(self):
+        model_name = (
+            self.tiktoken_model_name
+            if self.tokenizer_type == "tiktoken"
+            else self.huggingface_model_name
+        )
         self.tokenizer_wrapper = TokenizerWrapper(
             tokenizer_type=self.tokenizer_type,
-            model_name=self.tiktoken_model_name
-            if self.tokenizer_type == "tiktoken"
-            else self.huggingface_model_name,
+            model_name=model_name,
         )
 
     def _configure_runtime(self):
-        if self.using_azure_openai:
-            # If there's no OpenAI API key, use Azure OpenAI
-            if self.best_model_func == gpt_4o_complete:
-                self.best_model_func = azure_gpt_4o_complete
-            if self.cheap_model_func == gpt_4o_mini_complete:
-                self.cheap_model_func = azure_gpt_4o_mini_complete
-            if self.embedding_func == openai_embedding:
-                self.embedding_func = azure_openai_embedding
-            logger.info(
-                "Switched the default openai funcs to Azure OpenAI if you didn't set any of it"
-            )
-
-        if self.using_amazon_bedrock:
-            self.best_model_func = create_amazon_bedrock_complete_function(self.best_model_id)
-            self.cheap_model_func = create_amazon_bedrock_complete_function(self.cheap_model_id)
-            self.embedding_func = amazon_bedrock_embedding
-            logger.info("Switched the default openai funcs to Amazon Bedrock")
-
-        uses_custom_llm = self.best_model_func not in (
-            gpt_4o_complete,
-            azure_gpt_4o_complete,
-        ) or self.cheap_model_func not in (gpt_4o_mini_complete, azure_gpt_4o_mini_complete)
-        uses_custom_embedding = self.embedding_func not in (
-            openai_embedding,
-            azure_openai_embedding,
-            amazon_bedrock_embedding,
+        from ._llm_litellm import (
+            LiteLLMWrapper,
+            litellm_embedding,
+            supports_structured_output,
         )
-        use_litellm_runtime = not (
-            self.using_azure_openai
-            or self.using_amazon_bedrock
-            or uses_custom_llm
-            or uses_custom_embedding
-        )
-        self._use_structured_extraction = use_litellm_runtime
 
         if not os.path.exists(self.working_dir) and self.always_create_working_dir:
             logger.info(f"Creating working directory {self.working_dir}")
             os.makedirs(self.working_dir)
+
         self.llm_response_cache = (
             self.key_string_value_json_storage_cls(
-                namespace="llm_response_cache", global_config=asdict(self)
+                namespace="llm_response_cache",
+                global_config=asdict(self),
             )
             if self.enable_llm_cache
             else None
         )
 
-        if use_litellm_runtime:
-            try:
-                from ._llm_litellm import (
-                    LiteLLMWrapper,
-                    litellm_embedding,
-                    supports_structured_output,
+        # If custom model/embedding funcs are provided, use them directly
+        use_custom_models = self.best_model_func is not None or self.cheap_model_func is not None
+        use_custom_embedding = self.embedding_func is not None
+
+        if use_custom_models or use_custom_embedding:
+            # Wrap custom functions with async limiter if needed
+            if self.best_model_func is not None:
+                self.best_model_func = limit_async_func_call(self.best_model_max_async)(
+                    self.best_model_func
                 )
-            except ImportError as e:
-                raise ImportError(
-                    "LiteLLM is not installed. Install with: pip install litellm\n"
-                    f"Original error: {e}"
-                ) from e
-
-            # Determine effective model names (handle ollama/ prefix for provider detection)
-            effective_best_model = self.llm_model
-            effective_cheap_model = self.llm_cheap_model
-
-            structured = self.structured_output and supports_structured_output(effective_best_model)
-            if not structured:
-                logger.info(
-                    f"LiteLLM model {effective_best_model} does not support structured output, "
-                    "will use text mode with fallback to parsing"
+            if self.cheap_model_func is not None:
+                self.cheap_model_func = limit_async_func_call(self.cheap_model_max_async)(
+                    self.cheap_model_func
                 )
-
-            # Create LiteLLM wrappers with api_base and api_key support
-            self.best_model_func = limit_async_func_call(self.best_model_max_async)(
-                LiteLLMWrapper(
-                    model=effective_best_model,
-                    structured_output=self.structured_output,
-                    use_native_structured_output=self.use_pydantic_structured_output,
-                    hashing_kv=self.llm_response_cache,
-                    api_base=self.llm_api_base,
-                    api_key=self.llm_api_key,
-                    timeout=self.llm_timeout,
-                )
-            )
-            self.cheap_model_func = limit_async_func_call(self.cheap_model_max_async)(
-                LiteLLMWrapper(
-                    model=effective_cheap_model,
-                    structured_output=self.structured_output,
-                    use_native_structured_output=self.use_pydantic_structured_output,
-                    hashing_kv=self.llm_response_cache,
-                    api_base=self.llm_api_base,
-                    api_key=self.llm_api_key,
-                    timeout=self.llm_timeout,
-                )
-            )
-
-            # Create embedding function with api_base and api_key support
-            limited_embedding = limit_async_func_call(self.embedding_func_max_async)(
-                partial(
-                    litellm_embedding,
-                    model=self.embedding_model,
-                    api_base=self.embedding_api_base,
-                    api_key=self.embedding_api_key,
-                )
-            )
-            self.embedding_func = EmbeddingFunc(
-                embedding_dim=self.embedding_dim,
-                max_token_size=8192,
-                func=limited_embedding,
-            )
-
-            logger.info(
-                f"Using LiteLLM with model {effective_best_model}, "
-                f"api_base={self.llm_api_base}, "
-                f"structured_output={self.structured_output}, "
-                f"use_pydantic_structured_output={self.use_pydantic_structured_output}"
-            )
-
-            # Validate models
-            try:
-                import litellm
-
-                valid_models = set(litellm.get_valid_models())
-
-                for model_name in [effective_best_model, effective_cheap_model]:
-                    # Check if exact match
-                    if model_name in valid_models:
-                        continue
-
-                    # Check if provider prefix is valid
-                    provider = model_name.split("/")[0] if "/" in model_name else None
-                    if provider:
-                        provider_models = [m for m in valid_models if m.startswith(f"{provider}/")]
-                        if provider_models:
-                            logger.info(
-                                f"✓ Model '{model_name}' uses provider '{provider}' "
-                                f"({len(provider_models)} models available)"
-                            )
-                            continue
-
-                    # Warning if not found
-                    logger.warning(
-                        f"Model '{model_name}' not found in LiteLLM's model list. "
-                        f"This may be a typo or a newly added model. "
-                        f"Provider '{provider}' detected. "
-                        f"Check: https://docs.litellm.ai/docs/supported_models"
+            if self.embedding_func is not None:
+                if not isinstance(self.embedding_func, EmbeddingFunc):
+                    self.embedding_func = EmbeddingFunc(
+                        embedding_dim=self.embedding_dim,
+                        max_token_size=8192,
+                        func=limit_async_func_call(self.embedding_func_max_async)(
+                            self.embedding_func
+                        ),
                     )
-            except Exception as e:
-                logger.debug(f"Could not validate models against LiteLLM list: {e}")
-        else:
-            self.embedding_func = EmbeddingFunc(
-                embedding_dim=self.embedding_func.embedding_dim,
-                max_token_size=self.embedding_func.max_token_size,
-                func=limit_async_func_call(self.embedding_func_max_async)(self.embedding_func),
+            self._use_structured_extraction = False
+            return
+
+        structured = self.structured_output and supports_structured_output(self.llm_model)
+        if not structured:
+            logger.info(
+                f"Model {self.llm_model} does not support structured output, "
+                "will use text mode with fallback parsing"
             )
-            self.best_model_func = limit_async_func_call(self.best_model_max_async)(
-                partial(self.best_model_func, hashing_kv=self.llm_response_cache)
+
+        self.best_model_func = limit_async_func_call(self.best_model_max_async)(
+            LiteLLMWrapper(
+                model=self.llm_model,
+                structured_output=self.structured_output,
+                use_native_structured_output=self.use_pydantic_structured_output,
+                hashing_kv=self.llm_response_cache,
+                api_base=self.llm_api_base,
+                api_key=self.llm_api_key,
+                timeout=self.llm_timeout,
             )
-            self.cheap_model_func = limit_async_func_call(self.cheap_model_max_async)(
-                partial(self.cheap_model_func, hashing_kv=self.llm_response_cache)
+        )
+        self.cheap_model_func = limit_async_func_call(self.cheap_model_max_async)(
+            LiteLLMWrapper(
+                model=self.llm_cheap_model,
+                structured_output=self.structured_output,
+                use_native_structured_output=self.use_pydantic_structured_output,
+                hashing_kv=self.llm_response_cache,
+                api_base=self.llm_api_base,
+                api_key=self.llm_api_key,
+                timeout=self.llm_timeout,
             )
+        )
+
+        limited_embedding = limit_async_func_call(self.embedding_func_max_async)(
+            partial(
+                litellm_embedding,
+                model=self.embedding_model,
+                api_base=self.embedding_api_base,
+                api_key=self.embedding_api_key,
+            )
+        )
+        self.embedding_func = EmbeddingFunc(
+            embedding_dim=self.embedding_dim,
+            max_token_size=8192,
+            func=limited_embedding,
+        )
+
+        logger.info(
+            f"Using LiteLLM: model={self.llm_model}, "
+            f"api_base={self.llm_api_base}, "
+            f"structured_output={self.structured_output}"
+        )
+
+        self._use_structured_extraction = True
 
     def _build_storages(self):
         self.full_docs = self.key_string_value_json_storage_cls(
             namespace="full_docs", global_config=asdict(self)
         )
-
         self.text_chunks = self.key_string_value_json_storage_cls(
             namespace="text_chunks", global_config=asdict(self)
         )
-
         self.community_reports = self.key_string_value_json_storage_cls(
             namespace="community_reports", global_config=asdict(self)
         )
@@ -496,6 +389,8 @@ class GraphRAG:
             raise ValueError("enable_local is False, cannot query in local mode")
         if param.mode == "naive" and not self.enable_naive_rag:
             raise ValueError("enable_naive_rag is False, cannot query in naive mode")
+
+        runtime = self._runtime_config()
         if param.mode == "local":
             response = await local_query(
                 query,
@@ -505,7 +400,7 @@ class GraphRAG:
                 self.text_chunks,
                 param,
                 self.tokenizer_wrapper,
-                self._runtime_config(),
+                runtime,
             )
         elif param.mode == "global":
             response = await global_query(
@@ -516,7 +411,7 @@ class GraphRAG:
                 self.text_chunks,
                 param,
                 self.tokenizer_wrapper,
-                self._runtime_config(),
+                runtime,
             )
         elif param.mode == "naive":
             response = await naive_query(
@@ -525,7 +420,7 @@ class GraphRAG:
                 self.text_chunks,
                 param,
                 self.tokenizer_wrapper,
-                self._runtime_config(),
+                runtime,
             )
         else:
             raise ValueError(f"Unknown mode {param.mode}")
@@ -535,21 +430,13 @@ class GraphRAG:
     async def ainsert(self, string_or_strings):
         if isinstance(string_or_strings, str):
             string_or_strings = [string_or_strings]
-        normalized_contents = [content.strip() for content in string_or_strings if content.strip()]
-        legacy_doc_ids = [
-            compute_mdhash_id(content, prefix="doc-") for content in normalized_contents
-        ]
-        legacy_docs = await self.full_docs.get_by_ids(legacy_doc_ids)
-        documents = {}
-        for content, legacy_doc_id, legacy_doc in zip(
-            normalized_contents, legacy_doc_ids, legacy_docs
-        ):
-            doc_id = (
-                legacy_doc_id
-                if legacy_doc is not None
-                else compute_sha256_id(content, prefix="doc-")
-            )
-            documents[doc_id] = content
+        normalized = [c.strip() for c in string_or_strings if c.strip()]
+        doc_ids = [compute_mdhash_id(c, prefix="doc-") for c in normalized]
+        existing = await self.full_docs.get_by_ids(doc_ids)
+        documents = {
+            (doc_id if doc else compute_sha256_id(c, prefix="doc-")): c
+            for c, doc_id, doc in zip(normalized, doc_ids, existing)
+        }
         return await self._ainsert_documents(documents, allow_legacy_custom=True)
 
     async def ainsert_documents(self, documents: dict[str, str]):
@@ -568,12 +455,10 @@ class GraphRAG:
             }
             _add_doc_keys = await self.full_docs.filter_keys(list(new_docs.keys()))
             new_docs = {k: v for k, v in new_docs.items() if k in _add_doc_keys}
-            if not len(new_docs):
+            if not new_docs:
                 logger.warning("All docs are already in the storage")
                 return
             logger.info(f"[New Docs] inserting {len(new_docs)} docs")
-
-            # ---------- chunking
 
             inserting_chunks = get_chunks(
                 new_docs=new_docs,
@@ -585,29 +470,26 @@ class GraphRAG:
 
             _add_chunk_keys = await self.text_chunks.filter_keys(list(inserting_chunks.keys()))
             inserting_chunks = {k: v for k, v in inserting_chunks.items() if k in _add_chunk_keys}
-            if not len(inserting_chunks):
+            if not inserting_chunks:
                 logger.warning("All chunks are already in the storage")
                 return
             logger.info(f"[New Chunks] inserting {len(inserting_chunks)} chunks")
             if self.enable_naive_rag:
-                logger.info("Insert chunks for naive RAG")
                 await self.chunks_vdb.upsert(inserting_chunks)
 
-            # ---------- extract/summary entity and upsert to graph
             logger.info("[Entity Extraction]...")
             maybe_new_kg = await self.entity_extraction_func(
                 inserting_chunks,
-                knwoledge_graph_inst=self.chunk_entity_relation_graph,
+                knowledge_graph_inst=self.chunk_entity_relation_graph,
                 entity_vdb=self.entities_vdb,
                 tokenizer_wrapper=self.tokenizer_wrapper,
                 global_config=self._runtime_config(),
-                using_amazon_bedrock=self.using_amazon_bedrock,
             )
             if maybe_new_kg is None:
                 logger.warning("No new entities found")
                 return
             self.chunk_entity_relation_graph = maybe_new_kg
-            # ---------- update clusterings of graph
+
             logger.info("[Community Report]...")
             await self.community_reports.drop()
             await self.chunk_entity_relation_graph.clustering(
@@ -620,7 +502,6 @@ class GraphRAG:
                 self._runtime_config(),
             )
 
-            # ---------- commit upsertings and indexing
             await self.full_docs.upsert(new_docs)
             await self.text_chunks.upsert(inserting_chunks)
         finally:
@@ -631,7 +512,7 @@ class GraphRAG:
             if allow_legacy_custom:
                 return await self._legacy_custom_ainsert(documents)
             raise NotImplementedError(
-                "insert_documents currently requires the built-in extract_entities pipeline."
+                "insert_documents requires the built-in extract_entities pipeline."
             )
 
         await self._insert_start()
@@ -695,7 +576,6 @@ class GraphRAG:
                     chunk_subset,
                     self.tokenizer_wrapper,
                     self._runtime_config(),
-                    using_amazon_bedrock=self.using_amazon_bedrock,
                 )
                 manifest["content_hash"] = doc["content_hash"]
                 new_document_index_entries[doc_id] = manifest
@@ -717,7 +597,6 @@ class GraphRAG:
             if inserting_chunks:
                 await self.text_chunks.upsert(inserting_chunks)
                 if self.enable_naive_rag:
-                    logger.info("Insert chunks for naive RAG")
                     await self.chunks_vdb.upsert(inserting_chunks)
 
             await self.full_docs.upsert(normalized_docs)
@@ -733,7 +612,7 @@ class GraphRAG:
                 old_manifest_lookup,
                 new_document_index_entries,
             )
-            affected_entity_ids_for_clustering = {
+            affected_entity_ids = {
                 entity_id
                 for manifest in list(old_manifest_lookup.values())
                 + list(new_document_index_entries.values())
@@ -742,15 +621,13 @@ class GraphRAG:
             }
 
             all_doc_keys = await self.document_index.all_keys()
-            all_document_manifests = await self.document_index.get_by_ids(all_doc_keys)
-            has_graph_data = any(
-                manifest and manifest.get("entities") for manifest in all_document_manifests
-            )
+            all_manifests = await self.document_index.get_by_ids(all_doc_keys)
+            has_graph_data = any(m and m.get("entities") for m in all_manifests)
             if has_graph_data:
                 logger.info("[Community Report]...")
                 await self.chunk_entity_relation_graph.clustering(
                     self.graph_cluster_algorithm,
-                    affected_node_ids=affected_entity_ids_for_clustering,
+                    affected_node_ids=affected_entity_ids,
                 )
                 affected_community_ids = getattr(
                     self.chunk_entity_relation_graph, "_last_affected_community_ids", None
@@ -769,14 +646,8 @@ class GraphRAG:
             await self._insert_done()
 
     async def _insert_start(self):
-        tasks = []
-        for storage_inst in [
-            self.chunk_entity_relation_graph,
-        ]:
-            if storage_inst is None:
-                continue
-            tasks.append(cast(StorageNameSpace, storage_inst).index_start_callback())
-        await asyncio.gather(*tasks)
+        if self.chunk_entity_relation_graph is not None:
+            await self.chunk_entity_relation_graph.index_start_callback()
 
     async def _insert_done(self):
         tasks = []
@@ -790,15 +661,10 @@ class GraphRAG:
             self.chunks_vdb,
             self.chunk_entity_relation_graph,
         ]:
-            if storage_inst is None:
-                continue
-            tasks.append(cast(StorageNameSpace, storage_inst).index_done_callback())
+            if storage_inst is not None:
+                tasks.append(storage_inst.index_done_callback())
         await asyncio.gather(*tasks)
 
     async def _query_done(self):
-        tasks = []
-        for storage_inst in [self.llm_response_cache]:
-            if storage_inst is None:
-                continue
-            tasks.append(cast(StorageNameSpace, storage_inst).index_done_callback())
-        await asyncio.gather(*tasks)
+        if self.llm_response_cache is not None:
+            await self.llm_response_cache.index_done_callback()

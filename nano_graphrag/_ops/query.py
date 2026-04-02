@@ -43,7 +43,7 @@ async def _find_most_related_community_from_entities(
         if v is not None
     }
     related_community_keys = sorted(
-        related_community_keys_counts.keys(),
+        [k for k in related_community_keys_counts.keys() if k in related_community_datas],
         key=lambda k: (
             related_community_keys_counts[k],
             related_community_datas[k]["report_json"].get("rating", -1),

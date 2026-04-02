@@ -1,3 +1,4 @@
+import asyncio
 from typing import TYPE_CHECKING, Any, List, Optional, Type, Union
 
 import litellm
@@ -113,10 +114,46 @@ def build_provider_requirements(model: str) -> Optional[dict[str, Any]]:
     return None
 
 
+def is_qwen_model(model: str) -> bool:
+    """Detect if model is Qwen-based (needs special JSON handling).
+
+    Qwen models require 'json' keyword in message and json_object response format.
+    """
+    model_lower = model.lower()
+    return "qwen" in model_lower or "@preset/cheap-fast" in model_lower
+
+
+def build_qwen_response_format(response_format: Type[BaseModel]) -> dict[str, Any]:
+    """Build Qwen-compatible json_object response format.
+
+    Qwen requires {"type": "json_object"} instead of json_schema.
+    """
+    return {"type": "json_object"}
+
+
+def ensure_json_keyword_in_prompt(messages: list, prompt: str) -> list:
+    """Ensure 'JSON' keyword is in prompt for Qwen models.
+
+    Qwen requires the word 'json' (case-insensitive) in messages to use
+    response_format with json_object.
+    """
+    json_keywords = ["json", "JSON", "Json"]
+    has_json = any(any(kw in msg.get("content", "") for kw in json_keywords) for msg in messages)
+
+    if not has_json:
+        if messages and messages[0]["role"] == "system":
+            messages[0]["content"] = messages[0]["content"] + "\n\nPlease respond with JSON."
+        else:
+            messages.insert(0, {"role": "system", "content": "Please respond with JSON."})
+
+    return messages
+
+
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=10),
-    retry=retry_if_exception_type(Exception),
+    retry=retry_if_exception_type((asyncio.TimeoutError, Exception)),
+    reraise=True,
 )
 async def litellm_completion(
     model: str,
@@ -139,7 +176,10 @@ async def litellm_completion(
     messages.append({"role": "user", "content": prompt})
 
     if hashing_kv is not None:
-        response_format_name = response_format.__name__ if response_format is not None else None
+        if response_format is not None:
+            response_format_name = getattr(response_format, "__name__", str(response_format))
+        else:
+            response_format_name = None
         args_hash = compute_args_hash(
             model,
             messages,
@@ -166,7 +206,7 @@ async def litellm_completion(
     if api_key:
         litellm_kwargs["api_key"] = api_key
 
-    # Choose between native structured output or JSON schema
+    # Choose between native structured output or prompt-based schema guidance.
     if response_format is not None and supports_structured_output(model):
         if use_native_structured_output:
             # Use provider-native strict schema mode when available.
@@ -178,29 +218,47 @@ async def litellm_completion(
             # Legacy route: Add schema to system prompt
             import json
 
+            if hasattr(response_format, "model_json_schema"):
+                schema_json = json.dumps(response_format.model_json_schema(), indent=2)
+            elif isinstance(response_format, dict):
+                schema_json = json.dumps(response_format, indent=2)
+            else:
+                schema_json = str(response_format)
+
             schema_instruction = f"""
 Respond with valid JSON matching this schema:
-{json.dumps(response_format.model_json_schema(), indent=2)}
+{schema_json}
 """
             if system_prompt:
                 messages[0]["content"] += "\n\n" + schema_instruction
             else:
                 messages.insert(0, {"role": "system", "content": schema_instruction})
+            # For Qwen models, ensure JSON keyword is present and set response_format
+            if is_qwen_model(model):
+                messages = ensure_json_keyword_in_prompt(messages, prompt)
+                litellm_kwargs["response_format"] = {"type": "json_object"}
+
+    async def _call_llm():
+        try:
+            response = await litellm.acompletion(**litellm_kwargs)
+            return response.choices[0].message.content
+        except UNSUPPORTED_STRUCTURED_OUTPUT_ERRORS as e:
+            if (
+                "response_format" not in litellm_kwargs
+                or not should_fallback_without_structured_output(e)
+            ):
+                raise
+            logger.warning(f"Structured output not supported, retrying without it: {e}")
+            litellm_kwargs.pop("response_format", None)
+            response = await litellm.acompletion(**litellm_kwargs)
+            return response.choices[0].message.content
 
     try:
-        response = await litellm.acompletion(**litellm_kwargs)
-        result = response.choices[0].message.content
-    except UNSUPPORTED_STRUCTURED_OUTPUT_ERRORS as e:
-        if "response_format" not in litellm_kwargs or not should_fallback_without_structured_output(
-            e
-        ):
-            raise
-        logger.warning(f"Structured output not supported, retrying without it: {e}")
-        litellm_kwargs.pop("response_format", None)
-        response = await litellm.acompletion(**litellm_kwargs)
-        result = response.choices[0].message.content
+        result = await asyncio.wait_for(_call_llm(), timeout=timeout)
+    except asyncio.TimeoutError:
+        logger.error(f"LiteLLM call timed out after {timeout}s")
+        raise
     except Exception as e:
-        # Let other errors propagate
         logger.error(f"LiteLLM call failed: {e}")
         raise
 
@@ -210,7 +268,12 @@ Respond with valid JSON matching this schema:
             import json
 
             parsed = json.loads(result)
-            result = response_format(**parsed)
+            if hasattr(response_format, "model_validate_json"):
+                result = response_format.model_validate_json(result)
+            elif hasattr(response_format, "__call__"):
+                result = response_format(**parsed)
+            else:
+                result = parsed
         except Exception as e:
             logger.warning(f"Failed to parse structured output: {e}")
             if use_native_structured_output:

@@ -99,7 +99,7 @@ async def _handle_single_relationship_extraction(
 async def _merge_nodes_then_upsert(
     entity_name: str,
     nodes_data: list[dict],
-    knwoledge_graph_inst: BaseGraphStorage,
+    knowledge_graph_inst: BaseGraphStorage,
     global_config: dict,
     tokenizer_wrapper,
 ):
@@ -107,7 +107,7 @@ async def _merge_nodes_then_upsert(
     already_source_ids = []
     already_description = []
 
-    already_node = await knwoledge_graph_inst.get_node(entity_name)
+    already_node = await knowledge_graph_inst.get_node(entity_name)
     if already_node is not None:
         already_entitiy_types.append(already_node["entity_type"])
         already_source_ids.extend(
@@ -134,7 +134,7 @@ async def _merge_nodes_then_upsert(
         description=description,
         source_id=source_id,
     )
-    await knwoledge_graph_inst.upsert_node(
+    await knowledge_graph_inst.upsert_node(
         entity_name,
         node_data=node_data,
     )
@@ -146,7 +146,7 @@ async def _merge_edges_then_upsert(
     src_id: str,
     tgt_id: str,
     edges_data: list[dict],
-    knwoledge_graph_inst: BaseGraphStorage,
+    knowledge_graph_inst: BaseGraphStorage,
     global_config: dict,
     tokenizer_wrapper,
 ):
@@ -154,14 +154,15 @@ async def _merge_edges_then_upsert(
     already_source_ids = []
     already_description = []
     already_order = []
-    if await knwoledge_graph_inst.has_edge(src_id, tgt_id):
-        already_edge = await knwoledge_graph_inst.get_edge(src_id, tgt_id)
-        already_weights.append(already_edge["weight"])
-        already_source_ids.extend(
-            split_string_by_multi_markers(already_edge["source_id"], [GRAPH_FIELD_SEP])
-        )
-        already_description.append(already_edge["description"])
-        already_order.append(already_edge.get("order", 1))
+    if await knowledge_graph_inst.has_edge(src_id, tgt_id):
+        already_edge = await knowledge_graph_inst.get_edge(src_id, tgt_id)
+        if already_edge is not None:
+            already_weights.append(already_edge["weight"])
+            already_source_ids.extend(
+                split_string_by_multi_markers(already_edge["source_id"], [GRAPH_FIELD_SEP])
+            )
+            already_description.append(already_edge["description"])
+            already_order.append(already_edge.get("order", 1))
 
     order = min([dp.get("order", 1) for dp in edges_data] + already_order)
     weight = sum([dp["weight"] for dp in edges_data] + already_weights)
@@ -172,8 +173,8 @@ async def _merge_edges_then_upsert(
         set([dp["source_id"] for dp in edges_data] + already_source_ids)
     )
     for need_insert_id in [src_id, tgt_id]:
-        if not (await knwoledge_graph_inst.has_node(need_insert_id)):
-            await knwoledge_graph_inst.upsert_node(
+        if not (await knowledge_graph_inst.has_node(need_insert_id)):
+            await knowledge_graph_inst.upsert_node(
                 need_insert_id,
                 node_data={
                     "source_id": source_id,
@@ -182,9 +183,9 @@ async def _merge_edges_then_upsert(
                 },
             )
     description = await _handle_entity_relation_summary(
-        (src_id, tgt_id), description, global_config, tokenizer_wrapper
+        f"{src_id}->{tgt_id}", description, global_config, tokenizer_wrapper
     )
-    await knwoledge_graph_inst.upsert_edge(
+    await knowledge_graph_inst.upsert_edge(
         src_id,
         tgt_id,
         edge_data=dict(weight=weight, description=description, source_id=source_id, order=order),
@@ -384,9 +385,9 @@ async def extract_document_entity_relationships_structured(
             final_result,
             [context_base["record_delimiter"], context_base["completion_delimiter"]],
         )
-        entities = {}
-        relationships = {}
-        entity_name_to_id = {}
+        entities: dict[str, dict[str, Any]] = {}
+        relationships: dict[str, dict[str, Any]] = {}
+        entity_name_to_id: dict[str, str] = {}
         for record in records:
             record_match = re.search(r"\((.*)\)", record)
             if record_match is None:
@@ -535,23 +536,27 @@ Return a JSON with 'entities' (name, type, description) and 'relationships' (sou
         *[_process_single_content_with_semaphore(c) for c in ordered_chunks]
     )
     print()
-    manifest = {"chunk_ids": list(chunks.keys()), "entities": {}, "relationships": {}}
+    manifest_entities: dict[str, dict[str, Any]] = {}
+    manifest_relationships: dict[str, dict[str, Any]] = {}
+    manifest: dict[str, Any] = {
+        "chunk_ids": list(chunks.keys()),
+        "entities": manifest_entities,
+        "relationships": manifest_relationships,
+    }
     for entities, relationships in results:
         for entity_id, entity in entities.items():
             _upsert_document_entity(
-                manifest["entities"],
+                manifest_entities,
                 entity["entity_name"],
                 entity["entity_type"],
                 _join_unique(entity["descriptions"]),
                 entity["source_chunk_ids"][0],
             )
-            manifest["entities"][entity_id]["descriptions"].extend(entity["descriptions"][1:])
-            manifest["entities"][entity_id]["source_chunk_ids"].extend(
-                entity["source_chunk_ids"][1:]
-            )
+            manifest_entities[entity_id]["descriptions"].extend(entity["descriptions"][1:])
+            manifest_entities[entity_id]["source_chunk_ids"].extend(entity["source_chunk_ids"][1:])
         for relationship_id, relationship in relationships.items():
             _upsert_document_relationship(
-                manifest["relationships"],
+                manifest_relationships,
                 relationship["src_entity_id"],
                 relationship["tgt_entity_id"],
                 _join_unique(relationship["descriptions"]),
@@ -559,10 +564,10 @@ Return a JSON with 'entities' (name, type, description) and 'relationships' (sou
                 relationship["source_chunk_ids"][0],
                 relationship.get("relation_type", "related"),
             )
-            manifest["relationships"][relationship_id]["descriptions"].extend(
+            manifest_relationships[relationship_id]["descriptions"].extend(
                 relationship["descriptions"][1:]
             )
-            manifest["relationships"][relationship_id]["source_chunk_ids"].extend(
+            manifest_relationships[relationship_id]["source_chunk_ids"].extend(
                 relationship["source_chunk_ids"][1:]
             )
     return _normalize_document_manifest(manifest)
@@ -623,9 +628,9 @@ async def extract_document_entity_relationships_legacy(
             final_result,
             [context_base["record_delimiter"], context_base["completion_delimiter"]],
         )
-        entities = {}
-        relationships = {}
-        entity_name_to_id = {}
+        entities: dict[str, dict[str, Any]] = {}
+        relationships: dict[str, dict[str, Any]] = {}
+        entity_name_to_id: dict[str, str] = {}
         for record in records:
             record_match = re.search(r"\((.*)\)", record)
             if record_match is None:
@@ -688,11 +693,17 @@ async def extract_document_entity_relationships_legacy(
         *[_process_single_content_with_semaphore(c) for c in ordered_chunks]
     )
     print()
-    manifest = {"chunk_ids": list(chunks.keys()), "entities": {}, "relationships": {}}
+    manifest_entities: dict[str, dict[str, Any]] = {}
+    manifest_relationships: dict[str, dict[str, Any]] = {}
+    manifest: dict[str, Any] = {
+        "chunk_ids": list(chunks.keys()),
+        "entities": manifest_entities,
+        "relationships": manifest_relationships,
+    }
     for entities, relationships in results:
         for entity in entities.values():
             entity_id = generate_stable_entity_id(entity["entity_name"], entity["entity_type"])
-            target = manifest["entities"].setdefault(
+            target = manifest_entities.setdefault(
                 entity_id,
                 {
                     "entity_name": entity["entity_name"],
@@ -704,7 +715,7 @@ async def extract_document_entity_relationships_legacy(
             target["descriptions"].extend(entity["descriptions"])
             target["source_chunk_ids"].extend(entity["source_chunk_ids"])
         for relationship_id, relationship in relationships.items():
-            target = manifest["relationships"].setdefault(
+            target = manifest_relationships.setdefault(
                 relationship_id,
                 {
                     "src_entity_id": relationship["src_entity_id"],
@@ -951,7 +962,7 @@ async def rebuild_knowledge_graph_for_documents(
 
 async def extract_entities_structured(
     chunks: dict[str, TextChunkSchema],
-    knwoledge_graph_inst: BaseGraphStorage,
+    knowledge_graph_inst: BaseGraphStorage,
     entity_vdb: BaseVectorStorage,
     tokenizer_wrapper,
     global_config: dict,
@@ -969,7 +980,7 @@ async def extract_entities_structured(
         description = await _handle_entity_relation_summary(
             entity["entity_name"], description, global_config, tokenizer_wrapper
         )
-        await knwoledge_graph_inst.upsert_node(
+        await knowledge_graph_inst.upsert_node(
             entity_id,
             {
                 "entity_name": entity["entity_name"],
@@ -983,7 +994,7 @@ async def extract_entities_structured(
         description = await _handle_entity_relation_summary(
             relationship_id, description, global_config, tokenizer_wrapper
         )
-        await knwoledge_graph_inst.upsert_edge(
+        await knowledge_graph_inst.upsert_edge(
             relationship["src_entity_id"],
             relationship["tgt_entity_id"],
             {
@@ -1004,12 +1015,12 @@ async def extract_entities_structured(
                 for entity_id, entity in manifest["entities"].items()
             }
         )
-    return knwoledge_graph_inst
+    return knowledge_graph_inst
 
 
 async def extract_entities(
     chunks: dict[str, TextChunkSchema],
-    knwoledge_graph_inst: BaseGraphStorage,
+    knowledge_graph_inst: BaseGraphStorage,
     entity_vdb: BaseVectorStorage,
     tokenizer_wrapper,
     global_config: dict,
@@ -1018,7 +1029,7 @@ async def extract_entities(
     if global_config.get("_use_structured_extraction", False):
         return await extract_entities_structured(
             chunks,
-            knwoledge_graph_inst,
+            knowledge_graph_inst,
             entity_vdb,
             tokenizer_wrapper,
             global_config,
@@ -1038,7 +1049,7 @@ async def extract_entities(
         description = await _handle_entity_relation_summary(
             entity["entity_name"], description, global_config, tokenizer_wrapper
         )
-        await knwoledge_graph_inst.upsert_node(
+        await knowledge_graph_inst.upsert_node(
             entity_id,
             {
                 "entity_name": entity["entity_name"],
@@ -1052,7 +1063,7 @@ async def extract_entities(
         description = await _handle_entity_relation_summary(
             relationship_id, description, global_config, tokenizer_wrapper
         )
-        await knwoledge_graph_inst.upsert_edge(
+        await knowledge_graph_inst.upsert_edge(
             relationship["src_entity_id"],
             relationship["tgt_entity_id"],
             {
@@ -1073,4 +1084,4 @@ async def extract_entities(
                 for entity_id, entity in manifest["entities"].items()
             }
         )
-    return knwoledge_graph_inst
+    return knowledge_graph_inst

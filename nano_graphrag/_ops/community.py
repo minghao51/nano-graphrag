@@ -1,5 +1,5 @@
 import asyncio
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 from .._utils import TokenizerWrapper, list_of_list_to_csv, logger, truncate_list_by_token_size
 from ..base import BaseGraphStorage, BaseKVStorage, CommunitySchema, SingleCommunitySchema
@@ -51,19 +51,19 @@ def _pack_single_community_by_sub_communities(
 
 
 async def _pack_single_community_describe(
-    knwoledge_graph_inst: BaseGraphStorage,
+    knowledge_graph_inst: BaseGraphStorage,
     community: SingleCommunitySchema,
     tokenizer_wrapper: TokenizerWrapper,
     max_token_size: int = 12000,
-    already_reports: dict[str, CommunitySchema] = {},
-    global_config: dict = {},
+    already_reports: Optional[dict[str, CommunitySchema]] = None,
+    global_config: Optional[dict] = None,
 ) -> str:
     nodes_in_order = sorted(community["nodes"])
     edges_in_order = sorted(community["edges"], key=lambda x: x[0] + x[1])
 
-    nodes_data = await asyncio.gather(*[knwoledge_graph_inst.get_node(n) for n in nodes_in_order])
+    nodes_data = await asyncio.gather(*[knowledge_graph_inst.get_node(n) for n in nodes_in_order])
     edges_data = await asyncio.gather(
-        *[knwoledge_graph_inst.get_edge(src, tgt) for src, tgt in edges_in_order]
+        *[knowledge_graph_inst.get_edge(src, tgt) for src, tgt in edges_in_order]
     )
 
     final_template = """-----Reports-----
@@ -84,20 +84,20 @@ async def _pack_single_community_describe(
     remaining_budget = max_token_size - base_template_tokens
 
     report_describe = ""
-    contain_nodes = set()
-    contain_edges = set()
+    contain_nodes: set[str] = set()
+    contain_edges: set[tuple[str, str]] = set()
 
     truncated = len(nodes_in_order) > 100 or len(edges_in_order) > 100
 
     need_to_use_sub_communities = truncated and community["sub_communities"] and already_reports
-    force_to_use_sub_communities = global_config["addon_params"].get(
-        "force_to_use_sub_communities", False
+    force_to_use_sub_communities = (
+        (global_config or {}).get("addon_params", {}).get("force_to_use_sub_communities", False)
     )
 
     if need_to_use_sub_communities or force_to_use_sub_communities:
         logger.debug(f"Community {community['title']} using sub-communities")
         result = _pack_single_community_by_sub_communities(
-            community, remaining_budget, already_reports, tokenizer_wrapper
+            community, remaining_budget, already_reports or {}, tokenizer_wrapper
         )
         report_describe, report_size, contain_nodes, contain_edges = result
         remaining_budget = max(0, remaining_budget - report_size)
@@ -108,15 +108,15 @@ async def _pack_single_community_describe(
     node_fields = ["id", "entity", "type", "description", "degree"]
     edge_fields = ["id", "source", "target", "description", "rank"]
 
-    node_degrees = await knwoledge_graph_inst.node_degrees_batch(nodes_in_order)
-    edge_degrees = await knwoledge_graph_inst.edge_degrees_batch(edges_in_order)
+    node_degrees = await knowledge_graph_inst.node_degrees_batch(nodes_in_order)
+    edge_degrees = await knowledge_graph_inst.edge_degrees_batch(edges_in_order)
 
     nodes_list_data = [
         [
             i,
-            data.get("entity_name", name),
-            data.get("entity_type", "UNKNOWN"),
-            data.get("description", "UNKNOWN"),
+            (data or {}).get("entity_name", name),
+            (data or {}).get("entity_type", "UNKNOWN"),
+            (data or {}).get("description", "UNKNOWN"),
             node_degrees[i],
         ]
         for i, (name, data) in enumerate(zip(nodes_in_order, nodes_data))
@@ -126,9 +126,13 @@ async def _pack_single_community_describe(
     edges_list_data = [
         [
             i,
-            (nodes_data[nodes_in_order.index(edge[0])] or {}).get("entity_name", edge[0]),
-            (nodes_data[nodes_in_order.index(edge[1])] or {}).get("entity_name", edge[1]),
-            data.get("description", "UNKNOWN"),
+            (nodes_data[nodes_in_order.index(edge[0])] or {}).get("entity_name", edge[0])
+            if edge[0] in nodes_in_order
+            else edge[0],
+            (nodes_data[nodes_in_order.index(edge[1])] or {}).get("entity_name", edge[1])
+            if edge[1] in nodes_in_order
+            else edge[1],
+            (data or {}).get("description", "UNKNOWN"),
             edge_degrees[i],
         ]
         for i, (edge, data) in enumerate(zip(edges_in_order, edges_data))
@@ -195,10 +199,10 @@ def _community_report_json_to_str(parsed_output: dict) -> str:
 
 async def generate_community_report(
     community_report_kv: BaseKVStorage[CommunitySchema],
-    knwoledge_graph_inst: BaseGraphStorage,
+    knowledge_graph_inst: BaseGraphStorage,
     tokenizer_wrapper: TokenizerWrapper,
     global_config: dict,
-    only_community_ids: set[str] = None,
+    only_community_ids: Optional[set[str]] = None,
 ):
     llm_extra_kwargs = global_config["special_community_report_llm_kwargs"]
     use_llm_func: Callable[..., Any] = global_config["best_model_func"]
@@ -206,7 +210,7 @@ async def generate_community_report(
         "convert_response_to_json_func"
     ]
 
-    communities_schema = await knwoledge_graph_inst.community_schema()
+    communities_schema = await knowledge_graph_inst.community_schema()
     if only_community_ids is not None:
         communities_schema = {
             k: v for k, v in communities_schema.items() if k in only_community_ids
@@ -229,7 +233,7 @@ async def generate_community_report(
     ):
         nonlocal already_processed
         describe = await _pack_single_community_describe(
-            knwoledge_graph_inst,
+            knowledge_graph_inst,
             community,
             tokenizer_wrapper=tokenizer_wrapper,
             max_token_size=global_config["best_model_max_token_size"] - prompt_overhead - 200,
@@ -247,10 +251,10 @@ async def generate_community_report(
 
     levels = sorted(set([c["level"] for c in community_values]), reverse=True)
     logger.info(f"Generating by levels: {levels}")
-    community_datas = {}
+    community_datas: dict[str, CommunitySchema] = {}
     existing_report_keys = await community_report_kv.all_keys()
     existing_reports = await community_report_kv.get_by_ids(existing_report_keys)
-    seeded_reports = {
+    seeded_reports: dict[str, CommunitySchema] = {
         key: value
         for key, value in zip(existing_report_keys, existing_reports)
         if value is not None
