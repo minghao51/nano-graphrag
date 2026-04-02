@@ -182,5 +182,12 @@ poetry.toml
 # LSP config files
 pyrightconfig.json
 
+# Local runtime artifacts
+workdirs/
+
+# Claude Code and planning tool directories
+.claude/
+.planning/
+
 # End of https://www.toptal.com/developers/gitignore/api/python
 
