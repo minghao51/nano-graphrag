@@ -306,8 +306,10 @@ class ExperimentRunner:
         dataset_name = self.config.dataset_name.lower()
 
         if dataset_name == "multihop_rag":
-            if not self.config.corpus_path:
-                raise ValueError("corpus_path is required for MultiHopRAG dataset")
+            if not self.config.corpus_path and not self.config.auto_download:
+                raise ValueError(
+                    "corpus_path is required for MultiHopRAG dataset (or set auto_download: true)"
+                )
             dataset = MultiHopRAGDataset(
                 questions_path=self.config.dataset_path,
                 corpus_path=self.config.corpus_path,

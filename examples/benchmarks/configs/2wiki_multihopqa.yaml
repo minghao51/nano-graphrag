@@ -1,0 +1,41 @@
+# 2WikiMultiHopQA Benchmark Configuration
+# Run with: uv run python examples/benchmarks/run_experiment.py --config examples/benchmarks/configs/2wiki_multihopqa.yaml
+
+name: 2wiki_multihopqa_baseline
+version: "1.0"
+description: "Local-mode GraphRAG baseline on 2WikiMultiHopQA dev set"
+
+dataset:
+  name: 2wiki
+  split: dev
+  max_samples: 200
+  auto_download: true
+
+graphrag:
+  working_dir: ./workdirs/2wiki_baseline
+  llm_model: openrouter/@preset/cheap-fast
+  llm_cheap_model: openrouter/@preset/cheap-fast
+  embedding_model: openrouter/qwen/qwen3-embedding-8b
+  chunk_token_size: 1200
+  chunk_overlap_token_size: 100
+
+query:
+  modes:
+    - local
+    - naive
+  param_overrides:
+    top_k: 60
+
+cache:
+  enabled: true
+  backend: disk
+
+metrics:
+  exact_match: true
+  token_f1: true
+  llm_judge:
+    enabled: false
+
+output:
+  results_dir: ./results
+  save_predictions: true

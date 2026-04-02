@@ -1,28 +1,28 @@
-# MultiHopRAG Small Benchmark Configuration
-# Quick benchmark run with limited corpus
+# Full MultiHopRAG Benchmark Configuration
+# Full run on all 2556 training samples
 
-name: multihop_rag_small
+name: multihop_rag_full
 version: "1.0"
-description: "Quick benchmark on MultiHopRAG with limited samples"
+description: "Full benchmark run on MultiHopRAG training set"
 
 dataset:
   name: multihop_rag
-  path: ./workdirs/multihop_rag_small/datasets/multihoprag/questions.json
-  corpus_path: ./workdirs/multihop_rag_small/datasets/multihoprag/corpus.json
-  max_samples: 50
-  auto_download: false
+  split: train
+  max_samples: -1
+  auto_download: true
 
 graphrag:
-  working_dir: ./workdirs/multihop_rag_small
+  working_dir: ./workdirs/multihop_rag_full
   llm_model: openrouter/@preset/cheap-fast
   llm_cheap_model: openrouter/@preset/cheap-fast
+  llm_api_base: https://openrouter.ai/api/v1
   embedding_model: openrouter/qwen/qwen3-embedding-8b
-  embedding_dim: 4096
+  embedding_api_base: https://openrouter.ai/api/v1
   enable_local: true
   enable_naive_rag: false
   enable_llm_cache: true
   entity_extraction_quality: fast
-  extraction_max_async: 16
+  extraction_max_async: 4
 
 query:
   modes:
@@ -41,5 +41,5 @@ metrics:
     enabled: false
 
 output:
-  results_dir: ./benchmark_results/multihop_rag_small
+  results_dir: ./benchmark_results/multihop_rag_full
   save_predictions: true

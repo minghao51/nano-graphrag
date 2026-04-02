@@ -459,7 +459,7 @@ class MuSiQueDataset:
         dataset_dir.mkdir(parents=True, exist_ok=True)
 
         print(f"[Download] Loading MuSiQue {self.split} split from HuggingFace...")
-        hf_dataset = load_dataset("voidful/MuSiQue", self.split)
+        hf_dataset = load_dataset("voidful/MuSiQue", "default", split=self.split)
 
         questions_data = []
         corpus_docs = {}

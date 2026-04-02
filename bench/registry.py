@@ -3,7 +3,7 @@
 from typing import Any, Optional, Protocol, TypeVar
 
 from nano_graphrag import GraphRAG
-from nano_graphrag._op import chunking_by_seperators, chunking_by_token_size
+from nano_graphrag._ops import chunking_by_seperators, chunking_by_token_size
 from nano_graphrag.base import QueryParam
 
 T = TypeVar("T")

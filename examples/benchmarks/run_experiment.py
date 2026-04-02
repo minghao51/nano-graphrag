@@ -3,11 +3,22 @@
 
 import argparse
 import asyncio
+import os
 import sys
 from pathlib import Path
 
-# Add project root to path
+from dotenv import load_dotenv
+
+# Load .env file from project root
 project_root = Path(__file__).parent.parent.parent
+dotenv_path = project_root / ".env"
+if dotenv_path.exists():
+    load_dotenv(dotenv_path)
+    print(f"[Env] Loaded environment from {dotenv_path}")
+else:
+    print("[Env] No .env file found, using environment variables")
+
+# Add project root to path
 sys.path.insert(0, str(project_root))
 
 from bench import BenchmarkConfig, ExperimentRunner
