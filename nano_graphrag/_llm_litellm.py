@@ -1,4 +1,5 @@
 import asyncio
+import json
 from typing import TYPE_CHECKING, Any, List, Optional, Type, Union
 
 import litellm
@@ -39,6 +40,12 @@ UNSUPPORTED_STRUCTURED_OUTPUT_ERRORS = tuple(
     )
     if isinstance(exc, type)
 )
+
+# Template for instructing models to respond with structured JSON
+SCHEMA_INSTRUCTION_TEMPLATE = """
+Respond with valid JSON matching this schema:
+{schema_json}
+"""
 
 
 def detect_provider(model: str) -> str:
@@ -152,6 +159,35 @@ def ensure_json_keyword_in_prompt(messages: list, prompt: str) -> list:
     return messages
 
 
+def _add_schema_instruction_to_messages(
+    response_format: Type[BaseModel],
+    messages: list,
+    has_system_prompt: bool,
+) -> None:
+    """Add JSON schema instruction to messages.
+
+    Modifies messages in-place by prepending or appending schema instruction.
+
+    Args:
+        response_format: Pydantic model class defining the expected schema
+        messages: Message list to modify in-place
+        has_system_prompt: Whether a system prompt already exists at messages[0]
+    """
+    if hasattr(response_format, "model_json_schema"):
+        schema_json = json.dumps(response_format.model_json_schema(), indent=2)
+    elif isinstance(response_format, dict):
+        schema_json = json.dumps(response_format, indent=2)
+    else:
+        schema_json = str(response_format)
+
+    schema_instruction = SCHEMA_INSTRUCTION_TEMPLATE.format(schema_json=schema_json)
+
+    if has_system_prompt:
+        messages[0]["content"] += "\n\n" + schema_instruction
+    else:
+        messages.insert(0, {"role": "system", "content": schema_instruction})
+
+
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=10),
@@ -214,25 +250,7 @@ async def litellm_completion(
         # For Qwen models, always use legacy route (schema in prompt) since
         # json_object doesn't enforce schema - model returns any JSON structure
         if is_qwen_model(model):
-            # Legacy route: Add schema to system prompt
-            import json
-
-            if hasattr(response_format, "model_json_schema"):
-                schema_json = json.dumps(response_format.model_json_schema(), indent=2)
-            elif isinstance(response_format, dict):
-                schema_json = json.dumps(response_format, indent=2)
-            else:
-                schema_json = str(response_format)
-
-            schema_instruction = f"""
-Respond with valid JSON matching this schema:
-{schema_json}
-"""
-            if system_prompt:
-                messages[0]["content"] += "\n\n" + schema_instruction
-            else:
-                messages.insert(0, {"role": "system", "content": schema_instruction})
-            # Ensure JSON keyword is present and set response_format
+            _add_schema_instruction_to_messages(response_format, messages, bool(system_prompt))
             messages = ensure_json_keyword_in_prompt(messages, prompt)
             litellm_kwargs["response_format"] = {"type": "json_object"}
         elif use_native_structured_output:
@@ -243,23 +261,7 @@ Respond with valid JSON matching this schema:
                 litellm_kwargs["provider"] = provider_requirements
         else:
             # Legacy route: Add schema to system prompt
-            import json
-
-            if hasattr(response_format, "model_json_schema"):
-                schema_json = json.dumps(response_format.model_json_schema(), indent=2)
-            elif isinstance(response_format, dict):
-                schema_json = json.dumps(response_format, indent=2)
-            else:
-                schema_json = str(response_format)
-
-            schema_instruction = f"""
-Respond with valid JSON matching this schema:
-{schema_json}
-"""
-            if system_prompt:
-                messages[0]["content"] += "\n\n" + schema_instruction
-            else:
-                messages.insert(0, {"role": "system", "content": schema_instruction})
+            _add_schema_instruction_to_messages(response_format, messages, bool(system_prompt))
 
     async def _call_llm():
         try:
@@ -288,8 +290,6 @@ Respond with valid JSON matching this schema:
     # Parse if using structured output
     if response_format is not None and isinstance(result, str):
         try:
-            import json
-
             parsed = json.loads(result)
             if hasattr(response_format, "model_validate_json"):
                 result = response_format.model_validate_json(result)
@@ -317,12 +317,6 @@ Respond with valid JSON matching this schema:
                 )
             # Return string as-is if parsing fails
             logger.warning("Could not parse as structured output, returning raw string")
-
-    if isinstance(result, BaseModel):
-        try:
-            result.model_validate(result.model_dump())
-        except Exception as e:
-            logger.warning(f"Structured output validation failed: {e}")
 
     if hashing_kv is not None:
         cached_payload = result.model_dump_json() if isinstance(result, BaseModel) else result
