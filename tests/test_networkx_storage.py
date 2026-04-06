@@ -5,6 +5,7 @@ import networkx as nx
 import numpy as np
 import asyncio
 import json
+import leidenalg as la
 from nano_graphrag import GraphRAG
 from nano_graphrag._storage import NetworkXStorage
 from nano_graphrag._utils import wrap_embedding_func_with_attrs
@@ -415,7 +416,8 @@ async def test_incremental_clustering_updates_frontier_only(networkx_storage):
 
 
 @pytest.mark.asyncio
-async def test_incremental_clustering_falls_back_for_multi_level_graphs(networkx_storage):
+async def test_incremental_clustering_works_for_multi_level_graphs(networkx_storage):
+    """Incremental clustering is now allowed for multi-level graphs when frontier is small."""
     networkx_storage.global_config["addon_params"]["community_update_max_frontier_ratio"] = 0.9
     networkx_storage.global_config["max_graph_cluster_size"] = 2
     networkx_storage.global_config["graph_cluster_seed"] = 1
@@ -431,6 +433,9 @@ async def test_incremental_clustering_falls_back_for_multi_level_graphs(networkx
     baseline_levels = json.loads((await networkx_storage.get_node("N0"))["clusters"])
     assert len(baseline_levels) > 1
 
+    # Far node should not be affected
+    far_node_before = (await networkx_storage.get_node("N10"))["clusters"]
+
     await networkx_storage.upsert_node("X", {"source_id": "chunk-X"})
     await networkx_storage.upsert_edge("N0", "X", {"weight": 1.0})
     await networkx_storage.upsert_edge("N1", "X", {"weight": 1.0})
@@ -439,7 +444,52 @@ async def test_incremental_clustering_falls_back_for_multi_level_graphs(networkx
 
     x_clusters = json.loads((await networkx_storage.get_node("X"))["clusters"])
     n0_clusters = json.loads((await networkx_storage.get_node("N0"))["clusters"])
+    far_node_after = (await networkx_storage.get_node("N10"))["clusters"]
 
-    assert networkx_storage._last_clustering_was_incremental is False
-    assert len(x_clusters) == len(n0_clusters)
-    assert len(x_clusters) > 1
+    assert networkx_storage._last_clustering_was_incremental is True
+    assert far_node_after == far_node_before
+    # Incremental only assigns level 0
+    assert len(x_clusters) == 1
+    assert x_clusters[0]["level"] == 0
+    assert x_clusters[0]["cluster"].startswith("inc-")
+    assert n0_clusters[0]["cluster"].startswith("inc-")
+
+
+@pytest.mark.asyncio
+async def test_incremental_clustering_seeds_from_existing_level0_clusters(
+    networkx_storage, monkeypatch
+):
+    networkx_storage.global_config["addon_params"]["community_update_max_frontier_ratio"] = 1.0
+
+    for node_id in ("A", "B", "C", "X"):
+        await networkx_storage.upsert_node(node_id, {"source_id": f"chunk-{node_id}"})
+    await networkx_storage.upsert_edge("A", "B", {"weight": 1.0})
+    await networkx_storage.upsert_edge("B", "C", {"weight": 1.0})
+    await networkx_storage.upsert_edge("A", "X", {"weight": 1.0})
+
+    await networkx_storage.upsert_node(
+        "A", {"source_id": "chunk-A", "clusters": json.dumps([{"level": 0, "cluster": "left"}])}
+    )
+    await networkx_storage.upsert_node(
+        "B", {"source_id": "chunk-B", "clusters": json.dumps([{"level": 0, "cluster": "left"}])}
+    )
+    await networkx_storage.upsert_node(
+        "C", {"source_id": "chunk-C", "clusters": json.dumps([{"level": 0, "cluster": "right"}])}
+    )
+
+    captured = {}
+    original_find_partition = la.find_partition
+
+    def fake_find_partition(graph, partition_type, **kwargs):
+        captured["node_names"] = [vertex["_nx_name"] for vertex in graph.vs]
+        captured["initial_membership"] = kwargs["initial_membership"]
+        return original_find_partition(graph, partition_type, **kwargs)
+
+    monkeypatch.setattr(la, "find_partition", fake_find_partition)
+
+    await networkx_storage.clustering("leiden", affected_node_ids={"A", "B", "C", "X"})
+
+    seeded = dict(zip(captured["node_names"], captured["initial_membership"]))
+    assert seeded["A"] == seeded["B"]
+    assert seeded["C"] != seeded["A"]
+    assert seeded["X"] not in {seeded["A"], seeded["C"]}

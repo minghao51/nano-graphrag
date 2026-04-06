@@ -14,13 +14,17 @@ neo4j_lock = asyncio.Lock()
 
 
 def make_path_idable(path):
-    return (
+    sanitized = (
         path.replace(".", "_")
         .replace("/", "__")
         .replace("-", "_")
         .replace(":", "_")
         .replace("\\", "__")
+        .replace("`", "")
+        .replace('"', "")
+        .replace("'", "")
     )
+    return sanitized
 
 
 @dataclass
@@ -38,37 +42,34 @@ class Neo4jStorage(BaseGraphStorage):
             max_connection_pool_size=50,
         )
 
-    # async def create_database(self):
-    #     async with self.async_driver.session() as session:
-    #         try:
-    #             constraints = await session.run("SHOW CONSTRAINTS")
-    #             # TODO I don't know why CREATE CONSTRAINT IF NOT EXISTS still trigger error
-    #             # so have to check if the constrain exists
-    #             constrain_exists = False
+    async def create_database(self):
+        async with self.async_driver.session() as session:
+            try:
+                constraints = await session.run("SHOW CONSTRAINTS")
+                constrain_exists = False
 
-    #             async for record in constraints:
-    #                 if (
-    #                     self.namespace in record["labelsOrTypes"]
-    #                     and "id" in record["properties"]
-    #                     and record["type"] == "UNIQUENESS"
-    #                 ):
-    #                     constrain_exists = True
-    #                     break
-    #             if not constrain_exists:
-    #                 await session.run(
-    #                     f"CREATE CONSTRAINT FOR (n:{self.namespace}) REQUIRE n.id IS UNIQUE"
-    #                 )
-    #                 logger.info(f"Add constraint for namespace: {self.namespace}")
+                async for record in constraints:
+                    if (
+                        self.namespace in record["labelsOrTypes"]
+                        and "id" in record["properties"]
+                        and record["type"] == "UNIQUENESS"
+                    ):
+                        constrain_exists = True
+                        break
+                if not constrain_exists:
+                    await session.run(
+                        f"CREATE CONSTRAINT FOR (n:`{self.namespace}`) REQUIRE n.id IS UNIQUE"
+                    )
+                    logger.info(f"Add constraint for namespace: {self.namespace}")
 
-    #         except Exception as e:
-    #             logger.error(f"Error accessing or setting up the database: {str(e)}")
-    #             raise
+            except Exception as e:
+                logger.error(f"Error accessing or setting up the database: {str(e)}")
+                raise
 
     async def _init_workspace(self):
         await self.async_driver.verify_authentication()
         await self.async_driver.verify_connectivity()
-        # TODOLater: create database if not exists always cause an error when async
-        # await self.create_database()
+        await self.create_database()
 
     async def index_start_callback(self):
         logger.info("Init Neo4j workspace")

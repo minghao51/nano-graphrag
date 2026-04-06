@@ -18,8 +18,8 @@ from ._ops import (
     rebuild_knowledge_graph_for_documents,
 )
 from ._storage import (
+    HNSWVectorStorage,
     JsonKVStorage,
-    NanoVectorDBStorage,
     NetworkXStorage,
 )
 from ._utils import (
@@ -87,6 +87,7 @@ class GraphRAG:
     graph_cluster_algorithm: str = "leiden"
     max_graph_cluster_size: int = 10
     graph_cluster_seed: int = 0xDEADBEEF
+    leiden_resolutions: list = field(default_factory=lambda: [2.0, 1.0, 0.5])
 
     # === Node Embedding ===
     node_embedding_algorithm: str = "node2vec"
@@ -145,7 +146,7 @@ class GraphRAG:
 
     # === Storage ===
     key_string_value_json_storage_cls: Type[BaseKVStorage] = JsonKVStorage
-    vector_db_storage_cls: Type[BaseVectorStorage] = NanoVectorDBStorage
+    vector_db_storage_cls: Type[BaseVectorStorage] = HNSWVectorStorage
     vector_db_storage_cls_kwargs: dict = field(default_factory=dict)
     graph_storage_cls: Type[BaseGraphStorage] = NetworkXStorage
     enable_llm_cache: bool = True

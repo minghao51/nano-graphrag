@@ -4,13 +4,13 @@ except ImportError:
     Neo4jStorage = None
 
 from .gdb_networkx import NetworkXStorage as NetworkXStorage
-from .kv_json import JsonKVStorage as JsonKVStorage
+from .kv_json import SQLiteKVStorage as JsonKVStorage  # backward-compat alias
+from .vdb_hnswlib import HNSWVectorStorage as HNSWVectorStorage
 
 try:
-    from .vdb_hnswlib import HNSWVectorStorage as HNSWVectorStorage
+    from .vdb_nanovectordb import NanoVectorDBStorage as NanoVectorDBStorage
 except ImportError:
-    HNSWVectorStorage = None
-from .vdb_nanovectordb import NanoVectorDBStorage as NanoVectorDBStorage
+    NanoVectorDBStorage = None
 
 __all__ = [
     "Neo4jStorage",

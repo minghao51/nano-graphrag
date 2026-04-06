@@ -4,7 +4,7 @@ import json
 import os
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Any, List, Union, cast
+from typing import Any, List, Union
 
 import networkx as nx
 import numpy as np
@@ -30,20 +30,23 @@ class NetworkXStorage(BaseGraphStorage):
         logger.info(
             f"Writing graph with {graph.number_of_nodes()} nodes, {graph.number_of_edges()} edges"
         )
-        nx.write_graphml(graph, file_name)
+        # Write to temp file first, then atomic rename
+        tmp_file = f"{file_name}.tmp"
+        nx.write_graphml(graph, tmp_file)
+        os.replace(tmp_file, file_name)  # Atomic on POSIX
 
     @staticmethod
     def stable_largest_connected_component(graph: nx.Graph) -> nx.Graph:
-        """Refer to https://github.com/microsoft/graphrag/index/graph/utils/stable_lcc.py
-        Return the largest connected component of the graph, with nodes and edges sorted in a stable way.
-        """
-        from graspologic.utils import largest_connected_component
-
+        """Return the largest connected component using pure NetworkX."""
         graph = graph.copy()
-        graph = cast(nx.Graph, largest_connected_component(graph))
-        # Preserve stable hashed node IDs exactly as stored. Uppercasing here breaks
-        # incremental entity identities because SHA-256 ids are case-sensitive.
-        node_mapping = {node: html.unescape(str(node).strip()) for node in graph.nodes()}  # type: ignore
+        # Use weakly_connected_components for directed graphs, connected_components for undirected
+        if graph.is_directed():
+            lcc_nodes = max(nx.weakly_connected_components(graph), key=len)
+        else:
+            lcc_nodes = max(nx.connected_components(graph), key=len)
+        graph = graph.subgraph(lcc_nodes).copy()
+        # Preserve stable hashed node IDs
+        node_mapping = {node: html.unescape(str(node).strip()) for node in graph.nodes()}
         graph = nx.relabel_nodes(graph, node_mapping)
         return NetworkXStorage._stabilize_graph(graph)
 
@@ -314,8 +317,24 @@ class NetworkXStorage(BaseGraphStorage):
         }
         self._last_clustering_was_incremental = False
 
+    @staticmethod
+    def _to_igraph(nx_graph: nx.Graph):
+        """Convert a NetworkX graph to igraph, preserving node names."""
+        import igraph as ig
+
+        node_list = list(nx_graph.nodes())
+        ig_graph = ig.Graph.from_networkx(nx_graph)
+        return ig_graph, node_list
+
+    def _leiden_seed(self) -> int:
+        """Get graph cluster seed clamped to signed 32-bit range for leidenalg C compatibility."""
+        seed = self.global_config.get("graph_cluster_seed", 0xDEADBEEF)
+        # leidenalg C code uses signed 32-bit integers; clamp to valid range
+        return seed % (2**31 - 1)
+
     async def _leiden_clustering(self, affected_node_ids: Union[set[str], None] = None):
-        from graspologic.partition import hierarchical_leiden
+        import igraph as ig
+        import leidenalg as la
 
         if self._graph.number_of_nodes() == 0:
             self._last_affected_community_ids = set()
@@ -330,23 +349,20 @@ class NetworkXStorage(BaseGraphStorage):
         )
         should_try_incremental = bool(affected_node_ids)
         if should_try_incremental:
-            if self._graph_has_multi_level_clusters():
-                should_try_incremental = False
             frontier_nodes = self._compute_frontier_nodes(affected_node_ids or set())
-            if should_try_incremental:
-                has_existing_clusters = any(
-                    self._graph.nodes[node_id].get("clusters")
-                    for node_id in frontier_nodes
-                    if self._graph.has_node(node_id)
-                )
-                if (
-                    not frontier_nodes
-                    or len(frontier_nodes) < 2
-                    or len(frontier_nodes) / max(1, self._graph.number_of_nodes())
-                    > frontier_ratio_limit
-                    or not has_existing_clusters
-                ):
-                    should_try_incremental = False
+            has_existing_clusters = any(
+                self._graph.nodes[node_id].get("clusters")
+                for node_id in frontier_nodes
+                if self._graph.has_node(node_id)
+            )
+            if (
+                not frontier_nodes
+                or len(frontier_nodes) < 2
+                or len(frontier_nodes) / max(1, self._graph.number_of_nodes())
+                > frontier_ratio_limit
+                or not has_existing_clusters
+            ):
+                should_try_incremental = False
 
         if should_try_incremental:
             old_community_ids = {
@@ -358,24 +374,37 @@ class NetworkXStorage(BaseGraphStorage):
                 self._graph.subgraph(frontier_nodes).copy()
             )
             starting_communities = self._collect_level0_starting_communities(frontier_nodes)
-            community_mapping = hierarchical_leiden(
-                frontier_graph,
-                max_cluster_size=self.global_config["max_graph_cluster_size"],
-                random_seed=self.global_config["graph_cluster_seed"],
-                starting_communities=starting_communities or None,
-                extra_forced_iterations=1,
+
+            ig_graph, _ = NetworkXStorage._to_igraph(frontier_graph)
+            next_membership_id = max(starting_communities.values(), default=-1) + 1
+            initial_membership = []
+            for vertex in ig_graph.vs:
+                node_id = vertex["_nx_name"]
+                if node_id in starting_communities:
+                    initial_membership.append(starting_communities[node_id])
+                else:
+                    initial_membership.append(next_membership_id)
+                    next_membership_id += 1
+
+            # Run Leiden with starting communities
+            partition = la.find_partition(
+                ig_graph,
+                la.ModularityVertexPartition,
+                seed=self._leiden_seed(),
+                n_iterations=8,
+                initial_membership=initial_membership,
             )
+
             cluster_prefix = self._next_incremental_cluster_prefix()
             new_level0_ids = {}
-            for partition in community_mapping:
-                if partition.level != 0:
-                    continue
-                node_id = partition.node
-                level0_cluster = f"{cluster_prefix}-l0-{partition.cluster}"
-                self._graph.nodes[node_id]["clusters"] = json.dumps(
-                    [{"level": 0, "cluster": level0_cluster}]
-                )
-                new_level0_ids[node_id] = level0_cluster
+            for cluster_idx, cluster_nodes in enumerate(partition):
+                level0_cluster = f"{cluster_prefix}-l0-{cluster_idx}"
+                for node_idx in cluster_nodes:
+                    nx_node_id = ig_graph.vs[node_idx]["_nx_name"]
+                    self._graph.nodes[nx_node_id]["clusters"] = json.dumps(
+                        [{"level": 0, "cluster": level0_cluster}]
+                    )
+                    new_level0_ids[nx_node_id] = level0_cluster
             self._last_affected_community_ids = old_community_ids.union(new_level0_ids.values())
             self._last_clustering_was_incremental = True
             logger.info(
@@ -383,20 +412,36 @@ class NetworkXStorage(BaseGraphStorage):
             )
             return
 
-        graph = NetworkXStorage.stable_largest_connected_component(self._graph)
-        community_mapping = hierarchical_leiden(
-            graph,
-            max_cluster_size=self.global_config["max_graph_cluster_size"],
-            random_seed=self.global_config["graph_cluster_seed"],
-        )
+        # Full clustering using igraph + leidenalg
+        graph_to_cluster = NetworkXStorage.stable_largest_connected_component(self._graph)
 
-        node_communities: dict[str, list[dict[str, str]]] = defaultdict(list)
+        ig_graph, node_list = NetworkXStorage._to_igraph(graph_to_cluster)
+
+        # Run Leiden at multiple resolutions for hierarchical effect
+        # Higher resolution = more communities (finer granularity)
+        # Level 0 should be finest (most communities), higher levels coarser
+        resolutions = self.global_config.get("leiden_resolutions", [2.0, 1.0, 0.5])
+
+        node_communities = defaultdict(list)
         __levels = defaultdict(set)
-        for partition in community_mapping:
-            level_key = partition.level
-            cluster_id = partition.cluster
-            node_communities[partition.node].append({"level": level_key, "cluster": cluster_id})
-            __levels[level_key].add(cluster_id)
+
+        for level, resolution in enumerate(resolutions):
+            # Use RBConfigurationVertexPartition which supports resolution_parameter
+            partition = la.find_partition(
+                ig_graph,
+                la.RBConfigurationVertexPartition,
+                resolution_parameter=resolution,
+                seed=self._leiden_seed() + level,
+                n_iterations=8,
+            )
+
+            for cluster_idx, cluster_nodes in enumerate(partition):
+                cluster_id = f"l{level}_c{cluster_idx}"
+                __levels[level].add(cluster_id)
+                for node_idx in cluster_nodes:
+                    nx_node_id = ig_graph.vs[node_idx]["_nx_name"]
+                    node_communities[nx_node_id].append({"level": level, "cluster": cluster_id})
+
         node_communities = dict(node_communities)
         __levels = {k: len(v) for k, v in __levels.items()}
         logger.info(f"Each level has communities: {dict(__levels)}")
@@ -414,12 +459,37 @@ class NetworkXStorage(BaseGraphStorage):
         return await self._node_embed_algorithms[algorithm]()
 
     async def _node2vec_embed(self):
-        from graspologic import embed
+        from node2vec import Node2Vec
 
-        embeddings, nodes = embed.node2vec_embed(
-            self._graph,
-            **self.global_config["node2vec_params"],
-        )
+        # Separate Node2Vec init params from Word2Vec fit params
+        all_params = self.global_config["node2vec_params"].copy()
+
+        # Node2Vec init params
+        n2v_init_params = {}
+        if "dimensions" in all_params:
+            n2v_init_params["dimensions"] = all_params.pop("dimensions")
+        if "num_walks" in all_params:
+            n2v_init_params["num_walks"] = all_params.pop("num_walks")
+        if "walk_length" in all_params:
+            n2v_init_params["walk_length"] = all_params.pop("walk_length")
+        if "random_seed" in all_params:
+            n2v_init_params["seed"] = all_params.pop("random_seed")
+        # p, q, weight_key, workers, etc. pass through
+        for key in ("p", "q", "weight_key", "workers", "sampling_strategy", "quiet", "temp_folder"):
+            if key in all_params:
+                n2v_init_params[key] = all_params.pop(key)
+
+        # Word2Vec fit params (remaining keys)
+        w2v_fit_params = all_params  # whatever's left (window_size, iterations, etc.)
+        if "window_size" in w2v_fit_params:
+            w2v_fit_params["window"] = w2v_fit_params.pop("window_size")
+        if "iterations" in w2v_fit_params:
+            w2v_fit_params["epochs"] = w2v_fit_params.pop("iterations")
+
+        node2vec = Node2Vec(self._graph, **n2v_init_params)
+        model = node2vec.fit(**w2v_fit_params)
+        embeddings = model.wv.vectors
+        nodes = model.wv.index_to_key
 
         nodes_ids = [self._graph.nodes[node_id]["id"] for node_id in nodes]
         return embeddings, nodes_ids

@@ -14,20 +14,23 @@ dependencies = [
     "openai",
     "tiktoken>=0.7.0",
     "networkx>=3.0",
-    "graspologic",
+    "igraph>=0.11.0",
+    "leidenalg>=0.10.0",
+    "node2vec>=0.4.0",
+    "hnswlib>=0.8.0",
+    "msgpack>=1.0.0",
     "tenacity>=8.0.0",
     "pydantic>=2.0.0",
-    "litellm~=1.82.0",
+    "litellm>=1.82.0",
     "pyyaml>=6.0",
-    "nano-vectordb",
     "xxhash",
 ]
 
 # Optional dependencies - install based on needs
 [project.optional-dependencies]
-# Core storage (default - includes vector db and hash)
-storage = [
-    "hnswlib",
+# Vector storage backends (nano-vectordb is optional fallback)
+vector-db = [
+    "nano-vectordb",
 ]
 
 # Benchmark evaluation (LLM-as-judge metrics)
@@ -65,12 +68,12 @@ dev = [
 
 # All extras combined
 all = [
-    "nano-graphrag[storage,anthropic,aws,neo4j,milvus,qdrant,local-embedding,tokenizer,dev]",
+    "nano-graphrag[vector-db,anthropic,aws,neo4j,milvus,qdrant,local-embedding,tokenizer,dev]",
 ]
 
 # Convenience: sensible defaults for most users
 default = [
-    "nano-graphrag[storage,neo4j]",
+    "nano-graphrag[neo4j]",
 ]
 
 [build-system]

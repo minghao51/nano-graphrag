@@ -228,18 +228,19 @@ async def test_max_elements_limit(setup_teardown):
     }
     await small_storage.upsert(data)
 
-    with pytest.raises(
-        ValueError,
-        match=f"Cannot insert 1 elements. Current: {max_elements}, Max: {max_elements}",
-    ):
-        await small_storage.upsert(
-            {
-                str(max_elements): {
-                    "content": "Overflow",
-                    "entity_name": "Overflow Entity",
-                }
-            }
-        )
+    # HNSW now auto-resizes when exceeding max_elements
+    overflow_data = {
+        str(max_elements): {
+            "content": "Overflow",
+            "entity_name": "Overflow Entity",
+        }
+    }
+    await small_storage.upsert(overflow_data)
+    assert small_storage.max_elements > max_elements, "Index should have auto-resized"
+    # Verify the overflow entity was indexed (total elements should be max_elements + 1)
+    results = await small_storage.query("Test query", top_k=max_elements + 1)
+    assert len(results) == max_elements + 1
+    assert any(r["entity_name"] == "Overflow Entity" for r in results)
 
     large_max_elements = 100
     large_storage = HNSWVectorStorage(
