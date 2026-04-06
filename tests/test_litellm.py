@@ -124,7 +124,8 @@ class TestLiteLLMCompletion:
             mock_completion.return_value = mock_response
 
             result = await litellm_completion(
-                model="openrouter/qwen/qwen3-235b-a22b-instruct-2507",
+                # Use a non-Qwen model to test the native structured output path
+                model="openrouter/openai/gpt-4o",
                 prompt="Test prompt",
                 response_format=EntityExtractionOutput,
             )

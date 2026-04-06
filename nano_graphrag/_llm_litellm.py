@@ -97,6 +97,9 @@ def build_json_schema_response_format(response_format: Type[BaseModel]) -> dict[
     """Build a provider-native json_schema response_format payload."""
     schema = response_format.model_json_schema()
     schema_name = schema.get("title") or response_format.__name__
+    # Azure/OpenRouter requires additionalProperties: false for strict mode
+    if "additionalProperties" not in schema:
+        schema["additionalProperties"] = False
     return {
         "type": "json_schema",
         "json_schema": {
@@ -208,7 +211,31 @@ async def litellm_completion(
 
     # Choose between native structured output or prompt-based schema guidance.
     if response_format is not None and supports_structured_output(model):
-        if use_native_structured_output:
+        # For Qwen models, always use legacy route (schema in prompt) since
+        # json_object doesn't enforce schema - model returns any JSON structure
+        if is_qwen_model(model):
+            # Legacy route: Add schema to system prompt
+            import json
+
+            if hasattr(response_format, "model_json_schema"):
+                schema_json = json.dumps(response_format.model_json_schema(), indent=2)
+            elif isinstance(response_format, dict):
+                schema_json = json.dumps(response_format, indent=2)
+            else:
+                schema_json = str(response_format)
+
+            schema_instruction = f"""
+Respond with valid JSON matching this schema:
+{schema_json}
+"""
+            if system_prompt:
+                messages[0]["content"] += "\n\n" + schema_instruction
+            else:
+                messages.insert(0, {"role": "system", "content": schema_instruction})
+            # Ensure JSON keyword is present and set response_format
+            messages = ensure_json_keyword_in_prompt(messages, prompt)
+            litellm_kwargs["response_format"] = {"type": "json_object"}
+        elif use_native_structured_output:
             # Use provider-native strict schema mode when available.
             litellm_kwargs["response_format"] = build_json_schema_response_format(response_format)
             provider_requirements = build_provider_requirements(model)
@@ -233,10 +260,6 @@ Respond with valid JSON matching this schema:
                 messages[0]["content"] += "\n\n" + schema_instruction
             else:
                 messages.insert(0, {"role": "system", "content": schema_instruction})
-            # For Qwen models, ensure JSON keyword is present and set response_format
-            if is_qwen_model(model):
-                messages = ensure_json_keyword_in_prompt(messages, prompt)
-                litellm_kwargs["response_format"] = {"type": "json_object"}
 
     async def _call_llm():
         try:
@@ -295,6 +318,12 @@ Respond with valid JSON matching this schema:
             # Return string as-is if parsing fails
             logger.warning("Could not parse as structured output, returning raw string")
 
+    if isinstance(result, BaseModel):
+        try:
+            result.model_validate(result.model_dump())
+        except Exception as e:
+            logger.warning(f"Structured output validation failed: {e}")
+
     if hashing_kv is not None:
         cached_payload = result.model_dump_json() if isinstance(result, BaseModel) else result
         await hashing_kv.upsert(
@@ -311,6 +340,12 @@ Respond with valid JSON matching this schema:
     return result
 
 
+@retry(
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=2, min=4, max=60),
+    retry=retry_if_exception_type(Exception),
+    reraise=True,
+)
 @wrap_embedding_func_with_attrs(embedding_dim=1536, max_token_size=8192)
 async def litellm_embedding(
     texts: list[str],
