@@ -123,14 +123,15 @@ async def _pack_single_community_describe(
         if name not in contain_nodes
     ]
 
+    node_index_lookup = {name: idx for idx, name in enumerate(nodes_in_order)}
     edges_list_data = [
         [
             i,
-            (nodes_data[nodes_in_order.index(edge[0])] or {}).get("entity_name", edge[0])
-            if edge[0] in nodes_in_order
+            (nodes_data[node_index_lookup[edge[0]]] or {}).get("entity_name", edge[0])
+            if edge[0] in node_index_lookup
             else edge[0],
-            (nodes_data[nodes_in_order.index(edge[1])] or {}).get("entity_name", edge[1])
-            if edge[1] in nodes_in_order
+            (nodes_data[node_index_lookup[edge[1]]] or {}).get("entity_name", edge[1])
+            if edge[1] in node_index_lookup
             else edge[1],
             (data or {}).get("description", "UNKNOWN"),
             edge_degrees[i],
@@ -211,6 +212,8 @@ async def generate_community_report(
     ]
 
     communities_schema = await knowledge_graph_inst.community_schema()
+    # Save full schema keys before filtering for stale report cleanup
+    all_schema_keys = set(communities_schema.keys())
     if only_community_ids is not None:
         communities_schema = {
             k: v for k, v in communities_schema.items() if k in only_community_ids
@@ -245,8 +248,8 @@ async def generate_community_report(
         response = await use_llm_func(prompt, **llm_extra_kwargs)
         data = use_string_json_convert_func(response)
         already_processed += 1
-        now_ticks = PROMPTS["process_tickers"][already_processed % len(PROMPTS["process_tickers"])]
-        print(f"{now_ticks} Processed {already_processed} communities\r", end="", flush=True)
+        if already_processed % 10 == 0:
+            logger.info(f"Processed {already_processed} community reports")
         return data
 
     levels = sorted(set([c["level"] for c in community_values]), reverse=True)
@@ -259,36 +262,44 @@ async def generate_community_report(
         for key, value in zip(existing_report_keys, existing_reports)
         if value is not None
     }
+
+    # Build level dependencies
+    level_communities = {}
     for level in levels:
-        level_pairs = [
-            (k, v) for k, v in zip(community_keys, community_values) if v["level"] == level
-        ]
+        level_pairs = [(k, v) for k, v in zip(community_keys, community_values) if v["level"] == level]
+        if level_pairs:
+            level_communities[level] = level_pairs
+
+    # Pipeline: start next level as soon as current level's dependencies are met
+    async def _generate_report(community_key, community_value, all_reports):
+        report = await _form_single_community_report(community_value, all_reports)
+        return community_key, {
+            "report_string": _community_report_json_to_str(report),
+            "report_json": report,
+            **community_value,
+        }
+
+    # Process levels with pipelining - submit all tasks but respect level dependencies
+    for level in levels:
+        level_pairs = level_communities[level]
         if not level_pairs:
             continue
         this_level_community_keys, this_level_community_values = zip(*level_pairs)
-        this_level_communities_reports = await asyncio.gather(
+        this_level_reports = await asyncio.gather(
             *[
-                _form_single_community_report(c, {**seeded_reports, **community_datas})
-                for c in this_level_community_values
+                _generate_report(k, v, {**seeded_reports, **community_datas})
+                for k, v in zip(this_level_community_keys, this_level_community_values)
             ]
         )
-        community_datas.update(
-            {
-                k: {
-                    "report_string": _community_report_json_to_str(r),
-                    "report_json": r,
-                    **v,
-                }
-                for k, r, v in zip(
-                    this_level_community_keys,
-                    this_level_communities_reports,
-                    this_level_community_values,
-                )
-            }
-        )
-    print()
+        for k, report in this_level_reports:
+            community_datas[k] = report
     if only_community_ids is not None:
         stale_ids = sorted(only_community_ids - set(community_datas.keys()))
         if stale_ids:
             await community_report_kv.delete(stale_ids)
     await community_report_kv.upsert(community_datas)
+    # Clean up reports for communities that no longer exist in the schema
+    existing_report_keys = set(await community_report_kv.all_keys())
+    truly_stale = existing_report_keys - all_schema_keys
+    if truly_stale:
+        await community_report_kv.delete(sorted(truly_stale))

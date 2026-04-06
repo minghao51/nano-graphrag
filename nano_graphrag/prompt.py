@@ -308,12 +308,12 @@ Output:
 
 
 PROMPTS[
-    "entiti_continue_extraction"
+    "entity_continue_extraction"
 ] = """MANY entities were missed in the last extraction.  Add them below using the same format:
 """
 
 PROMPTS[
-    "entiti_if_loop_extraction"
+    "entity_if_loop_extraction"
 ] = """It appears some entities may have still been missed.  Answer YES | NO if there are still entities that need to be added.
 """
 

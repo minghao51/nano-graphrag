@@ -7,11 +7,13 @@ from typing import Any, Callable, Optional, Union
 from .._utils import (
     TokenizerWrapper,
     clean_str,
+    deserialize_source_ids,
     generate_stable_entity_id,
     generate_stable_relationship_id,
     is_float_regex,
     logger,
     pack_user_ass_to_openai_messages,
+    serialize_source_ids,
     split_string_by_multi_markers,
 )
 from ..base import BaseGraphStorage, BaseKVStorage, BaseVectorStorage, TextChunkSchema
@@ -115,17 +117,19 @@ async def _merge_nodes_then_upsert(
         )
         already_description.append(already_node["description"])
 
-    entity_type = sorted(
-        Counter([dp["entity_type"] for dp in nodes_data] + already_entitiy_types).items(),
-        key=lambda x: x[1],
-        reverse=True,
-    )[0][0]
+    type_counter = Counter([dp["entity_type"] for dp in nodes_data] + already_entitiy_types)
+    if not type_counter:
+        entity_type = "UNKNOWN"
+    else:
+        entity_type = type_counter.most_common(1)[0][0]
     description = GRAPH_FIELD_SEP.join(
         sorted(set([dp["description"] for dp in nodes_data] + already_description))
     )
-    source_id = GRAPH_FIELD_SEP.join(
-        set([dp["source_id"] for dp in nodes_data] + already_source_ids)
-    )
+    all_source_ids = set()
+    for dp in nodes_data:
+        all_source_ids.update(deserialize_source_ids(dp["source_id"]))
+    all_source_ids.update(already_source_ids)
+    source_id = serialize_source_ids(list(all_source_ids))
     description = await _handle_entity_relation_summary(
         entity_name, description, global_config, tokenizer_wrapper
     )
@@ -169,9 +173,11 @@ async def _merge_edges_then_upsert(
     description = GRAPH_FIELD_SEP.join(
         sorted(set([dp["description"] for dp in edges_data] + already_description))
     )
-    source_id = GRAPH_FIELD_SEP.join(
-        set([dp["source_id"] for dp in edges_data] + already_source_ids)
-    )
+    all_source_ids = set()
+    for dp in edges_data:
+        all_source_ids.update(deserialize_source_ids(dp["source_id"]))
+    all_source_ids.update(already_source_ids)
+    source_id = serialize_source_ids(list(all_source_ids))
     for need_insert_id in [src_id, tgt_id]:
         if not (await knowledge_graph_inst.has_node(need_insert_id)):
             await knowledge_graph_inst.upsert_node(
@@ -366,8 +372,8 @@ async def extract_document_entity_relationships_structured(
             completion_delimiter=PROMPTS["DEFAULT_COMPLETION_DELIMITER"],
             entity_types=",".join(PROMPTS["DEFAULT_ENTITY_TYPES"]),
         )
-        continue_prompt = PROMPTS["entiti_continue_extraction"]
-        if_loop_prompt = PROMPTS["entiti_if_loop_extraction"]
+        continue_prompt = PROMPTS["entity_continue_extraction"]
+        if_loop_prompt = PROMPTS["entity_if_loop_extraction"]
         hint_prompt = entity_extract_prompt.format(**context_base, input_text=content)
         final_result = await use_llm_func(hint_prompt)
         history = pack_user_ass_to_openai_messages(hint_prompt, final_result, False)
@@ -457,14 +463,11 @@ Return a JSON with 'entities' (name, type, description) and 'relationships' (sou
                 already_processed += 1
                 already_entities += len(entities)
                 already_relations += len(relationships)
-                now_ticks = PROMPTS["process_tickers"][
-                    already_processed % len(PROMPTS["process_tickers"])
-                ]
-                print(
-                    f"{now_ticks} Processed {already_processed}({already_processed * 100 // len(ordered_chunks)}%) chunks, {already_entities} entities, {already_relations} relations\r",
-                    end="",
-                    flush=True,
-                )
+                if already_processed % 10 == 0 or already_processed == len(ordered_chunks):
+                    logger.info(
+                        f"Processed {already_processed}/{len(ordered_chunks)} chunks ({already_processed * 100 // len(ordered_chunks)}%), "
+                        f"{already_entities} entities, {already_relations} relations"
+                    )
                 return entities, relationships
             result = None
 
@@ -520,12 +523,11 @@ Return a JSON with 'entities' (name, type, description) and 'relationships' (sou
         already_processed += 1
         already_entities += len(entities)
         already_relations += len(relationships)
-        now_ticks = PROMPTS["process_tickers"][already_processed % len(PROMPTS["process_tickers"])]
-        print(
-            f"{now_ticks} Processed {already_processed}({already_processed * 100 // len(ordered_chunks)}%) chunks, {already_entities} entities, {already_relations} relations\r",
-            end="",
-            flush=True,
-        )
+        if already_processed % 10 == 0 or already_processed == len(ordered_chunks):
+            logger.info(
+                f"Processed {already_processed}/{len(ordered_chunks)} chunks ({already_processed * 100 // len(ordered_chunks)}%), "
+                f"{already_entities} entities, {already_relations} relations"
+            )
         return entities, relationships
 
     async def _process_single_content_with_semaphore(chunk_item):
@@ -535,7 +537,6 @@ Return a JSON with 'entities' (name, type, description) and 'relationships' (sou
     results = await asyncio.gather(
         *[_process_single_content_with_semaphore(c) for c in ordered_chunks]
     )
-    print()
     manifest_entities: dict[str, dict[str, Any]] = {}
     manifest_relationships: dict[str, dict[str, Any]] = {}
     manifest: dict[str, Any] = {
@@ -590,8 +591,8 @@ async def extract_document_entity_relationships_legacy(
         completion_delimiter=PROMPTS["DEFAULT_COMPLETION_DELIMITER"],
         entity_types=",".join(PROMPTS["DEFAULT_ENTITY_TYPES"]),
     )
-    continue_prompt = PROMPTS["entiti_continue_extraction"]
-    if_loop_prompt = PROMPTS["entiti_if_loop_extraction"]
+    continue_prompt = PROMPTS["entity_continue_extraction"]
+    if_loop_prompt = PROMPTS["entity_if_loop_extraction"]
 
     already_processed = 0
     already_entities = 0
@@ -677,12 +678,11 @@ async def extract_document_entity_relationships_legacy(
         already_processed += 1
         already_entities += len(entities)
         already_relations += len(relationships)
-        now_ticks = PROMPTS["process_tickers"][already_processed % len(PROMPTS["process_tickers"])]
-        print(
-            f"{now_ticks} Processed {already_processed}({already_processed * 100 // len(ordered_chunks)}%) chunks,  {already_entities} entities(duplicated), {already_relations} relations(duplicated)\r",
-            end="",
-            flush=True,
-        )
+        if already_processed % 10 == 0 or already_processed == len(ordered_chunks):
+            logger.info(
+                f"Processed {already_processed}/{len(ordered_chunks)} chunks ({already_processed * 100 // len(ordered_chunks)}%), "
+                f"{already_entities} entities, {already_relations} relations"
+            )
         return entities, relationships
 
     async def _process_single_content_with_semaphore(chunk_item):
@@ -692,7 +692,6 @@ async def extract_document_entity_relationships_legacy(
     results = await asyncio.gather(
         *[_process_single_content_with_semaphore(c) for c in ordered_chunks]
     )
-    print()
     manifest_entities: dict[str, dict[str, Any]] = {}
     manifest_relationships: dict[str, dict[str, Any]] = {}
     manifest: dict[str, Any] = {

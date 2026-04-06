@@ -232,8 +232,10 @@ def test_incremental_update_keeps_entity_identity_when_new_extract_is_unknown():
     person_id = generate_stable_entity_id("CHARLES DICKENS", "PERSON")
     unknown_id = generate_stable_entity_id("CHARLES DICKENS", '"UNKNOWN"')
 
+    # Entity IDs are now type-agnostic, so person_id == unknown_id
+    # This means the entity naturally keeps its identity across re-indexing
+    assert person_id == unknown_id, "Entity IDs should be type-agnostic"
     assert loop.run_until_complete(rag.chunk_entity_relation_graph.has_node(person_id))
-    assert not loop.run_until_complete(rag.chunk_entity_relation_graph.has_node(unknown_id))
 
 
 def test_local_query_context_uses_human_readable_names():

@@ -24,11 +24,8 @@ logging.getLogger("neo4j").setLevel(logging.ERROR)
 
 def always_get_an_event_loop() -> asyncio.AbstractEventLoop:
     try:
-        # If there is already an event loop, use it.
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
     except RuntimeError:
-        # If in a sub-thread, create a new event loop.
-        logger.info("Creating a new event loop in a sub-thread.")
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
     return loop
@@ -128,6 +125,8 @@ def convert_response_to_json(response: str) -> dict:
 
 
 class TokenizerWrapper:
+    _MAX_CACHE = 8192
+
     def __init__(
         self,
         tokenizer_type: Literal["tiktoken", "huggingface"] = "tiktoken",
@@ -136,6 +135,8 @@ class TokenizerWrapper:
         self.tokenizer_type = tokenizer_type
         self.model_name = model_name
         self._tokenizer = None
+        self._encode_cache: dict[str, list[int]] = {}
+        self._decode_cache: dict[tuple, str] = {}
         self._lazy_load_tokenizer()
 
     def _lazy_load_tokenizer(self):
@@ -154,22 +155,34 @@ class TokenizerWrapper:
             raise ValueError(f"Unknown tokenizer_type: {self.tokenizer_type}")
 
     def get_tokenizer(self):
-        """提供对底层 tokenizer 对象的访问，用于特殊情况（如 decode_batch）。"""
+        """Provides access to the underlying tokenizer object."""
         self._lazy_load_tokenizer()
         return self._tokenizer
 
     def encode(self, text: str) -> list[int]:
         self._lazy_load_tokenizer()
-        return self._tokenizer.encode(text)
+        if text in self._encode_cache:
+            return self._encode_cache[text]
+        result = self._tokenizer.encode(text)
+        if len(self._encode_cache) >= self._MAX_CACHE:
+            self._encode_cache.clear()
+        self._encode_cache[text] = result
+        return result
 
     def decode(self, tokens: list[int]) -> str:
         self._lazy_load_tokenizer()
-        return self._tokenizer.decode(tokens)
+        key = tuple(tokens)
+        if key in self._decode_cache:
+            return self._decode_cache[key]
+        result = self._tokenizer.decode(tokens)
+        if len(self._decode_cache) >= self._MAX_CACHE:
+            self._decode_cache.clear()
+        self._decode_cache[key] = result
+        return result
 
-    # +++ 新增 +++: 增加一个批量解码的方法以提高效率，并保持接口一致性
     def decode_batch(self, tokens_list: list[list[int]]) -> list[str]:
         self._lazy_load_tokenizer()
-        # HuggingFace tokenizer 有 decode_batch，但 tiktoken 没有，我们用列表推导来模拟
+        # Defensive: simulating list concatenation via newline
         if self.tokenizer_type == "tiktoken":
             return [self._tokenizer.decode(tokens) for tokens in tokens_list]
         elif self.tokenizer_type == "huggingface":
@@ -186,7 +199,7 @@ def truncate_list_by_token_size(
         return []
     tokens = 0
     for i, data in enumerate(list_data):
-        tokens += len(tokenizer_wrapper.encode(key(data))) + 1  # 防御性，模拟通过\n拼接列表的情况
+        tokens += len(tokenizer_wrapper.encode(key(data))) + 1  # Defensive: simulating list concatenation via newline
         if tokens > max_token_size:
             return list_data[:i]
     return list_data
@@ -205,7 +218,9 @@ def generate_stable_entity_id(
     entity_type: str = "entity",
     namespace: str = "default",
 ):
-    normalized = f"{namespace}:{entity_type.strip().lower()}:{entity_name.strip().lower()}"
+    # Entity ID is based only on namespace + entity_name, not entity_type
+    # This ensures stable IDs across re-indexing when entity types change
+    normalized = f"{namespace}:{entity_name.strip().lower()}"
     return compute_sha256_id(normalized, prefix="entity_")
 
 
@@ -217,18 +232,6 @@ def generate_stable_relationship_id(
     left, right = sorted([src_entity_id, tgt_entity_id])
     normalized = f"{left}|{right}|{relation_type.strip().lower()}"
     return compute_sha256_id(normalized, prefix="rel_")
-
-
-def write_json(json_obj, file_name):
-    with open(file_name, "w", encoding="utf-8") as f:
-        json.dump(json_obj, f, indent=2, ensure_ascii=False)
-
-
-def load_json(file_name):
-    if not os.path.exists(file_name):
-        return None
-    with open(file_name, encoding="utf-8") as f:
-        return json.load(f)
 
 
 # it's dirty to type, so it's a good way to have fun
@@ -308,24 +311,13 @@ class EmbeddingFunc:
 
 # Decorators ------------------------------------------------------------------------
 def limit_async_func_call(max_size: int, waitting_time: float = 0.0001):
-    """Add restriction of maximum async calling times for a async func"""
-
     def final_decro(func):
-        """Not using async.Semaphore to aovid use nest-asyncio"""
-        __current_size = 0
-
+        semaphore = asyncio.Semaphore(max_size)
         @wraps(func)
         async def wait_func(*args, **kwargs):
-            nonlocal __current_size
-            while __current_size >= max_size:
-                await asyncio.sleep(waitting_time)
-            __current_size += 1
-            result = await func(*args, **kwargs)
-            __current_size -= 1
-            return result
-
+            async with semaphore:
+                return await func(*args, **kwargs)
         return wait_func
-
     return final_decro
 
 
@@ -337,3 +329,22 @@ def wrap_embedding_func_with_attrs(**kwargs):
         return new_func
 
     return final_decro
+
+
+def serialize_source_ids(source_ids: list[str]) -> str:
+    """Serialize source IDs to a JSON array string."""
+    return json.dumps(sorted(set(source_ids)))
+
+
+def deserialize_source_ids(source_id_str: str) -> list[str]:
+    """Deserialize source IDs from JSON array string, with fallback to <SEP> parsing."""
+    if not source_id_str:
+        return []
+    if source_id_str.startswith("["):
+        try:
+            return json.loads(source_id_str)
+        except json.JSONDecodeError:
+            pass
+    from .prompt import GRAPH_FIELD_SEP
+    # Fallback to old <SEP> format
+    return [s for s in source_id_str.split(GRAPH_FIELD_SEP) if s] if GRAPH_FIELD_SEP in source_id_str else [source_id_str]
