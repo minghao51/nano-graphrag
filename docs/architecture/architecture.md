@@ -30,6 +30,12 @@ The minimal core favors:
 - Builds storage backends
 - Runs insert and query flows
 
+`graphrag.py` now stays focused on the public dataclass and entrypoints. Internal implementation is split into:
+
+- `graphrag_runtime.py`: runtime normalization, logging, tokenizer setup, provider setup, and storage construction
+- `graphrag_insert.py`: insert and incremental rebuild orchestration
+- `graphrag_query.py`: query-mode dispatch and query-finalization helpers
+
 `GraphRAGConfig` is the canonical configuration object for runtime settings. Direct `GraphRAG(...)` kwargs still work as compatibility aliases for one release window.
 
 ### Operation Modules
@@ -37,11 +43,17 @@ The minimal core favors:
 Operational logic is split by responsibility under `nano_graphrag._ops`:
 
 - `chunking.py`: chunk construction and built-in chunking helpers
-- `extraction.py`: entity extraction, merge, summarize, and graph upsert flow
+- `extraction.py`: compatibility facade that preserves the existing public extraction helpers
+- `extraction_common.py`: shared normalization, summary, parsing, and manifest-combine helpers
+- `extraction_structured.py`: structured-output extraction flow
+- `extraction_legacy.py`: legacy prompt-and-parse extraction flow
+- `extraction_rebuild.py`: incremental document-manifest aggregation and graph rebuild logic
+- `extraction_writeback.py`: graph/vector-store writeback helpers built on top of extraction manifests
 - `community.py`: community description packing and report generation
 - `query.py`: local/global/naive query context building and answer generation
 
 `nano_graphrag._op` is now a compatibility wrapper that re-exports the same public helpers.
+`nano_graphrag._ops.__init__` also keeps the old extraction helper imports stable so downstream code does not need to change when internal files move.
 
 ### Storage Interfaces
 
@@ -56,6 +68,14 @@ Built-in implementations:
 - KV: JSON files
 - Vector: `nano-vectordb`, optional `hnswlib`
 - Graph: `networkx`, optional Neo4j
+
+The `networkx` backend now separates concerns internally:
+
+- `gdb_networkx.py`: public storage class, CRUD surface, and backend dispatch
+- `gdb_networkx_utils.py`: GraphML I/O and stable graph conversion helpers
+- `gdb_networkx_clustering.py`: community schema construction plus clustering backend implementations
+
+Clustering is wired through an internal backend interface so future algorithms such as DF-Leiden can be added as new backends instead of growing `NetworkXStorage` conditionals.
 
 Additional persisted state for incremental indexing:
 
@@ -82,6 +102,11 @@ Important constraint:
 
 - graph clustering falls back to full Leiden when there is no safe local frontier, but NetworkX now attempts frontier-only leaf reclustering for small affected neighborhoods
 - community report regeneration can target only the affected community IDs after an incremental clustering pass
+
+## Tech-Debt Notes
+
+- A previously reported Milvus ID-length TODO is not present in the current tree, so any Milvus follow-up should begin with re-validating whether a Milvus backend is being reintroduced.
+- DF-Leiden remains deferred work. The new clustering backend boundary is intended to make that change additive rather than another large `NetworkXStorage` refactor.
 
 ## Query Flow
 

@@ -3,7 +3,6 @@ import html
 import json
 import logging
 import numbers
-import os
 import re
 from dataclasses import dataclass
 from functools import wraps
