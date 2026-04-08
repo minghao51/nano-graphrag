@@ -75,7 +75,6 @@ async def _parse_legacy_extraction_records(
     return entities, relationships
 
 
-
 def _join_unique(values: list[str]) -> str:
     return GRAPH_FIELD_SEP.join(sorted(set(v for v in values if v)))
 
