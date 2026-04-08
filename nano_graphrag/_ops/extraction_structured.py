@@ -1,19 +1,17 @@
 import asyncio
 import json
-import re
 from typing import Any, Callable
 
-from .._utils import logger, pack_user_ass_to_openai_messages, split_string_by_multi_markers
+from .._utils import logger, pack_user_ass_to_openai_messages
 from ..base import TextChunkSchema
 from ..prompt import PROMPTS
 from .extraction_common import (
     UNKNOWN_ENTITY_TYPE,
-    _handle_single_entity_extraction,
-    _handle_single_relationship_extraction,
     _join_unique,
     _normalize_document_manifest,
     _normalize_entity_name,
     _normalize_entity_type,
+    _parse_legacy_extraction_records,
     _upsert_document_entity,
     _upsert_document_relationship,
 )
@@ -21,7 +19,7 @@ from .extraction_common import (
 
 async def _process_chunk_with_legacy_prompt(
     chunk_key: str, content: str, global_config: dict
-) -> tuple[dict[str, dict], dict[str, dict]]:
+) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
     use_llm_func: Callable[..., Any] = global_config["best_model_func"]
     entity_extract_max_gleaning = global_config["entity_extract_max_gleaning"]
     entity_extract_prompt = PROMPTS["entity_extraction"]
@@ -46,54 +44,7 @@ async def _process_chunk_with_legacy_prompt(
         if if_loop_result.strip().strip('"').strip("'").lower() != "yes":
             break
 
-    records = split_string_by_multi_markers(
-        final_result,
-        [context_base["record_delimiter"], context_base["completion_delimiter"]],
-    )
-    entities: dict[str, dict[str, Any]] = {}
-    relationships: dict[str, dict[str, Any]] = {}
-    entity_name_to_id: dict[str, str] = {}
-    for record in records:
-        record_match = re.search(r"\((.*)\)", record)
-        if record_match is None:
-            continue
-        record_attributes = split_string_by_multi_markers(
-            record_match.group(1), [context_base["tuple_delimiter"]]
-        )
-        entity = await _handle_single_entity_extraction(record_attributes, chunk_key)
-        if entity is not None:
-            entity_id = _upsert_document_entity(
-                entities,
-                entity["entity_name"],
-                entity["entity_type"],
-                entity["description"],
-                chunk_key,
-            )
-            entity_name_to_id[entity["entity_name"]] = entity_id
-            continue
-
-        relationship = await _handle_single_relationship_extraction(record_attributes, chunk_key)
-        if relationship is None:
-            continue
-        src_name = relationship["src_name"]
-        tgt_name = relationship["tgt_name"]
-        if src_name not in entity_name_to_id:
-            entity_name_to_id[src_name] = _upsert_document_entity(
-                entities, src_name, UNKNOWN_ENTITY_TYPE, relationship["description"], chunk_key
-            )
-        if tgt_name not in entity_name_to_id:
-            entity_name_to_id[tgt_name] = _upsert_document_entity(
-                entities, tgt_name, UNKNOWN_ENTITY_TYPE, relationship["description"], chunk_key
-            )
-        _upsert_document_relationship(
-            relationships,
-            entity_name_to_id[src_name],
-            entity_name_to_id[tgt_name],
-            relationship["description"],
-            relationship["weight"],
-            chunk_key,
-        )
-    return entities, relationships
+    return await _parse_legacy_extraction_records(final_result, chunk_key, context_base, False)
 
 
 async def extract_document_entity_relationships_structured(
