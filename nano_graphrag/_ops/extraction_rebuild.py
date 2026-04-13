@@ -21,6 +21,7 @@ async def rebuild_knowledge_graph_for_documents(
     old_document_manifests: dict[str, dict],
     new_document_manifests: dict[str, dict],
 ):
+    entity_registry = global_config.get("entity_registry")
     affected_entity_ids: set[str] = set()
     affected_relationship_ids: set[str] = set()
     affected_entity_names: set[str] = set()
@@ -145,11 +146,15 @@ async def rebuild_knowledge_graph_for_documents(
             await knowledge_graph_inst.delete_node(entity_id)
             if entity_vdb is not None:
                 await entity_vdb.delete([entity_id])
+            if entity_registry is not None:
+                entity_registry.remove_entity(entity_id)
             continue
         if combined is None:
             await knowledge_graph_inst.delete_node(entity_id)
             if entity_vdb is not None:
                 await entity_vdb.delete([entity_id])
+            if entity_registry is not None:
+                entity_registry.remove_entity(entity_id)
             continue
         combined["description"] = await _handle_entity_relation_summary(
             combined["entity_name"],
@@ -162,10 +167,19 @@ async def rebuild_knowledge_graph_for_documents(
             await entity_vdb.upsert(
                 {
                     entity_id: {
-                        "content": combined["entity_name"] + combined["description"],
+                        "content": combined["entity_name"] + " - " + combined["description"],
                         "entity_name": combined["entity_name"],
                     }
                 }
+            )
+        if entity_registry is not None:
+            existing_record = entity_registry.get_entity_record(entity_id)
+            entity_registry.register_entity(
+                entity_id=entity_id,
+                canonical_name=combined["entity_name"],
+                aliases=sorted(existing_record.aliases) if existing_record is not None else None,
+                entity_type=combined.get("entity_type", "unknown"),
+                metadata={"description": combined["description"]},
             )
 
     relationship_ids_to_refresh = set(affected_relationship_ids).union(

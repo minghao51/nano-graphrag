@@ -9,7 +9,7 @@ from ._utils import EmbeddingFunc, logger
 
 @dataclass
 class QueryParam:
-    mode: Literal["local", "global", "naive"] = "global"
+    mode: Literal["local", "global", "naive", "entity_grounded"] = "global"
     only_need_context: bool = False
     response_type: str = "Multiple Paragraphs"
     level: int = 2
@@ -28,6 +28,10 @@ class QueryParam:
     global_special_community_map_llm_kwargs: dict = field(
         default_factory=lambda: {"response_format": {"type": "json_object"}}
     )
+    # entity-grounded search
+    entity_grounded_max_answer_length: int = 50  # tokens
+    entity_grounded_require_entity_match: bool = True
+    entity_grounded_fuzzy_threshold: float = 0.85
 
 
 TextChunkSchema = TypedDict(
@@ -201,8 +205,17 @@ class BaseGraphStorage(StorageNameSpace):
 
 DEFAULT_LLM_MODEL = "gpt-4o-mini"
 DEFAULT_CHEAP_MODEL = "gpt-4o-mini"
-DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
-DEFAULT_EMBEDDING_DIM = 1536
+DEFAULT_EMBEDDING_MODEL = "openrouter/qwen/qwen3-embedding-8b"
+DEFAULT_EMBEDDING_DIM = 4096
+
+# Alternative embedding models (set via EMBEDDING_MODEL env var):
+# - openrouter/qwen/qwen3-embedding-8b (dim=4096) - Default, good quality, cost-effective
+# - openrouter/openai/text-embedding-3-small (dim=1536) - OpenAI via OpenRouter
+# - openrouter/baai/bge-m3 (dim=1024) - Multilingual support, long context
+# - openrouter/sentence-transformers/all-mpnet-base-v2 (dim=768) - Lightweight
+# - text-embedding-3-small (dim=1536) - Direct OpenAI
+# Note: OpenRouter doesn't document specific concurrent call limits for embeddings
+
 SUPPORTED_GRAPH_CLUSTERING = ("leiden",)
 
 
@@ -281,7 +294,7 @@ class GraphRAGConfig:
     llm_cheap_model: str = DEFAULT_CHEAP_MODEL
     llm_api_base: Optional[str] = None
     llm_api_key: Optional[str] = None
-    llm_max_async: int = 16
+    llm_max_async: int = 32
     llm_max_tokens: int = 32768
     llm_timeout: int = 120
 
@@ -320,7 +333,7 @@ class GraphRAGConfig:
             llm_cheap_model=os.getenv("LLM_CHEAP_MODEL", DEFAULT_CHEAP_MODEL),
             llm_api_base=os.getenv("LLM_API_BASE"),
             llm_api_key=os.getenv("LLM_API_KEY"),
-            llm_max_async=_parse_int("LLM_MAX_ASYNC", 16, min_value=1),
+            llm_max_async=_parse_int("LLM_MAX_ASYNC", 32, min_value=1),
             llm_max_tokens=_parse_int("LLM_MAX_TOKENS", 32768, min_value=1),
             llm_timeout=_parse_int("LLM_TIMEOUT", 120, min_value=1),
             embedding_model=os.getenv("EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL),
@@ -385,12 +398,10 @@ class GraphRAGConfig:
                 f"Must be one of: {sorted(valid_quality_modes)}"
             )
 
-        # Validate graph_cluster_algorithm
-        valid_cluster_algorithms = {"louvain", "leiden"}
-        if self.graph_cluster_algorithm not in valid_cluster_algorithms:
+        if self.graph_cluster_algorithm not in SUPPORTED_GRAPH_CLUSTERING:
             raise ValueError(
                 f"Invalid graph_cluster_algorithm={self.graph_cluster_algorithm!r}. "
-                f"Must be one of: {sorted(valid_cluster_algorithms)}"
+                f"Must be one of: {sorted(SUPPORTED_GRAPH_CLUSTERING)}"
             )
 
         # Validate log_level
