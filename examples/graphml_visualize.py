@@ -97,7 +97,7 @@ def create_html(html_path):
     <script type="text/javascript" src="./graph_json.js"></script>
     <script>
         const graphData = graphJson;
-        
+
         const svg = d3.select("svg"),
             width = window.innerWidth,
             height = window.innerHeight;
@@ -263,10 +263,10 @@ def visualize_graphml(graphml_file, html_path, port=8000):
     server_thread = threading.Thread(target=start_server(port))
     server_thread.daemon = True
     server_thread.start()
-    
+
     # open default browser
     webbrowser.open(f'http://localhost:{port}/{html_path}')
-    
+
     print("Visualization is ready. Press Ctrl+C to exit.")
     try:
         # keep main thread running

@@ -29,7 +29,7 @@ class FAISSStorage(BaseVectorStorage):
             "embedding_batch_size",
             self.global_config.get("embedding_batch_num", 32),
         )
-        
+
         if os.path.exists(self._index_file_name) and os.path.exists(self._metadata_file_name):
             self._index = faiss.read_index(self._index_file_name)
             with open(self._metadata_file_name, 'rb') as f:
@@ -40,7 +40,7 @@ class FAISSStorage(BaseVectorStorage):
 
     async def upsert(self, data: dict[str, dict]):
         logger.info(f"Inserting {len(data)} vectors to {self.namespace}")
-        
+
         contents = [v["content"] for v in data.values()]
         batches = [
             contents[i : i + self._max_batch_size]
@@ -50,7 +50,7 @@ class FAISSStorage(BaseVectorStorage):
             *[self.embedding_func(batch) for batch in batches]
         )
         embeddings = np.concatenate(embeddings_list)
-        
+
         ids = []
         for k, v in data.items():
             id = xxhash.xxh32_intdigest(k.encode())
@@ -58,26 +58,26 @@ class FAISSStorage(BaseVectorStorage):
             metadata['id'] = k
             self._metadata[id] = metadata
             ids.append(id)
-        
+
         ids = np.array(ids, dtype=np.int64)
         self._index.add_with_ids(embeddings, ids)
-        
-        
+
+
         return len(data)
 
     async def query(self, query, top_k=5):
         embedding = await self.embedding_func([query])
         distances, indices = self._index.search(embedding, top_k)
-        
+
         results = []
         for _, (distance, id) in enumerate(zip(distances[0], indices[0])):
             if id != -1:  # FAISS returns -1 for empty slots
                 if id in self._metadata:
                     metadata = self._metadata[id]
                     results.append({**metadata, "distance": 1 - distance})  # Convert to cosine distance
-        
+
         return results
-    
+
     async def index_done_callback(self):
         faiss.write_index(self._index, self._index_file_name)
         with open(self._metadata_file_name, 'wb') as f:
@@ -96,5 +96,3 @@ if __name__ == "__main__":
 
     # Perform global graphrag search
     print(graph_func.query("What are the top themes in this story?"))
-
-    

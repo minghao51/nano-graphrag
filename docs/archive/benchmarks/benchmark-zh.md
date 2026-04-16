@@ -1,7 +1,7 @@
-- We use [三国演义](https://github.com/tennessine/corpus/blob/master/%E4%B8%89%E5%9B%BD%E6%BC%94%E4%B9%89.txt) by 罗贯中 as the benchmark corpus. 
+- We use [三国演义](https://github.com/tennessine/corpus/blob/master/%E4%B8%89%E5%9B%BD%E6%BC%94%E4%B9%89.txt) by 罗贯中 as the benchmark corpus.
 - We use `61b5eea34783c58074b3c53f1689ad8a5ba6b6ee` commit of [Official GraphRAG implementation](https://github.com/microsoft/graphrag/tree/main)
 - Both GraphRAG and `nano-graphrag` use OpenAI Embedding and `gpt-4o`.
-- Not Cache for both. 
+- Not Cache for both.
 - On the same device and network connection.
 - GrapgRAG Max Async API request: 25
 - `nano-graphrag` Max Async API request: 16
@@ -88,4 +88,3 @@ Both are suck, more than 10 minutes.
 
 总之，曹操和大乔的关系不仅仅停留在个人层面，更深层次的是政治策略和权力博弈的体现。曹操对她的兴趣，反映了他在权力斗争中的精明与野心。
 ```
-

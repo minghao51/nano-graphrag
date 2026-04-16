@@ -9,6 +9,7 @@ import numpy as np
 from ..base import BaseGraphStorage
 from .gdb_networkx_clustering import (
     LeidenClusteringBackend,
+    LouvainClusteringBackend,
     build_community_schema,
 )
 from .gdb_networkx_utils import (
@@ -38,38 +39,86 @@ class NetworkXStorage(BaseGraphStorage):
         self._graph = preloaded_graph or nx.Graph()
         self._clustering_algorithms = {
             "leiden": LeidenClusteringBackend(),
+            "louvain": LouvainClusteringBackend(),
         }
         self._node_embed_algorithms = {
             "node2vec": self._node2vec_embed,
         }
         self._last_affected_community_ids = set()
         self._last_clustering_was_incremental = False
+        self._graph_lock = asyncio.Lock()
+        self._community_schema_cache = None
 
     async def index_done_callback(self):
-        write_nx_graph(self._graph, self._graphml_xml_file)
+        async with self._graph_lock:
+            write_nx_graph(self._graph, self._graphml_xml_file)
+
+    async def _snapshot_graph(self) -> str:
+        """Create a snapshot of the current graph state.
+
+        Returns:
+            Path to the snapshot file.
+        """
+        import time
+
+        from .._utils import logger
+
+        async with self._graph_lock:
+            snapshot_dir = os.path.join(self.global_config["working_dir"], "snapshots")
+            os.makedirs(snapshot_dir, exist_ok=True)
+            snapshot_path = os.path.join(
+                snapshot_dir, f"graph_{self.namespace}_snapshot_{int(time.time() * 1000)}.graphml"
+            )
+            write_nx_graph(self._graph, snapshot_path)
+            logger.debug(f"Graph snapshot created at {snapshot_path}")
+            return snapshot_path
+
+    async def _restore_graph(self, snapshot_path: str) -> None:
+        """Restore graph from a snapshot.
+
+        Args:
+            snapshot_path: Path to the snapshot file to restore from.
+        """
+        from .._utils import logger
+
+        async with self._graph_lock:
+            if not os.path.exists(snapshot_path):
+                logger.warning(f"Snapshot file not found: {snapshot_path}")
+                return
+            restored_graph = load_nx_graph(snapshot_path)
+            if restored_graph is not None:
+                self._graph = restored_graph
+                logger.info(f"Graph restored from snapshot: {snapshot_path}")
+            else:
+                logger.error(f"Failed to load graph from snapshot: {snapshot_path}")
 
     async def has_node(self, node_id: str) -> bool:
-        return self._graph.has_node(node_id)
+        async with self._graph_lock:
+            return self._graph.has_node(node_id)
 
     async def has_edge(self, source_node_id: str, target_node_id: str) -> bool:
-        return self._graph.has_edge(source_node_id, target_node_id)
+        async with self._graph_lock:
+            return self._graph.has_edge(source_node_id, target_node_id)
 
     async def get_node(self, node_id: str) -> Union[dict, None]:
-        return self._graph.nodes.get(node_id)
+        async with self._graph_lock:
+            return self._graph.nodes.get(node_id)
 
     async def get_nodes_batch(self, node_ids: list[str]) -> dict[str, Union[dict, None]]:
         return await asyncio.gather(*[self.get_node(node_id) for node_id in node_ids])
 
     async def node_degree(self, node_id: str) -> int:
-        return self._graph.degree(node_id) if self._graph.has_node(node_id) else 0
+        async with self._graph_lock:
+            return self._graph.degree(node_id) if self._graph.has_node(node_id) else 0
 
     async def node_degrees_batch(self, node_ids: List[str]) -> List[str]:
         return await asyncio.gather(*[self.node_degree(node_id) for node_id in node_ids])
 
     async def edge_degree(self, src_id: str, tgt_id: str) -> int:
-        return (self._graph.degree(src_id) if self._graph.has_node(src_id) else 0) + (
-            self._graph.degree(tgt_id) if self._graph.has_node(tgt_id) else 0
-        )
+        async with self._graph_lock:
+            return (self._graph.degree(src_id) if self._graph.has_node(src_id) else 0) + (
+                self._graph.degree(tgt_id) if self._graph.has_node(tgt_id) else 0
+            )
 
     async def edge_degrees_batch(self, edge_pairs: list[tuple[str, str]]) -> list[int]:
         return await asyncio.gather(
@@ -77,7 +126,8 @@ class NetworkXStorage(BaseGraphStorage):
         )
 
     async def get_edge(self, source_node_id: str, target_node_id: str) -> Union[dict, None]:
-        return self._graph.edges.get((source_node_id, target_node_id))
+        async with self._graph_lock:
+            return self._graph.edges.get((source_node_id, target_node_id))
 
     async def get_edges_batch(self, edge_pairs: list[tuple[str, str]]) -> list[Union[dict, None]]:
         return await asyncio.gather(
@@ -88,15 +138,18 @@ class NetworkXStorage(BaseGraphStorage):
         )
 
     async def get_node_edges(self, source_node_id: str):
-        if self._graph.has_node(source_node_id):
-            return list(self._graph.edges(source_node_id))
-        return None
+        async with self._graph_lock:
+            if self._graph.has_node(source_node_id):
+                return list(self._graph.edges(source_node_id))
+            return None
 
     async def get_nodes_edges_batch(self, node_ids: list[str]) -> list[list[tuple[str, str]]]:
         return await asyncio.gather(*[self.get_node_edges(node_id) for node_id in node_ids])
 
     async def upsert_node(self, node_id: str, node_data: dict[str, str]):
-        self._graph.add_node(node_id, **node_data)
+        async with self._graph_lock:
+            self._graph.add_node(node_id, **node_data)
+            self._community_schema_cache = None
 
     async def upsert_nodes_batch(self, nodes_data: list[tuple[str, dict[str, str]]]):
         await asyncio.gather(
@@ -106,7 +159,9 @@ class NetworkXStorage(BaseGraphStorage):
     async def upsert_edge(
         self, source_node_id: str, target_node_id: str, edge_data: dict[str, str]
     ):
-        self._graph.add_edge(source_node_id, target_node_id, **edge_data)
+        async with self._graph_lock:
+            self._graph.add_edge(source_node_id, target_node_id, **edge_data)
+            self._community_schema_cache = None
 
     async def upsert_edges_batch(self, edges_data: list[tuple[str, str, dict[str, str]]]):
         await asyncio.gather(
@@ -117,32 +172,46 @@ class NetworkXStorage(BaseGraphStorage):
         )
 
     async def delete_node(self, node_id: str):
-        if self._graph.has_node(node_id):
-            self._graph.remove_node(node_id)
-
-    async def delete_nodes_batch(self, node_ids: list[str]):
-        for node_id in node_ids:
+        async with self._graph_lock:
             if self._graph.has_node(node_id):
                 self._graph.remove_node(node_id)
+                self._community_schema_cache = None
+
+    async def delete_nodes_batch(self, node_ids: list[str]):
+        async with self._graph_lock:
+            for node_id in node_ids:
+                if self._graph.has_node(node_id):
+                    self._graph.remove_node(node_id)
+            self._community_schema_cache = None
 
     async def delete_edge(self, source_node_id: str, target_node_id: str):
-        if self._graph.has_edge(source_node_id, target_node_id):
-            self._graph.remove_edge(source_node_id, target_node_id)
-
-    async def delete_edges_batch(self, edge_pairs: list[tuple[str, str]]):
-        for source_node_id, target_node_id in edge_pairs:
+        async with self._graph_lock:
             if self._graph.has_edge(source_node_id, target_node_id):
                 self._graph.remove_edge(source_node_id, target_node_id)
+                self._community_schema_cache = None
+
+    async def delete_edges_batch(self, edge_pairs: list[tuple[str, str]]):
+        async with self._graph_lock:
+            for source_node_id, target_node_id in edge_pairs:
+                if self._graph.has_edge(source_node_id, target_node_id):
+                    self._graph.remove_edge(source_node_id, target_node_id)
+            self._community_schema_cache = None
 
     async def clustering(self, algorithm: str, affected_node_ids: Union[set[str], None] = None):
-        if algorithm not in self._clustering_algorithms:
-            raise ValueError(f"Clustering algorithm {algorithm} not supported")
-        await self._clustering_algorithms[algorithm].cluster(
-            self, affected_node_ids=affected_node_ids
-        )
+        async with self._graph_lock:
+            if algorithm not in self._clustering_algorithms:
+                raise ValueError(f"Clustering algorithm {algorithm} not supported")
+            await self._clustering_algorithms[algorithm].cluster(
+                self, affected_node_ids=affected_node_ids
+            )
+            self._community_schema_cache = None
 
     async def community_schema(self):
-        return build_community_schema(self)
+        if self._community_schema_cache is not None:
+            return self._community_schema_cache
+        result = build_community_schema(self)
+        self._community_schema_cache = result
+        return result
 
     async def embed_nodes(self, algorithm: str) -> tuple[np.ndarray, list[str]]:
         if algorithm not in self._node_embed_algorithms:

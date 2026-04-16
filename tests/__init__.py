@@ -1,5 +1,5 @@
 import logging
-import dotenv
 
-dotenv.load_dotenv()
+# dotenvx handles environment injection at CLI level
+# No need to load .env explicitly here
 logging.basicConfig(level=logging.INFO)

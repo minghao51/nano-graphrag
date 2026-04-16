@@ -288,6 +288,40 @@ async def local_query(
     )
 
 
+async def local_query_stream(
+    query,
+    knowledge_graph_inst: BaseGraphStorage,
+    entities_vdb: BaseVectorStorage,
+    community_reports: BaseKVStorage[CommunitySchema],
+    text_chunks_db: BaseKVStorage[TextChunkSchema],
+    query_param: QueryParam,
+    tokenizer_wrapper,
+    global_config: dict,
+):
+    context = await _build_local_query_context(
+        query,
+        knowledge_graph_inst,
+        entities_vdb,
+        community_reports,
+        text_chunks_db,
+        query_param,
+        tokenizer_wrapper,
+    )
+    if query_param.only_need_context:
+        if context is not None:
+            yield context
+        return
+    if context is None:
+        yield PROMPTS["fail_response"]
+        return
+    sys_prompt = PROMPTS["local_rag_response"].format(
+        context_data=context, response_type=query_param.response_type
+    )
+    stream_func = global_config["best_model_stream_func"]
+    async for chunk in stream_func(query, system_prompt=sys_prompt):
+        yield chunk
+
+
 async def _map_global_communities(
     query: str,
     communities_data: list[CommunitySchema],
@@ -370,7 +404,7 @@ async def global_query(
         key=lambda x: (x["occurrence"], x["report_json"].get("rating", 0)),
         reverse=True,
     )
-    logger.info(f"Revtrieved {len(community_datas)} communities")
+    logger.info(f"Retrieved {len(community_datas)} communities")
 
     map_communities_points = await _map_global_communities(
         query, community_datas, query_param, global_config, tokenizer_wrapper
@@ -415,6 +449,88 @@ Importance Score: {dp["score"]}
     )
 
 
+async def global_query_stream(
+    query,
+    knowledge_graph_inst: BaseGraphStorage,
+    entities_vdb: BaseVectorStorage,
+    community_reports: BaseKVStorage[CommunitySchema],
+    text_chunks_db: BaseKVStorage[TextChunkSchema],
+    query_param: QueryParam,
+    tokenizer_wrapper,
+    global_config: dict,
+):
+    community_schema = await knowledge_graph_inst.community_schema()
+    community_schema = {
+        k: v for k, v in community_schema.items() if v["level"] <= query_param.level
+    }
+    if not len(community_schema):
+        yield PROMPTS["fail_response"]
+        return
+
+    sorted_community_schemas = sorted(
+        community_schema.items(),
+        key=lambda x: x[1]["occurrence"],
+        reverse=True,
+    )
+    sorted_community_schemas = sorted_community_schemas[: query_param.global_max_consider_community]
+    community_datas = await community_reports.get_by_ids([k[0] for k in sorted_community_schemas])
+    community_datas = [c for c in community_datas if c is not None]
+    community_datas = [
+        c
+        for c in community_datas
+        if c["report_json"].get("rating", 0) >= query_param.global_min_community_rating
+    ]
+    community_datas = sorted(
+        community_datas,
+        key=lambda x: (x["occurrence"], x["report_json"].get("rating", 0)),
+        reverse=True,
+    )
+    map_communities_points = await _map_global_communities(
+        query, community_datas, query_param, global_config, tokenizer_wrapper
+    )
+    final_support_points = []
+    for i, mc in enumerate(map_communities_points):
+        for point in mc:
+            if "description" not in point:
+                continue
+            final_support_points.append(
+                {
+                    "analyst": i,
+                    "answer": point["description"],
+                    "score": point.get("score", 1),
+                }
+            )
+    final_support_points = [p for p in final_support_points if p["score"] > 0]
+    if not len(final_support_points):
+        yield PROMPTS["fail_response"]
+        return
+    final_support_points = sorted(final_support_points, key=lambda x: x["score"], reverse=True)
+    final_support_points = truncate_list_by_token_size(
+        final_support_points,
+        key=lambda x: x["answer"],
+        max_token_size=query_param.global_max_token_for_community_report,
+        tokenizer_wrapper=tokenizer_wrapper,
+    )
+    points_context = "\n".join(
+        [
+            f"""----Analyst {dp["analyst"]}----
+Importance Score: {dp["score"]}
+{dp["answer"]}
+"""
+            for dp in final_support_points
+        ]
+    )
+    if query_param.only_need_context:
+        yield points_context
+        return
+    prompt = PROMPTS["global_reduce_rag_response"].format(
+        report_data=points_context, response_type=query_param.response_type
+    )
+    stream_func = global_config["best_model_stream_func"]
+    async for chunk in stream_func(query, system_prompt=prompt):
+        yield chunk
+
+
 async def naive_query(
     query,
     chunks_vdb: BaseVectorStorage,
@@ -448,3 +564,35 @@ async def naive_query(
         query,
         system_prompt=sys_prompt,
     )
+
+
+async def naive_query_stream(
+    query,
+    chunks_vdb: BaseVectorStorage,
+    text_chunks_db: BaseKVStorage[TextChunkSchema],
+    query_param: QueryParam,
+    tokenizer_wrapper,
+    global_config: dict,
+):
+    results = await chunks_vdb.query(query, top_k=query_param.top_k)
+    if not len(results):
+        yield PROMPTS["fail_response"]
+        return
+    chunks_ids = [r["id"] for r in results]
+    chunks = await text_chunks_db.get_by_ids(chunks_ids)
+    maybe_trun_chunks = truncate_list_by_token_size(
+        chunks,
+        key=lambda x: x["content"],
+        max_token_size=query_param.naive_max_token_for_text_unit,
+        tokenizer_wrapper=tokenizer_wrapper,
+    )
+    section = "--New Chunk--\n".join([c["content"] for c in maybe_trun_chunks])
+    if query_param.only_need_context:
+        yield section
+        return
+    sys_prompt = PROMPTS["naive_rag_response"].format(
+        content_data=section, response_type=query_param.response_type
+    )
+    stream_func = global_config["best_model_stream_func"]
+    async for chunk in stream_func(query, system_prompt=sys_prompt):
+        yield chunk

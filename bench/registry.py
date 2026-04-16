@@ -227,7 +227,11 @@ class LocalRetriever:
             mode="local",
             only_need_context=param.only_need_context,
             top_k=kwargs.get("top_k", self.top_k),
-            **{k: v for k, v in param.__dict__.items() if k != "mode" and k != "only_need_context"},
+            **{
+                k: v
+                for k, v in param.__dict__.items()
+                if k not in ("mode", "only_need_context", "top_k")
+            },
         )
         return await graph_rag.aquery(query, param=local_param)
 
@@ -250,7 +254,11 @@ class GlobalRetriever:
             mode="global",
             only_need_context=param.only_need_context,
             top_k=kwargs.get("top_k", self.top_k),
-            **{k: v for k, v in param.__dict__.items() if k != "mode" and k != "only_need_context"},
+            **{
+                k: v
+                for k, v in param.__dict__.items()
+                if k not in ("mode", "only_need_context", "top_k")
+            },
         )
         return await graph_rag.aquery(query, param=global_param)
 
@@ -273,7 +281,11 @@ class NaiveRetriever:
             mode="naive",
             only_need_context=param.only_need_context,
             top_k=kwargs.get("top_k", self.top_k),
-            **{k: v for k, v in param.__dict__.items() if k != "mode" and k != "only_need_context"},
+            **{
+                k: v
+                for k, v in param.__dict__.items()
+                if k not in ("mode", "only_need_context", "top_k")
+            },
         )
         return await graph_rag.aquery(query, param=naive_param)
 
@@ -306,3 +318,151 @@ class MultiHopRetrieverWrapper:
         **kwargs,
     ) -> str:
         return await self._retriever.retrieve(query, graph_rag)
+
+
+@register("reranker", "cross_encoder")
+class CrossEncoderRerankerWrapper:
+    """Wrapper around CrossEncoderReranker for registry compatibility."""
+
+    def __init__(
+        self,
+        model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
+        top_k: int = 20,
+        device: Optional[str] = None,
+        batch_size: int = 32,
+    ):
+        from .techniques.reranker import CrossEncoderReranker
+
+        self._reranker = CrossEncoderReranker(
+            model=model,
+            top_k=top_k,
+            device=device,
+            batch_size=batch_size,
+        )
+
+    def __call__(
+        self,
+        query: str,
+        passages: list[str],
+        **kwargs,
+    ) -> list[tuple[str, float]]:
+        return self._reranker(query, passages)
+
+
+@register("retriever", "adaptive")
+class AdaptiveRouterWrapper:
+    """Wrapper around AdaptiveRouter for registry compatibility."""
+
+    def __init__(
+        self,
+        use_llm_fallback: bool = False,
+        llm_fallback_threshold: float = 1.0,
+    ):
+        from .techniques.adaptive_router import AdaptiveRouter
+
+        self._router = AdaptiveRouter(
+            use_llm_fallback=use_llm_fallback,
+            llm_fallback_threshold=llm_fallback_threshold,
+        )
+
+    async def __call__(
+        self,
+        query: str,
+        graph_rag: GraphRAG,
+        param: QueryParam,
+        **kwargs,
+    ) -> str:
+        return await self._router(query, graph_rag, param, **kwargs)
+
+
+@register("retriever", "hipporag")
+class HippoRAGRetrieverWrapper:
+    """Wrapper around HippoRAGRetriever for registry compatibility."""
+
+    def __init__(
+        self,
+        alpha: float = 0.85,
+        top_k_seed: int = 5,
+        top_k_result: int = 20,
+    ):
+        from .retrievers.hipporag_ppr import HippoRAGRetriever
+
+        self._retriever = HippoRAGRetriever(
+            alpha=alpha,
+            top_k_seed=top_k_seed,
+            top_k_result=top_k_result,
+        )
+
+    async def __call__(
+        self,
+        query: str,
+        graph_rag: GraphRAG,
+        param: QueryParam,
+        **kwargs,
+    ) -> str:
+        return await self._retriever(query, graph_rag, param, **kwargs)
+
+
+@register("retriever", "hybrid")
+class HybridRetrieverWrapper:
+    """Wrapper around HybridRetriever for registry compatibility."""
+
+    def __init__(
+        self,
+        retrievers: Optional[list[str]] = None,
+        weights: Optional[list[float]] = None,
+        fusion: str = "weighted_avg",
+        top_k: int = 20,
+    ):
+        from .retrievers.hybrid import HybridRetriever
+
+        if retrievers is None:
+            retrievers = ["local", "global"]
+
+        self._retriever = HybridRetriever(
+            retrievers=retrievers,
+            weights=weights,
+            fusion=fusion,
+            top_k=top_k,
+        )
+
+    async def __call__(
+        self,
+        query: str,
+        graph_rag: GraphRAG,
+        param: QueryParam,
+        **kwargs,
+    ) -> str:
+        return await self._retriever(query, graph_rag, param, **kwargs)
+
+
+@register("retriever", "raptor")
+class RaptorRetrieverWrapper:
+    """Wrapper around RaptorRetriever for registry compatibility."""
+
+    def __init__(
+        self,
+        max_levels: int = 3,
+        cluster_model: str = "gmm",
+        summary_model: str = "cheap",
+        chunk_size: int = 200,
+        top_k: int = 10,
+    ):
+        from .techniques.raptor import RaptorRetriever
+
+        self._retriever = RaptorRetriever(
+            max_levels=max_levels,
+            cluster_model=cluster_model,
+            summary_model=summary_model,
+            chunk_size=chunk_size,
+            top_k=top_k,
+        )
+
+    async def __call__(
+        self,
+        query: str,
+        graph_rag: GraphRAG,
+        param: QueryParam,
+        **kwargs,
+    ) -> str:
+        return await self._retriever(query, graph_rag, param, **kwargs)

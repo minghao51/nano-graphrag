@@ -12,6 +12,7 @@ Key improvements over naive querying:
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 
 
@@ -36,7 +37,7 @@ class EntityGroundedQuery:
     3. Answer Validation: Ensure answer uses retrieved entities
     """
 
-    def __init__(self, entity_registry, graph_store, entities_vdb, llm_func):
+    def __init__(self, entity_registry, graph_store, entities_vdb, llm_func, llm_stream_func=None):
         """Initialize the query processor.
 
         Args:
@@ -49,6 +50,7 @@ class EntityGroundedQuery:
         self.graph = graph_store
         self.entities_vdb = entities_vdb
         self.llm = llm_func
+        self.llm_stream = llm_stream_func
 
         # Configuration
         self.max_answer_length = 50  # tokens
@@ -241,6 +243,37 @@ Answer:"""
 
         response = await self.llm(prompt)
         return response.strip()
+
+    async def generate_answer_stream(
+        self, question: str, entity_context: dict[str, dict]
+    ) -> AsyncIterator[str]:
+        if self.llm_stream is None:
+            response = await self._generate_answer(question, entity_context)
+            if response:
+                yield response
+            return
+
+        entity_list = []
+        for _, data in entity_context.items():
+            entity_list.append(f"- {data['canonical_name']}: {data['description']}")
+
+        entities_str = "\n".join(entity_list)
+        prompt = f"""Answer the question using ONLY the entities listed below.
+
+Entities:
+{entities_str}
+
+Instructions:
+1. Use EXACTLY the entity names from the list above
+2. Keep your answer under 10 words
+3. If the answer requires combining entities, list them separated by commas
+4. If you cannot answer from the given entities, say: {self.fallback_message}
+
+Question: {question}
+
+Answer:"""
+        async for chunk in self.llm_stream(prompt):
+            yield chunk
 
     def _validate_and_normalize(
         self, raw_answer: str, retrieved_entity_ids: list[str], entity_context: dict[str, dict]

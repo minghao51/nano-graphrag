@@ -21,7 +21,7 @@ graphrag:
   enable_local: true
   enable_naive_rag: false
   enable_llm_cache: true
-  entity_extraction_quality: fast
+  entity_extraction_quality: balanced
   extraction_max_async: 4
 
 query:

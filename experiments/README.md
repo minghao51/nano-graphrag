@@ -152,6 +152,10 @@ All configs test three modes:
 - **naive**: Baseline vector search
 - **local**: GraphRAG local retrieval
 - **multihop**: Multi-hop retrieval (Phase 3)
+- **adaptive**: Automatic mode selection based on query patterns (Phase 4)
+- **hipporag**: Personalized PageRank for multi-hop discovery (Phase 4)
+- **hybrid**: Fusion of multiple retrieval strategies (Phase 4)
+- **raptor**: Hierarchical clustering and summarization tree (Phase 4)
 
 To test only specific modes:
 
@@ -161,6 +165,69 @@ query:
     - local
     - multihop
   # Remove 'naive' to skip baseline
+```
+
+#### Phase 4 Advanced Retrieval Modes
+
+**Adaptive Router** (`benchmark_adaptive.yaml`)
+- Automatically selects optimal retrieval mode per query
+- Uses regex patterns to detect multi-hop and global queries
+- Falls back to local mode for simple queries
+
+```yaml
+query:
+  modes:
+    - adaptive
+  param_overrides:
+    llm_fallback_threshold: 2    # Pattern matches to trigger mode
+    default_mode: "local"
+```
+
+**HippoRAG PPR** (`benchmark_hipporag.yaml`)
+- Single-operation multi-hop via Personalized PageRank
+- Seed entities identified from query, then PageRank propagates relevance
+- Effective for questions requiring multi-step reasoning
+
+```yaml
+query:
+  modes:
+    - hipporag
+  param_overrides:
+    alpha: 0.85              # PageRank damping factor
+    top_k_seed: 5            # Number of seed entities
+    top_k_result: 20         # Number of final results
+```
+
+**Hybrid Retrieval** (`benchmark_hybrid.yaml`)
+- Fusion of multiple retrieval strategies (local + global)
+- Supports reciprocal rank fusion, weighted averaging, and RRF
+- Balances precision and recall
+
+```yaml
+query:
+  modes:
+    - hybrid
+  param_overrides:
+    fusion_strategy: "reciprocal_rank"  # weighted_avg, reciprocal_rank, rrf
+    retriever_weights:
+      local: 0.6
+      global: 0.4
+```
+
+**RAPTOR** (`benchmark_raptor.yaml`)
+- Hierarchical clustering and summarization tree
+- Clusters similar passages and creates summaries at each level
+- Enables multi-granular retrieval from leaf to root
+
+```yaml
+query:
+  modes:
+    - raptor
+  param_overrides:
+    max_tree_levels: 3           # Maximum depth of hierarchy
+    cluster_method: "gmm"        # gmm, kmeans
+    top_k_cluster: 5             # Clusters per level
+    summary_token_limit: 500     # Token limit for summaries
 ```
 
 ### Multi-Hop Parameters
@@ -198,6 +265,33 @@ Based on roadmap targets:
 | MuSiQue | ~0.25 | 0.42+ | +0.17 |
 | HotpotQA | ~0.45 | 0.62+ | +0.17 |
 | 2WikiMHQA | ~0.38 | 0.55+ | +0.17 |
+
+### Phase 4 Advanced Techniques
+
+The following advanced retrieval techniques are now available:
+
+| Technique | Purpose | Config |
+|-----------|---------|--------|
+| **Cross-Encoder Reranking** | Re-score passages using `sentence-transformers` | Use via `reranker: cross_encoder` in config |
+| **Adaptive Router** | Auto-select local/global/multihop mode | `modes: [adaptive]` |
+| **Edge Confidence** | Weighted graph edges by confidence | Post-insert hook |
+| **HippoRAG PPR** | Single-operation multi-hop via PageRank | `modes: [hipporag]` |
+| **Hybrid Retrieval** | Fusion of multiple retrievers | `modes: [hybrid]` |
+| **DSPy Tuning** | Optimize entity extraction prompts | CLI: `uv run python -m bench.dspy_tune` |
+| **RAPTOR** | Hierarchical clustering summarization | `modes: [raptor]` |
+
+**Installation:**
+
+```bash
+# Install optional dependencies for Phase 4 features
+uv sync --extra advanced-retrieval
+```
+
+**Example configs:**
+- `experiments/benchmark_adaptive.yaml`
+- `experiments/benchmark_hipporag.yaml`
+- `experiments/benchmark_hybrid.yaml`
+- `experiments/benchmark_raptor.yaml`
 
 ## Output Format
 

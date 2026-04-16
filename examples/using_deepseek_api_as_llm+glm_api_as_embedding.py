@@ -79,7 +79,7 @@ async def GLM_embedding(texts: list[str]) -> np.ndarray:
     client = OpenAI(
         api_key=GLM_API_KEY,
         base_url="https://open.bigmodel.cn/api/paas/v4/"
-    ) 
+    )
     embedding = client.embeddings.create(
         input=texts,
         model=model_name,

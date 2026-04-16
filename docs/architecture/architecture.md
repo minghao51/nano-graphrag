@@ -9,7 +9,7 @@
 3. Extract entities and relationships
 4. Store graph, chunks, and vectors in pluggable backends
 5. Cluster the graph and generate community reports
-6. Answer `global`, `local`, or `naive` queries from the persisted state
+6. Answer `global`, `local`, `naive`, or streamed queries from the persisted state
 
 The minimal core favors:
 
@@ -65,9 +65,9 @@ The core storage contracts live in `nano_graphrag.base`:
 
 Built-in implementations:
 
-- KV: JSON files
+- KV: SQLite-backed key/value files
 - Vector: `nano-vectordb`, optional `hnswlib`
-- Graph: `networkx`, optional Neo4j
+- Graph: `networkx`, `sqlite`, optional Neo4j
 
 The `networkx` backend now separates concerns internally:
 
@@ -77,10 +77,13 @@ The `networkx` backend now separates concerns internally:
 
 Clustering is wired through an internal backend interface so future algorithms such as DF-Leiden can be added as new backends instead of growing `NetworkXStorage` conditionals.
 
+The SQLite graph backend is intentionally hybrid in its first version: SQLite is the source of truth for nodes and edges, while clustering and community-schema generation temporarily project the stored graph into `networkx` so the existing Leiden/community helpers can be reused unchanged.
+
 Additional persisted state for incremental indexing:
 
 - `full_docs`: logical document records keyed by caller-provided doc ID
 - `document_index`: per-document chunk/entity/relationship manifest used to rebuild affected graph records on update
+- `graph_contribution_index`: reverse lookup index from entity IDs, normalized entity names, and relationship IDs back to contributing document IDs
 
 ## Insert Flow
 
@@ -92,11 +95,15 @@ Additional persisted state for incremental indexing:
 3. Build document-scoped chunks only for changed/new docs
 4. Extract per-document entities/relationships into a manifest using stable SHA-256 entity IDs
 5. Replace changed-document chunks and update the persisted `document_index`
-6. Rebuild only affected graph nodes/edges by aggregating document manifests
+6. Update the persisted reverse contribution index for changed documents
+7. Rebuild only affected graph nodes/edges by aggregating the manifests of documents referenced by the reverse index
    During rebuild, entities with the same normalized name can be remapped onto a canonical entity ID so a later `"UNKNOWN"` extraction does not fork the graph identity for an existing entity.
-7. Recompute graph clustering
-8. Regenerate only affected community reports when incremental clustering can stay local
-9. Persist full docs, chunks, vectors, graph, manifests, and cache state
+   The rebuild path can regenerate the reverse index from `document_index` if the persisted reverse lookup store is missing or stale.
+8. Recompute graph clustering
+9. Regenerate only affected community reports when incremental clustering can stay local
+10. Persist full docs, chunks, vectors, graph, manifests, registry state, and cache state
+
+Entity manifests can also carry optional alias metadata. When `enable_entity_linking=True`, extraction first tries exact registry matches, then conservative fuzzy candidates, and only uses an LLM disambiguation step for genuinely ambiguous cases.
 
 Important constraint:
 
@@ -109,6 +116,16 @@ Important constraint:
 - DF-Leiden remains deferred work. The new clustering backend boundary is intended to make that change additive rather than another large `NetworkXStorage` refactor.
 
 ## Query Flow
+
+### Entity-Grounded Query
+
+Entity-grounded query mode provides enhanced entity resolution and answer validation:
+- Extract entity mentions from questions and resolve to canonical entity IDs
+- Retrieve related entities via graph traversal with validated references
+- Generate answers with explicit formatting constraints
+- Validate answers against retrieved entities for consistency
+
+See [`entity-grounded-rag-design.md`](../archive/architecture/entity-grounded-rag-design.md) for complete details.
 
 ### Local Query
 
@@ -128,6 +145,12 @@ Important constraint:
 - vector search over chunk embeddings
 - truncate retrieved chunks to token budget
 - answer directly from chunk context
+
+### Streaming Query
+
+- `GraphRAG.astream_query(...)` keeps retrieval and context building internal
+- the current v1 stream surface yields final answer text chunks only
+- if the configured model path cannot stream natively, the runtime falls back to buffered completion and yields the final answer as a single chunk
 
 ## Extension Points
 

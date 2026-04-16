@@ -9,6 +9,7 @@ import xxhash
 
 try:
     import msgpack
+
     _USE_MSGPACK = True
 except ImportError:
     _USE_MSGPACK = False
@@ -62,6 +63,7 @@ class HNSWVectorStorage(BaseVectorStorage):
                     loaded = msgpack.load(f, raw=False)
                 else:
                     import json
+
                     loaded = json.load(f)
                 self._metadata = {int(k): v for k, v in loaded["metadata"].items()}
                 self._current_elements = loaded["current_elements"]
@@ -109,8 +111,8 @@ class HNSWVectorStorage(BaseVectorStorage):
         )
 
         ids = np.fromiter(
-            (xxhash.xxh32_intdigest(d["id"].encode()) for d in list_data),
-            dtype=np.uint32,
+            (xxhash.xxh64_intdigest(d["id"].encode()) for d in list_data),
+            dtype=np.uint64,
             count=len(list_data),
         )
         self._metadata.update(
@@ -123,7 +125,9 @@ class HNSWVectorStorage(BaseVectorStorage):
         self._current_elements = self._index.get_current_count()
         return ids
 
-    async def query(self, query: str, top_k: int = 5, better_than_threshold: Optional[float] = None) -> list[dict]:
+    async def query(
+        self, query: str, top_k: int = 5, better_than_threshold: Optional[float] = None
+    ) -> list[dict]:
         if self._current_elements == 0:
             return []
 
@@ -137,9 +141,7 @@ class HNSWVectorStorage(BaseVectorStorage):
 
         if query_k >= self.ef_search:
             target_ef = query_k + 1
-            logger.warning(
-                f"Setting ef_search to {target_ef} because k={query_k} requires ef > k"
-            )
+            logger.warning(f"Setting ef_search to {target_ef} because k={query_k} requires ef > k")
             self._index.set_ef(target_ef)
 
         embedding = await self.embedding_func([query])
@@ -167,11 +169,13 @@ class HNSWVectorStorage(BaseVectorStorage):
             similarity = 1 - distance
             if better_than_threshold is not None and similarity < better_than_threshold:
                 continue
-            results.append({
-                **self._metadata.get(label, {}),
-                "distance": distance,
-                "similarity": similarity,
-            })
+            results.append(
+                {
+                    **self._metadata.get(label, {}),
+                    "distance": distance,
+                    "similarity": similarity,
+                }
+            )
             if len(results) >= top_k:
                 break
 
@@ -182,7 +186,7 @@ class HNSWVectorStorage(BaseVectorStorage):
             return
         deleted_any = False
         for id_str in ids:
-            id_int = xxhash.xxh32_intdigest(id_str.encode())
+            id_int = xxhash.xxh64_intdigest(id_str.encode())
             if id_int in self._metadata:
                 self._metadata.pop(id_int, None)
                 if hasattr(self._index, "mark_deleted"):
@@ -206,7 +210,9 @@ class HNSWVectorStorage(BaseVectorStorage):
         old_vectors = self._index.get_items(active_ids)
         new_max = max(len(active_ids) * 2, self.max_elements)
         self._index = self._create_fresh_index(new_max)
-        self._index.add_items(data=old_vectors, ids=np.array(active_ids), num_threads=self.num_threads)
+        self._index.add_items(
+            data=old_vectors, ids=np.array(active_ids), num_threads=self.num_threads
+        )
         self.max_elements = new_max
         self._current_elements = len(active_ids)
 
@@ -221,5 +227,6 @@ class HNSWVectorStorage(BaseVectorStorage):
                 msgpack.dump(data, f)
         else:
             import json
+
             with open(self._metadata_file_name, "w") as f:
                 json.dump(data, f)

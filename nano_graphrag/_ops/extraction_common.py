@@ -271,8 +271,6 @@ def _upsert_document_entity(
             "source_chunk_ids": [],
         },
     )
-    entity_entry["entity_name"] = entity_name
-    entity_entry["entity_type"] = entity_type
     entity_entry["descriptions"].append(description)
     entity_entry["source_chunk_ids"].append(chunk_key)
     return entity_id
@@ -311,6 +309,7 @@ def _normalize_document_manifest(manifest: dict) -> dict:
         normalized_entities[entity_id] = {
             "entity_name": entity["entity_name"],
             "entity_type": entity["entity_type"],
+            "aliases": sorted(set(entity.get("aliases", []))),
             "descriptions": sorted(set(entity.get("descriptions", []))),
             "source_chunk_ids": sorted(set(entity.get("source_chunk_ids", []))),
         }
@@ -337,16 +336,20 @@ def _normalize_document_manifest(manifest: dict) -> dict:
 def _combine_entity_contributions(contributions: list[dict]) -> Optional[dict]:
     if not contributions:
         return None
-    entity_name = contributions[-1]["entity_name"]
+    entity_name_counts = Counter(c["entity_name"] for c in contributions)
+    entity_name = entity_name_counts.most_common(1)[0][0]
     entity_type = Counter([c["entity_type"] for c in contributions]).most_common(1)[0][0]
     descriptions = []
     source_chunk_ids = []
+    aliases = []
     for contribution in contributions:
+        aliases.extend(contribution.get("aliases", []))
         descriptions.extend(contribution.get("descriptions", []))
         source_chunk_ids.extend(contribution.get("source_chunk_ids", []))
     return {
         "entity_name": entity_name,
         "entity_type": entity_type,
+        "aliases": sorted(set(a for a in aliases if a and a != entity_name)),
         "description": _join_unique(descriptions),
         "source_id": _join_unique(source_chunk_ids),
     }

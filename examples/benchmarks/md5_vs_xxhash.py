@@ -29,15 +29,15 @@ if __name__ == "__main__":
 
     for i in tqdm(range(num_iterations)):
         test_data = [f"{i}_{j}" for j in range(num_ids)]
-        
+
         start_time = time.time()
         xxhash_result = xxhash_ids(test_data)
         xxhash_times.append(time.time() - start_time)
-        
+
         start_time = time.time()
         md5_result = md5_ids(test_data)
         md5_times.append(time.time() - start_time)
-        
+
         assert len(xxhash_result) == len(md5_result) == num_ids
         assert not np.array_equal(xxhash_result, md5_result)
 

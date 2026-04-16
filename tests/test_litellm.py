@@ -8,6 +8,7 @@ from nano_graphrag._llm_litellm import (
     LiteLLMWrapper,
     build_provider_requirements,
     build_json_schema_response_format,
+    litellm_completion_stream,
     litellm_completion,
     detect_provider,
     should_fallback_without_structured_output,
@@ -298,6 +299,22 @@ class TestLiteLLMWrapper:
             call_kwargs = mock_completion.call_args[1]
             assert call_kwargs["timeout"] == 180
 
+    async def test_streaming_falls_back_to_buffered_completion(self):
+        with patch(
+            "nano_graphrag._llm_litellm.litellm.acompletion",
+            new_callable=AsyncMock,
+        ) as mock_completion:
+            mock_response = MagicMock()
+            mock_response.choices = [MagicMock()]
+            mock_response.choices[0].message.content = "Buffered fallback"
+            mock_completion.side_effect = [Exception("stream unsupported"), mock_response]
+
+            chunks = []
+            async for chunk in litellm_completion_stream(model="gpt-4o", prompt="Hello"):
+                chunks.append(chunk)
+
+            assert "".join(chunks) == "Buffered fallback"
+
 
 class TestGraphRAGConfig:
     """Test GraphRAGConfig class."""
@@ -380,14 +397,14 @@ class TestGraphRAGConfig:
 
     def test_merge(self):
         """Test merging configs."""
-        base = GraphRAGConfig(llm_model="gpt-4o-mini", llm_max_async=16)
+        base = GraphRAGConfig(llm_model="gpt-4o-mini", llm_max_async=32)
         overrides = {"llm_model": "gpt-4o", "llm_api_base": "http://localhost:11434"}
 
         merged = base.merge(overrides)
 
         assert merged.llm_model == "gpt-4o"  # Overridden
         assert merged.llm_api_base == "http://localhost:11434"  # New
-        assert merged.llm_max_async == 16  # Preserved
+        assert merged.llm_max_async == 32  # Preserved
 
     def test_invalid_cluster_algorithm_rejected(self):
         """Test that invalid graph_cluster_algorithm in GraphRAG raises ValueError."""

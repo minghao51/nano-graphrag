@@ -1,4 +1,5 @@
 import asyncio
+import collections
 import html
 import json
 import logging
@@ -7,10 +8,11 @@ import re
 from dataclasses import dataclass
 from functools import wraps
 from hashlib import md5, sha256
-from typing import Any, Literal
+from typing import Any, Literal, Union
 
 import numpy as np
 import tiktoken
+from pydantic import BaseModel
 
 try:
     from transformers import AutoTokenizer
@@ -107,8 +109,13 @@ def extract_values_from_json(
     return extracted_values
 
 
-def convert_response_to_json(response: str) -> dict:
-    """Convert response string to JSON, with error handling and fallback to non-standard JSON extraction."""
+def convert_response_to_json(response: Union[str, BaseModel]) -> dict:
+    """Convert response to JSON dict, handling both strings and pydantic models."""
+    # If response is already a pydantic model, convert to dict
+    if isinstance(response, BaseModel):
+        return response.model_dump(by_alias=False)
+
+    # Otherwise, treat as string and parse
     prediction_json = extract_first_complete_json(response)
 
     if prediction_json is None:
@@ -134,8 +141,8 @@ class TokenizerWrapper:
         self.tokenizer_type = tokenizer_type
         self.model_name = model_name
         self._tokenizer = None
-        self._encode_cache: dict[str, list[int]] = {}
-        self._decode_cache: dict[tuple, str] = {}
+        self._encode_cache: collections.OrderedDict[str, list[int]] = collections.OrderedDict()
+        self._decode_cache: collections.OrderedDict[tuple, str] = collections.OrderedDict()
         self._lazy_load_tokenizer()
 
     def _lazy_load_tokenizer(self):
@@ -161,10 +168,11 @@ class TokenizerWrapper:
     def encode(self, text: str) -> list[int]:
         self._lazy_load_tokenizer()
         if text in self._encode_cache:
+            self._encode_cache.move_to_end(text)
             return self._encode_cache[text]
         result = self._tokenizer.encode(text)
         if len(self._encode_cache) >= self._MAX_CACHE:
-            self._encode_cache.clear()
+            self._encode_cache.popitem(last=False)
         self._encode_cache[text] = result
         return result
 
@@ -172,10 +180,11 @@ class TokenizerWrapper:
         self._lazy_load_tokenizer()
         key = tuple(tokens)
         if key in self._decode_cache:
+            self._decode_cache.move_to_end(key)
             return self._decode_cache[key]
         result = self._tokenizer.decode(tokens)
         if len(self._decode_cache) >= self._MAX_CACHE:
-            self._decode_cache.clear()
+            self._decode_cache.popitem(last=False)
         self._decode_cache[key] = result
         return result
 
@@ -198,7 +207,9 @@ def truncate_list_by_token_size(
         return []
     tokens = 0
     for i, data in enumerate(list_data):
-        tokens += len(tokenizer_wrapper.encode(key(data))) + 1  # Defensive: simulating list concatenation via newline
+        tokens += (
+            len(tokenizer_wrapper.encode(key(data))) + 1
+        )  # Defensive: simulating list concatenation via newline
         if tokens > max_token_size:
             return list_data[:i]
     return list_data
@@ -233,7 +244,6 @@ def generate_stable_relationship_id(
     return compute_sha256_id(normalized, prefix="rel_")
 
 
-# it's dirty to type, so it's a good way to have fun
 def pack_user_ass_to_openai_messages(
     prompt: str, generated_content: str, using_amazon_bedrock: bool
 ):
@@ -242,11 +252,10 @@ def pack_user_ass_to_openai_messages(
             {"role": "user", "content": [{"text": prompt}]},
             {"role": "assistant", "content": [{"text": generated_content}]},
         ]
-    else:
-        return [
-            {"role": "user", "content": prompt},
-            {"role": "assistant", "content": generated_content},
-        ]
+    return [
+        {"role": "user", "content": prompt},
+        {"role": "assistant", "content": generated_content},
+    ]
 
 
 def is_float_regex(value):
@@ -312,11 +321,14 @@ class EmbeddingFunc:
 def limit_async_func_call(max_size: int, waitting_time: float = 0.0001):
     def final_decro(func):
         semaphore = asyncio.Semaphore(max_size)
+
         @wraps(func)
         async def wait_func(*args, **kwargs):
             async with semaphore:
                 return await func(*args, **kwargs)
+
         return wait_func
+
     return final_decro
 
 
@@ -345,5 +357,10 @@ def deserialize_source_ids(source_id_str: str) -> list[str]:
         except json.JSONDecodeError:
             pass
     from .prompt import GRAPH_FIELD_SEP
+
     # Fallback to old <SEP> format
-    return [s for s in source_id_str.split(GRAPH_FIELD_SEP) if s] if GRAPH_FIELD_SEP in source_id_str else [source_id_str]
+    return (
+        [s for s in source_id_str.split(GRAPH_FIELD_SEP) if s]
+        if GRAPH_FIELD_SEP in source_id_str
+        else [source_id_str]
+    )

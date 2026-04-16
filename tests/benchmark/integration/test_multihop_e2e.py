@@ -7,31 +7,43 @@ import shutil
 from pathlib import Path
 
 
-def _has_live_openai_key() -> bool:
-    api_key = os.environ.get("OPENAI_API_KEY", "").strip()
-    if not api_key:
-        return False
+def _has_live_llm_key() -> bool:
+    """Check if any LLM provider has a valid API key."""
+    # Check OpenRouter
+    openrouter_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if openrouter_key and openrouter_key.startswith("sk-or-v1-"):
+        return True
 
-    placeholder_prefixes = ("fake", "test", "dummy", "example")
-    placeholder_values = {"fake", "test", "dummy", "changeme", "your-api-key"}
-    api_key_lower = api_key.lower()
+    # Check OpenAI
+    openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if openai_key and openai_key.startswith("sk-"):
+        return True
 
-    if api_key_lower in placeholder_values:
-        return False
-    if any(api_key_lower.startswith(prefix) for prefix in placeholder_prefixes):
-        return False
+    return False
 
-    return api_key.startswith("sk-")
+
+def _get_default_model() -> tuple[str, str]:
+    """Return (model, provider) based on available keys."""
+    if os.environ.get("OPENROUTER_API_KEY", "").strip().startswith("sk-or-v1-"):
+        return ("openrouter/openai/gpt-4o-mini", "openrouter")
+
+    if os.environ.get("OPENAI_API_KEY", "").strip().startswith("sk-"):
+        return ("gpt-4o-mini", "openai")
+
+    return ("gpt-4o-mini", "openai")  # Default fallback
 
 
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_multihop_e2e_small_dataset():
     """End-to-end test of multi-hop retrieval on small dataset."""
-    if not _has_live_openai_key():
-        pytest.skip("A live OpenAI API key is required for the integration benchmark test")
+    if not _has_live_llm_key():
+        pytest.skip("A live LLM API key (OpenRouter or OpenAI) is required for the integration test")
 
     from bench.runner import BenchmarkConfig, ExperimentRunner
+
+    # Get model based on available API key
+    llm_model, provider = _get_default_model()
 
     # Create small test dataset
     test_data = {
@@ -83,7 +95,7 @@ async def test_multihop_e2e_small_dataset():
         max_samples=1,
         graphrag_config={
             "working_dir": str(test_dir / "workdir"),
-            "llm_model": "gpt-4o-mini",
+            "llm_model": llm_model,
             "enable_llm_cache": False,  # Disable for testing
         },
     )

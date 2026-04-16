@@ -1,0 +1,38 @@
+# Pre-commit hooks for nano-graphrag
+# See https://pre-commit.com for more information
+
+repos:
+  # Dotenvx hook - ensure .env files are encrypted before commit
+  - repo: local
+    hooks:
+      - id: dotenvx-check
+        name: dotenvx - prevent committing .env files
+        entry: dotenvx ext precommit
+        language: system
+        pass_filenames: false
+        always_run: true
+
+  # Standard hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: detect-private-key
+      - id: mixed-line-ending
+        args: ['--fix=lf']
+
+  # Python hooks
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.9.9
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format

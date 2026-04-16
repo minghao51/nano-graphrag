@@ -7,9 +7,11 @@
 ### Option 1: OpenRouter (Recommended - 10x Cheaper)
 ```bash
 LLM_MODEL=openrouter/anthropic/claude-3.5-sonnet
-EMBEDDING_MODEL=openrouter/microsoft/wizardlm-2-7b
+EMBEDDING_MODEL=openrouter/qwen/qwen3-embedding-8b
 OPENROUTER_API_KEY=sk-or-v1-your-key-here
 ```
+
+**Note:** OpenRouter embedding models don't have documented concurrent call limits. Rate limits primarily apply to free models.
 
 ### Option 2: Ollama (Free)
 ```bash
@@ -34,7 +36,7 @@ OPENAI_API_KEY=sk-your-key-here
 ```bash
 # .env file
 LLM_MODEL=openrouter/anthropic/claude-3.5-sonnet
-EMBEDDING_MODEL=openrouter/microsoft/wizardlm-2-7b
+EMBEDDING_MODEL=openrouter/qwen/qwen3-embedding-8b
 OPENROUTER_API_KEY=sk-or-v1-...
 ```
 
@@ -87,7 +89,7 @@ The generic benchmark configs in `/experiments` now rely on steps 3 or 4 unless 
 ```bash
 # .env
 LLM_MODEL=openrouter/anthropic/claude-3.5-sonnet
-EMBEDDING_MODEL=openrouter/microsoft/wizardlm-2-7b
+EMBEDDING_MODEL=openrouter/qwen/qwen3-embedding-8b
 OPENROUTER_API_KEY=sk-or-v1-...
 ```
 
@@ -145,14 +147,14 @@ rag = GraphRAG(working_dir="./dickens")
 ### Cost-Optimized (OpenRouter)
 ```bash
 LLM_MODEL=openrouter/meta-llama/llama-3.1-70b
-EMBEDDING_MODEL=openrouter/microsoft/wizardlm-2-7b
+EMBEDDING_MODEL=openrouter/qwen/qwen3-embedding-8b
 ```
 **Cost:** ~$0.50 for quick test
 
 ### Quality-Optimized (OpenRouter)
 ```bash
 LLM_MODEL=openrouter/anthropic/claude-3.5-sonnet
-EMBEDDING_MODEL=openrouter/microsoft/wizardlm-2-7b
+EMBEDDING_MODEL=openrouter/qwen/qwen3-embedding-8b
 ```
 **Cost:** ~$1.50 for quick test
 
@@ -182,7 +184,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 # 2. Create .env
 cat > .env << 'ENVEOF'
 LLM_MODEL=openrouter/anthropic/claude-3.5-sonnet
-EMBEDDING_MODEL=openrouter/microsoft/wizardlm-2-7b
+EMBEDDING_MODEL=openrouter/qwen/qwen3-embedding-8b
 OPENROUTER_API_KEY=sk-or-v1-your-key-here
 ENVEOF
 

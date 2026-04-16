@@ -23,6 +23,7 @@ dependencies = [
     "pydantic>=2.0.0",
     "litellm>=1.82.0",
     "pyyaml>=6.0",
+    "python-dotenv>=1.0.0",
     "xxhash",
 ]
 
@@ -39,6 +40,10 @@ benchmark = [
     "ragas>=0.1.0",
 ]
 
+evaluation = [
+    "datasets>=2.0.0",
+]
+
 anthropic = ["anthropic"]
 aws = ["aioboto3"]
 
@@ -51,6 +56,17 @@ qdrant = ["qdrant-client"]
 local-embedding = [
     "sentence-transformers",
     "transformers",
+]
+
+# Advanced retrieval techniques
+advanced-retrieval = [
+    "dspy-ai>=2.5.0",
+    "scikit-learn>=1.3.0",
+]
+
+# Entity extraction backends
+gliner = [
+    "gliner2",
 ]
 
 # Tokenizer support (for huggingface tokenizer)
@@ -68,7 +84,7 @@ dev = [
 
 # All extras combined
 all = [
-    "nano-graphrag[vector-db,anthropic,aws,neo4j,milvus,qdrant,local-embedding,tokenizer,dev]",
+    "nano-graphrag[vector-db,anthropic,aws,neo4j,milvus,qdrant,local-embedding,advanced-retrieval,tokenizer,dev]",
 ]
 
 # Convenience: sensible defaults for most users
@@ -98,6 +114,7 @@ markers = [
 
 [tool.uv]
 dev-dependencies = [
+    "pre-commit>=4.3.0",
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0.0",

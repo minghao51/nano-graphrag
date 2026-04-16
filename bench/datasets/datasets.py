@@ -182,14 +182,13 @@ class MultiHopRAGDataset:
         hf_dataset = load_dataset("yixuantt/MultiHopRAG", "MultiHopRAG", split="train")
 
         questions_data = []
-        corpus_data = []
+        corpus_by_title: Dict[str, Dict[str, str]] = {}  # title -> {id, title, content}
 
         for item in hf_dataset:
             qa_id = item.get("id", f"multihoprag_{len(questions_data)}")
             evidence_list = item.get("evidence_list", [])
 
             supporting_facts = []
-            corpus_texts = []
 
             for ev in evidence_list:
                 if isinstance(ev, dict):
@@ -197,19 +196,19 @@ class MultiHopRAGDataset:
                     title = ev.get("title", "")
                     if fact:
                         supporting_facts.append(fact)
-                    if title or fact:
-                        corpus_texts.append(
-                            {
-                                "id": f"doc_{len(corpus_data)}",
-                                "title": title,
-                                "content": fact or title,
-                            }
-                        )
+                    if title and title not in corpus_by_title:
+                        corpus_by_title[title] = {
+                            "id": f"doc_{len(corpus_by_title)}",
+                            "title": title,
+                            "content": fact,
+                        }
+                    elif title and fact:
+                        # Merge facts for same title
+                        existing = corpus_by_title[title]["content"]
+                        if fact not in existing:
+                            corpus_by_title[title]["content"] = existing + "\n" + fact
                 elif isinstance(ev, str):
                     supporting_facts.append(ev)
-                    corpus_texts.append(
-                        {"id": f"doc_{len(corpus_data)}", "title": "", "content": ev}
-                    )
 
             questions_data.append(
                 {
@@ -220,9 +219,7 @@ class MultiHopRAGDataset:
                 }
             )
 
-            for doc in corpus_texts:
-                if doc["content"]:
-                    corpus_data.append(doc)
+        corpus_data = list(corpus_by_title.values())
 
         questions_path = dataset_dir / "questions.json"
         corpus_path = dataset_dir / "corpus.json"
@@ -364,11 +361,11 @@ class HotpotQADataset:
             )
 
         output_path = dataset_dir / f"{self.split}.json"
-        with open(output_path, "w", encoding="utf-8") as f:
+        with open(output_path, "w", encoding="utf-8", errors="replace") as f:
             json.dump(questions_data, f, indent=2, ensure_ascii=False)
 
         corpus_path = dataset_dir / "corpus.json"
-        with open(corpus_path, "w", encoding="utf-8") as f:
+        with open(corpus_path, "w", encoding="utf-8", errors="replace") as f:
             json.dump(list(corpus_docs.values()), f, indent=2, ensure_ascii=False)
 
         self.data_path = str(output_path)
@@ -503,11 +500,11 @@ class MuSiQueDataset:
             )
 
         output_path = dataset_dir / f"{self.split}.json"
-        with open(output_path, "w", encoding="utf-8") as f:
+        with open(output_path, "w", encoding="utf-8", errors="replace") as f:
             json.dump(questions_data, f, indent=2, ensure_ascii=False)
 
         corpus_path = dataset_dir / "corpus.json"
-        with open(corpus_path, "w", encoding="utf-8") as f:
+        with open(corpus_path, "w", encoding="utf-8", errors="replace") as f:
             json.dump(list(corpus_docs.values()), f, indent=2, ensure_ascii=False)
 
         self.data_path = str(output_path)
@@ -523,7 +520,8 @@ class TwoWikiMultiHopQADataset:
     Expected format: 2WikiMultiHopQA JSON format.
     """
 
-    data_path: str
+    data_path: str = ""
+    corpus_path: str = ""
     split: str = "dev"
     max_samples: int = -1
     max_corpus_samples: int = -1
@@ -543,41 +541,35 @@ class TwoWikiMultiHopQADataset:
                 id=item.get("_id", f"2wiki_{idx}"),
                 question=item["question"],
                 answer=item["answer"],
-                supporting_facts=[],  # 2Wiki doesn't provide explicit supporting facts
+                supporting_facts=item.get("supporting_facts", []),
                 metadata={
                     "type": item.get("type", "unknown"),
                 },
             )
 
     def corpus(self) -> Iterator[Passage]:
-        """Extract context documents as corpus."""
-        with open(self.data_path, "r", encoding="utf-8") as f:
+        """Load corpus documents from separate corpus file."""
+        if not self.corpus_path:
+            return
+
+        with open(self.corpus_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
-        # Apply max_samples limit to questions for corpus extraction
-        if self.max_samples > 0:
-            data = data[: self.max_samples]
+        count = 0
+        for idx, doc in enumerate(data):
+            if self.max_corpus_samples > 0 and count >= self.max_corpus_samples:
+                return
 
-        doc_idx = 0
-        corpus_count = 0
-        for item in data:
-            for evidence in item.get("evidence", []):
-                if isinstance(evidence, dict):
-                    content = evidence.get("content", "")
-                    title = evidence.get("title", "")
-                elif isinstance(evidence, str):
-                    content = evidence
-                    title = ""
-                else:
-                    continue
+            if isinstance(doc, dict):
+                content = doc.get("content", "")
+                title = doc.get("title", "")
+                doc_id = doc.get("id", f"2wiki_doc_{idx}")
+            else:
+                continue
 
-                if content.strip():
-                    yield Passage(id=f"2wiki_doc_{doc_idx}", title=title, text=content.strip())
-                    doc_idx += 1
-                    corpus_count += 1
-                    # Apply max_corpus_samples limit
-                    if self.max_corpus_samples > 0 and corpus_count >= self.max_corpus_samples:
-                        return
+            if content.strip():
+                yield Passage(id=doc_id, title=title, text=content.strip())
+                count += 1
 
     def download(self, cache_dir: str = "~/.cache/nano-bench") -> None:
         """Download 2WikiMultiHopQA dataset from HuggingFace.
@@ -586,11 +578,14 @@ class TwoWikiMultiHopQADataset:
             cache_dir: Directory to cache downloaded files
         """
         try:
-            from datasets import load_dataset
+            import ast
+
+            import pandas as pd
+            from huggingface_hub import hf_hub_download
         except ImportError:
             raise ImportError(
-                "HuggingFace datasets library is required for auto-download. "
-                "Install with: uv add --optional datasets"
+                "huggingface_hub and pandas are required for auto-download. "
+                "Install with: uv add huggingface_hub pandas"
             )
 
         cache_path = Path(cache_dir).expanduser()
@@ -598,32 +593,33 @@ class TwoWikiMultiHopQADataset:
         dataset_dir.mkdir(parents=True, exist_ok=True)
 
         print(f"[Download] Loading 2WikiMultiHopQA {self.split} split from HuggingFace...")
-        hf_dataset = load_dataset("xanhho/2WikiMultihopQA", self.split)
+
+        parquet_file = hf_hub_download(
+            repo_id="xanhho/2WikiMultihopQA",
+            filename=f"{self.split}.parquet",
+            repo_type="dataset",
+        )
+        df = pd.read_parquet(parquet_file)
 
         questions_data = []
         corpus_docs = {}
 
-        for item in hf_dataset:
-            qa_id = item.get("_id", f"2wiki_{len(questions_data)}")
+        for _, row in df.iterrows():
+            qa_id = row.get("_id", f"2wiki_{len(questions_data)}")
             supporting_facts = []
 
-            context = item.get("context", {})
-            if isinstance(context, dict):
-                titles = context.get("title", [])
-                sentences = context.get("sentences", [])
-
-                for i, title in enumerate(titles):
-                    if isinstance(sentences, list) and i < len(sentences):
-                        content = (
-                            " ".join(sentences[i])
-                            if isinstance(sentences[i], list)
-                            else str(sentences[i])
-                        )
+            context = row.get("context", [])
+            if isinstance(context, str):
+                context = ast.literal_eval(context)
+            if isinstance(context, list):
+                for title, sentences in context:
+                    if isinstance(sentences, list):
+                        content = " ".join(sentences)
                     else:
-                        content = ""
+                        content = str(sentences)
 
                     if title and content:
-                        doc_key = f"{title}_{i}"
+                        doc_key = f"{title}_{len(corpus_docs)}"
                         if doc_key not in corpus_docs:
                             doc_id = f"2wiki_doc_{len(corpus_docs)}"
                             corpus_docs[doc_key] = {
@@ -632,34 +628,38 @@ class TwoWikiMultiHopQADataset:
                                 "content": content,
                             }
 
-            sp = item.get("supporting_facts", {})
-            if isinstance(sp, dict):
-                sp_titles = sp.get("title", [])
-                for t in sp_titles:
-                    if t not in supporting_facts:
-                        supporting_facts.append(t)
+            sp = row.get("supporting_facts", [])
+            if isinstance(sp, str):
+                sp = ast.literal_eval(sp)
+            if isinstance(sp, list):
+                for entry in sp:
+                    if isinstance(entry, list) and len(entry) > 0:
+                        title = entry[0]
+                        if title and title not in supporting_facts:
+                            supporting_facts.append(title)
 
             questions_data.append(
                 {
                     "id": qa_id,
-                    "question": item["question"],
-                    "answer": item["answer"],
+                    "question": row["question"],
+                    "answer": row["answer"],
                     "supporting_facts": supporting_facts,
                     "metadata": {
-                        "type": item.get("type", "unknown"),
+                        "type": row.get("type", "unknown"),
                     },
                 }
             )
 
         output_path = dataset_dir / f"{self.split}.json"
-        with open(output_path, "w", encoding="utf-8") as f:
+        with open(output_path, "w", encoding="utf-8", errors="replace") as f:
             json.dump(questions_data, f, indent=2, ensure_ascii=False)
 
         corpus_path = dataset_dir / "corpus.json"
-        with open(corpus_path, "w", encoding="utf-8") as f:
+        with open(corpus_path, "w", encoding="utf-8", errors="replace") as f:
             json.dump(list(corpus_docs.values()), f, indent=2, ensure_ascii=False)
 
         self.data_path = str(output_path)
+        self.corpus_path = str(corpus_path)
 
         print(f"[Download] Questions saved to {output_path}")
         print(f"[Download] Corpus saved to {corpus_path}")

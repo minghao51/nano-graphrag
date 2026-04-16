@@ -1,0 +1,45 @@
+# 2WikiMultiHopQA Benchmark Configuration - With Query Prompt Fixes
+# Tests the fixed query prompts and balanced extraction quality
+
+name: 2wiki_fixed_test
+version: "1.0"
+description: "Test query prompt fixes with 2WikiMultiHopQA (50 samples)"
+
+dataset:
+  name: 2wiki
+  split: dev
+  max_samples: 50  # Small sample for quick testing
+  auto_download: true
+
+graphrag:
+  working_dir: ./workdirs/2wiki_fixed_test
+  llm_model: openrouter/google/gemma-4-26b-a4b-it  # Use gemma which worked better
+  llm_cheap_model: openrouter/google/gemma-4-26b-a4b-it
+  embedding_model: openrouter/qwen/qwen3-embedding-8b
+  chunk_token_size: 1200
+  chunk_overlap_token_size: 100
+  enable_local: true
+  enable_naive_rag: false
+  enable_llm_cache: true
+  entity_extraction_quality: balanced  # Fixed: was fast
+  extraction_max_async: 16
+
+query:
+  modes:
+    - local
+  param_overrides:
+    top_k: 20  # Reduced for 50-sample test
+
+cache:
+  enabled: true
+  backend: disk
+
+metrics:
+  exact_match: true
+  token_f1: true
+  llm_judge:
+    enabled: false
+
+output:
+  results_dir: ./benchmark_results/2wiki_fixed_test
+  save_predictions: true

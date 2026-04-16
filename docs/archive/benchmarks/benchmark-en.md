@@ -1,4 +1,4 @@
-- We use [A Christmas Carol](https://raw.githubusercontent.com/gusye1234/nano-graphrag/main/tests/mock_data.txt) by Dickens as the benchmark corpus. 
+- We use [A Christmas Carol](https://raw.githubusercontent.com/gusye1234/nano-graphrag/main/tests/mock_data.txt) by Dickens as the benchmark corpus.
 - We use `61b5eea34783c58074b3c53f1689ad8a5ba6b6ee` commit of [Official GraphRAG implementation](https://github.com/microsoft/graphrag/tree/main)
 - Both GraphRAG and `nano-graphrag` use OpenAI Embedding and `gpt-4o`.
 - Not Cache for both. On the same device and network connection.
@@ -147,4 +147,3 @@ Closely tied to Scrooge’s transformation is the theme of memory and the past. 
 ### Conclusion
 These themes collectively create a rich and multifaceted narrative that conveys powerful messages about personal growth, the impact of community, the value of generosity, and the critique of social inequities. The journey of Ebenezer Scrooge serves as a timeless reminder of the potential for change and the importance of compassion and empathy in society.
 ```
-

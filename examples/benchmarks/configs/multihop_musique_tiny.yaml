@@ -1,0 +1,46 @@
+# MultiHopRAG Tiny Benchmark Configuration - 100 docs for quick testing
+# Using direct model instead of preset to avoid rate limits
+
+name: multihop_rag_tiny
+version: "1.0"
+description: "Quick benchmark on MultiHopRAG with 100 docs for testing"
+
+dataset:
+  name: multihop_rag
+  path: ./workdirs/multihop_rag_small/datasets/multihoprag/questions.json
+  corpus_path: ./workdirs/multihop_rag_small/datasets/multihoprag/corpus.json
+  max_samples: 20  # Only 20 questions
+  max_corpus_samples: 100  # Only 100 documents
+  auto_download: false
+
+graphrag:
+  working_dir: ./workdirs/multihop_rag_tiny
+  llm_model: openrouter/meta-llama/llama-3-1-8b-instruct  # More available than qwen
+  llm_cheap_model: openrouter/meta-llama/llama-3-1-8b-instruct
+  embedding_model: openrouter/qwen/qwen3-embedding-8b
+  embedding_dim: 4096
+  enable_local: true
+  enable_naive_rag: false
+  enable_llm_cache: true
+  entity_extraction_quality: balanced
+  extraction_max_async: 16
+
+query:
+  modes:
+    - local
+  param_overrides:
+    top_k: 30
+
+cache:
+  enabled: true
+  backend: disk
+
+metrics:
+  exact_match: true
+  token_f1: true
+  llm_judge:
+    enabled: false
+
+output:
+  results_dir: ./benchmark_results/multihop_rag_tiny
+  save_predictions: true

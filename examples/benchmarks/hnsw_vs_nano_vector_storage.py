@@ -32,7 +32,7 @@ async def benchmark_storage(storage_class, name):
     )
 
     test_data = generate_test_data()
-    
+
     print(f"Benchmarking {name}...")
     with tqdm(total=DATA_LEN, desc=f"{name} Benchmark") as pbar:
         start_time = time.time()
@@ -40,7 +40,7 @@ async def benchmark_storage(storage_class, name):
             batch = {k: test_data[k] for k in list(test_data.keys())[i:i+BATCH_SIZE]}
             await storage.upsert(batch)
             pbar.update(min(BATCH_SIZE, DATA_LEN - i))
-        
+
         insert_time = time.time() - start_time
 
         save_start_time = time.time()
@@ -55,9 +55,9 @@ async def benchmark_storage(storage_class, name):
             await storage.query(query_vector, top_k=10)
             query_times.append(time.time() - query_start)
             pbar.update(1)
-    
+
     avg_query_time = sum(query_times) / len(query_times)
-    
+
     print(f"{name} - Insert: {insert_time:.2f}s, Save: {save_time:.2f}s, Avg Query: {avg_query_time:.4f}s")
     return insert_time, save_time, avg_query_time
 
@@ -65,10 +65,10 @@ async def benchmark_storage(storage_class, name):
 async def run_benchmarks():
     print("Running NanoVectorDB benchmark...")
     nano_insert_time, nano_save_time, nano_query_time = await benchmark_storage(NanoVectorDBStorage, "nano")
-    
+
     print("\nRunning HNSWVectorStorage benchmark...")
     hnsw_insert_time, hnsw_save_time, hnsw_query_time = await benchmark_storage(HNSWVectorStorage, "hnsw")
-    
+
     print("\nBenchmark Results:")
     print(f"NanoVectorDB - Insert: {nano_insert_time:.2f}s, Save: {nano_save_time:.2f}s, Avg Query: {nano_query_time:.4f}s")
     print(f"HNSWVectorStorage - Insert: {hnsw_insert_time:.2f}s, Save: {hnsw_save_time:.2f}s, Avg Query: {hnsw_query_time:.4f}s")

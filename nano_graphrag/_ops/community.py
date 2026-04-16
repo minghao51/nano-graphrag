@@ -266,7 +266,9 @@ async def generate_community_report(
     # Build level dependencies
     level_communities = {}
     for level in levels:
-        level_pairs = [(k, v) for k, v in zip(community_keys, community_values) if v["level"] == level]
+        level_pairs = [
+            (k, v) for k, v in zip(community_keys, community_values) if v["level"] == level
+        ]
         if level_pairs:
             level_communities[level] = level_pairs
 

@@ -330,3 +330,34 @@ def test_structured_extraction_can_disable_legacy_fallback():
 
     assert manifest["entities"] == {}
     assert manifest["relationships"] == {}
+
+
+async def _collect_stream(stream):
+    chunks = []
+    async for chunk in stream:
+        chunks.append(chunk)
+    return "".join(chunks)
+
+
+def test_astream_query_local_matches_aquery():
+    rag = build_query_rag(best_model_func=fake_model)
+    streamed = asyncio.get_event_loop().run_until_complete(
+        _collect_stream(rag.astream_query("Dickens", QueryParam(mode="local")))
+    )
+    assert streamed == rag.query("Dickens", param=QueryParam(mode="local"))
+
+
+def test_astream_query_global_matches_aquery():
+    rag = build_query_rag(best_model_func=fake_json_model)
+    streamed = asyncio.get_event_loop().run_until_complete(
+        _collect_stream(rag.astream_query("Dickens", QueryParam(mode="global")))
+    )
+    assert streamed == rag.query("Dickens")
+
+
+def test_astream_query_naive_matches_aquery():
+    rag = build_query_rag(best_model_func=fake_model, enable_naive_rag=True)
+    streamed = asyncio.get_event_loop().run_until_complete(
+        _collect_stream(rag.astream_query("Dickens", QueryParam(mode="naive")))
+    )
+    assert streamed == rag.query("Dickens", param=QueryParam(mode="naive"))

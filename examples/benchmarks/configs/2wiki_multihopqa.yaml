@@ -8,7 +8,8 @@ description: "Local-mode GraphRAG baseline on 2WikiMultiHopQA dev set"
 dataset:
   name: 2wiki
   split: dev
-  max_samples: 200
+  max_samples: 50
+  max_corpus_samples: 500
   auto_download: true
 
 graphrag:
@@ -16,6 +17,9 @@ graphrag:
   llm_model: openrouter/@preset/cheap-fast
   llm_cheap_model: openrouter/@preset/cheap-fast
   embedding_model: openrouter/qwen/qwen3-embedding-8b
+  enable_naive_rag: true
+  extraction_backend: gliner
+  enable_community_reports: false
   chunk_token_size: 1200
   chunk_overlap_token_size: 100
 

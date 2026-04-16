@@ -66,7 +66,7 @@ Examples:
     parser.add_argument(
         "--modes",
         nargs="+",
-        choices=["local", "global", "naive"],
+        choices=["local", "global", "naive", "multihop", "adaptive", "hipporag", "hybrid", "raptor"],
         help="Query modes to run (default: from config)",
     )
 

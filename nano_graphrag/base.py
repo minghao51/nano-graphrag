@@ -1,5 +1,5 @@
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Any, Dict, Generic, List, Literal, Optional, TypedDict, TypeVar, Union
 
 import numpy as np
@@ -11,7 +11,7 @@ from ._utils import EmbeddingFunc, logger
 class QueryParam:
     mode: Literal["local", "global", "naive", "entity_grounded"] = "global"
     only_need_context: bool = False
-    response_type: str = "Multiple Paragraphs"
+    response_type: str = "Concise Answer"
     level: int = 2
     top_k: int = 20
     # naive search
@@ -32,6 +32,16 @@ class QueryParam:
     entity_grounded_max_answer_length: int = 50  # tokens
     entity_grounded_require_entity_match: bool = True
     entity_grounded_fuzzy_threshold: float = 0.85
+
+
+class ResponseType:
+    """Predefined response types for QueryParam."""
+
+    CONCISE = "Concise Answer"  # Direct, brief answers (new default)
+    SHORT = "Short Answer"  # 1-2 sentences
+    SINGLE_PARAGRAPH = "Single Paragraph"  # Brief explanation
+    MULTIPLE_PARAGRAPHS = "Multiple Paragraphs"  # Detailed explanation (old default)
+    BULLET_POINTS = "Bullet Points"  # Structured list format
 
 
 TextChunkSchema = TypedDict(
@@ -216,7 +226,7 @@ DEFAULT_EMBEDDING_DIM = 4096
 # - text-embedding-3-small (dim=1536) - Direct OpenAI
 # Note: OpenRouter doesn't document specific concurrent call limits for embeddings
 
-SUPPORTED_GRAPH_CLUSTERING = ("leiden",)
+SUPPORTED_GRAPH_CLUSTERING = ("leiden", "louvain")
 
 
 def _parse_bool(env_var: str, default: bool = False) -> bool:
@@ -308,14 +318,27 @@ class GraphRAGConfig:
 
     # === Compute/Quality ===
     extraction_max_async: int = 16
+    extraction_batch_size: int = 5
+    doc_extraction_max_async: int = 4
+    doc_flush_batch_size: int = 50
     entity_extraction_quality: str = "balanced"
+    extraction_backend: str = "llm"
     graph_cluster_algorithm: str = "leiden"
+    max_incremental_updates_before_full: int = 10
+    alias_batch_size: int = 20
+    alias_max_batches_in_flight: int = 5
     enable_node_embedding: bool = False
 
     # === Features ===
     enable_local: bool = True
     enable_naive_rag: bool = False
     enable_llm_cache: bool = True
+    enable_entity_linking: bool = False
+    enable_community_reports: bool = True
+    entity_linking_similarity_threshold: float = 0.92
+    entity_linking_max_candidates: int = 3
+    entity_count_min_ratio: float = 2.0
+    entity_count_min_absolute: int = 3
 
     # === Logging ===
     log_level: str = "INFO"
@@ -343,12 +366,29 @@ class GraphRAGConfig:
             embedding_max_async=_parse_int("EMBEDDING_MAX_ASYNC", 16, min_value=1),
             embedding_batch_size=_parse_int("EMBEDDING_BATCH_SIZE", 32, min_value=1),
             extraction_max_async=_parse_int("EXTRACTION_MAX_ASYNC", 16, min_value=1),
+            extraction_batch_size=_parse_int("EXTRACTION_BATCH_SIZE", 5, min_value=1),
+            doc_extraction_max_async=_parse_int("DOC_EXTRACTION_MAX_ASYNC", 4, min_value=1),
+            doc_flush_batch_size=_parse_int("DOC_FLUSH_BATCH_SIZE", 50, min_value=1),
             entity_extraction_quality=os.getenv("ENTITY_EXTRACTION_QUALITY", "balanced"),
             graph_cluster_algorithm=os.getenv("GRAPH_CLUSTER_ALGORITHM", "leiden"),
+            max_incremental_updates_before_full=_parse_int(
+                "MAX_INCREMENTAL_UPDATES_BEFORE_FULL", 10, min_value=1
+            ),
+            alias_batch_size=_parse_int("ALIAS_BATCH_SIZE", 20, min_value=1),
+            alias_max_batches_in_flight=_parse_int("ALIAS_MAX_BATCHES_IN_FLIGHT", 5, min_value=1),
             enable_node_embedding=_parse_bool("ENABLE_NODE_EMBEDDING", False),
             enable_local=_parse_bool("ENABLE_LOCAL", True),
             enable_naive_rag=_parse_bool("ENABLE_NAIVE_RAG", False),
             enable_llm_cache=_parse_bool("ENABLE_LLM_CACHE", True),
+            enable_entity_linking=_parse_bool("ENABLE_ENTITY_LINKING", False),
+            entity_linking_similarity_threshold=float(
+                os.getenv("ENTITY_LINKING_SIMILARITY_THRESHOLD", "0.92")
+            ),
+            entity_linking_max_candidates=_parse_int(
+                "ENTITY_LINKING_MAX_CANDIDATES", 3, min_value=1
+            ),
+            entity_count_min_ratio=float(os.getenv("ENTITY_COUNT_MIN_RATIO", "2.0")),
+            entity_count_min_absolute=_parse_int("ENTITY_COUNT_MIN_ABSOLUTE", 3, min_value=0),
             log_level=os.getenv("LOG_LEVEL", "INFO"),
             log_file=os.getenv("LOG_FILE"),
         )
@@ -356,8 +396,8 @@ class GraphRAGConfig:
     @classmethod
     def from_dict(cls, config: Dict[str, Any]) -> "GraphRAGConfig":
         """Create config from dictionary, only setting non-None values."""
-        # Filter out None values
-        filtered = {k: v for k, v in config.items() if v is not None}
+        valid_fields = {f.name for f in fields(cls)}
+        filtered = {k: v for k, v in config.items() if k in valid_fields and v is not None}
         return cls(**filtered)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -378,19 +418,31 @@ class GraphRAGConfig:
             "embedding_max_async": self.embedding_max_async,
             "embedding_batch_size": self.embedding_batch_size,
             "extraction_max_async": self.extraction_max_async,
+            "extraction_batch_size": self.extraction_batch_size,
+            "doc_extraction_max_async": self.doc_extraction_max_async,
+            "doc_flush_batch_size": self.doc_flush_batch_size,
             "entity_extraction_quality": self.entity_extraction_quality,
+            "extraction_backend": self.extraction_backend,
             "graph_cluster_algorithm": self.graph_cluster_algorithm,
+            "max_incremental_updates_before_full": self.max_incremental_updates_before_full,
+            "alias_batch_size": self.alias_batch_size,
+            "alias_max_batches_in_flight": self.alias_max_batches_in_flight,
             "enable_node_embedding": self.enable_node_embedding,
             "enable_local": self.enable_local,
             "enable_naive_rag": self.enable_naive_rag,
             "enable_llm_cache": self.enable_llm_cache,
+            "enable_entity_linking": self.enable_entity_linking,
+            "enable_community_reports": self.enable_community_reports,
+            "entity_linking_similarity_threshold": self.entity_linking_similarity_threshold,
+            "entity_linking_max_candidates": self.entity_linking_max_candidates,
+            "entity_count_min_ratio": self.entity_count_min_ratio,
+            "entity_count_min_absolute": self.entity_count_min_absolute,
             "log_level": self.log_level,
             "log_file": self.log_file,
         }
 
     def __post_init__(self):
         """Validate configuration after initialization."""
-        # Validate entity_extraction_quality
         valid_quality_modes = {"fast", "balanced", "thorough"}
         if self.entity_extraction_quality not in valid_quality_modes:
             raise ValueError(
@@ -398,11 +450,32 @@ class GraphRAGConfig:
                 f"Must be one of: {sorted(valid_quality_modes)}"
             )
 
+        valid_backends = {"llm", "gliner"}
+        if self.extraction_backend not in valid_backends:
+            raise ValueError(
+                f"Invalid extraction_backend={self.extraction_backend!r}. "
+                f"Must be one of: {sorted(valid_backends)}"
+            )
+
         if self.graph_cluster_algorithm not in SUPPORTED_GRAPH_CLUSTERING:
             raise ValueError(
                 f"Invalid graph_cluster_algorithm={self.graph_cluster_algorithm!r}. "
                 f"Must be one of: {sorted(SUPPORTED_GRAPH_CLUSTERING)}"
             )
+
+        if not 0 <= self.entity_linking_similarity_threshold <= 1:
+            raise ValueError(
+                "entity_linking_similarity_threshold must be between 0 and 1 inclusive"
+            )
+
+        if self.entity_linking_max_candidates < 1:
+            raise ValueError("entity_linking_max_candidates must be >= 1")
+
+        if self.max_incremental_updates_before_full < 1:
+            raise ValueError("max_incremental_updates_before_full must be >= 1")
+
+        if self.alias_batch_size < 1:
+            raise ValueError("alias_batch_size must be >= 1")
 
         # Validate log_level
 

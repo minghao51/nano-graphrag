@@ -12,17 +12,16 @@ description: "Multi-hop RAG evaluation using OpenRouter (cost-effective)"
 
 dataset:
   name: multihop_rag
-  path: ~/.cache/nano-bench/multihop_rag/questions.json
-  corpus_path: ~/.cache/nano-bench/multihop_rag/corpus.json
+  path: ./workdirs/multihop_rag_bench/datasets/multihoprag/questions.json
+  corpus_path: ./workdirs/multihop_rag_bench/datasets/multihoprag/corpus.json
   split: validation
-  max_samples: 50  # Start small, increase to 2556 for full evaluation
+  max_samples: 50
   auto_download: true
 
 graphrag:
-  working_dir: ./workdirs/multihop_rag_openrouter
-  # OpenRouter models - cost-effective alternatives
-  llm_model: openrouter/anthropic/claude-3.5-sonnet
-  embedding_model: openrouter/microsoft/wizardlm-2-7b
+  working_dir: ./workdirs/multihop_rag_bench
+  # Uses LLM_MODEL from .env (openrouter/@preset/cheap-fast)
+  llm_cheap_model: openrouter/@preset/cheap-fast
   enable_llm_cache: true
 
 query:

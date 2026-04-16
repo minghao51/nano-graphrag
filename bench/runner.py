@@ -13,6 +13,7 @@ from nano_graphrag.graphrag import GraphRAG
 from .cache import create_benchmark_cache
 from .datasets import BenchmarkDataset, MultiHopRAGDataset
 from .metrics import MetricSuite
+from .registry import list_registered, resolve
 
 
 class MultiHopGraphRAG(GraphRAG):
@@ -355,8 +356,14 @@ class ExperimentRunner:
         return dataset
 
     def _create_graphrag(self) -> GraphRAG:
-        """Create GraphRAG instance from config."""
-        rag_config = GraphRAGConfig.from_dict(self.config.graphrag_config)
+        """Create GraphRAG instance from config.
+
+        Merges env vars as base, then applies YAML overrides.
+        """
+        env_config = GraphRAGConfig.from_env()
+        env_dict = env_config.to_dict()
+        env_dict.update(self.config.graphrag_config)
+        rag_config = GraphRAGConfig.from_dict(env_dict)
 
         # Use MultiHopGraphRAG if multihop mode is enabled
         if "multihop" in self.config.query_modes:
@@ -434,6 +441,9 @@ class ExperimentRunner:
             predictions = []
             golds = []
 
+            registered_retrievers = list_registered("retriever")
+            is_registered_retriever = mode in registered_retrievers
+
             for i, qa in enumerate(questions_list):
                 question = qa.question
                 gold = qa.answer
@@ -451,6 +461,52 @@ class ExperimentRunner:
                         ),
                     )
                     context = await retriever.retrieve(question, self._rag)
+                    # Generate answer with retrieved context
+                    prediction = await self._rag.aquery(
+                        question,
+                        param=QueryParam(mode="local"),
+                        injected_context=context,
+                    )
+                elif is_registered_retriever and mode not in ("local", "global", "naive"):
+                    # Use registered retriever from registry (Phase 4 techniques)
+                    retriever_class = resolve("retriever", mode)
+                    # Build retriever config from query_params
+                    retriever_config = {}
+                    if mode == "hipporag":
+                        retriever_config = {
+                            "alpha": self.config.query_params.get("alpha", 0.85),
+                            "top_k_seed": self.config.query_params.get("top_k_seed", 5),
+                            "top_k_result": self.config.query_params.get("top_k_result", 20),
+                        }
+                    elif mode == "hybrid":
+                        retriever_weights = self.config.query_params.get("retriever_weights", {})
+                        retriever_config = {
+                            "retrievers": list(retriever_weights) or None,
+                            "weights": list(retriever_weights.values()) or None,
+                            "fusion": self.config.query_params.get(
+                                "fusion_strategy", "reciprocal_rank"
+                            ),
+                            "top_k": self.config.query_params.get("top_k", 20),
+                        }
+                    elif mode == "raptor":
+                        retriever_config = {
+                            "max_levels": self.config.query_params.get("max_tree_levels", 3),
+                            "cluster_model": self.config.query_params.get("cluster_method", "gmm"),
+                            "summary_model": "cheap",
+                            "chunk_size": self.config.query_params.get("summary_token_limit", 500)
+                            // 2,  # Approximate tokens to chars
+                            "top_k": self.config.query_params.get("top_k_cluster", 5),
+                        }
+                    elif mode == "adaptive":
+                        retriever_config = {
+                            "use_llm_fallback": False,
+                            "llm_fallback_threshold": self.config.query_params.get(
+                                "llm_fallback_threshold", 2
+                            ),
+                        }
+                    retriever = retriever_class(**retriever_config)
+                    query_param = QueryParam(mode="local", only_need_context=True)  # Base param
+                    context = await retriever(question, self._rag, query_param)
                     # Generate answer with retrieved context
                     prediction = await self._rag.aquery(
                         question,

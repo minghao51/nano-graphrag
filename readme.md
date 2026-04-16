@@ -29,6 +29,10 @@ Install with `uv`:
 ```bash
 git clone https://github.com/gusye1234/nano-graphrag.git
 cd nano-graphrag
+npm install @dotenvx/dotenvx -g  # First time only - encrypted env management
+cp .env.example .env
+# Edit .env with your API keys
+dotenvx encrypt
 uv sync
 ```
 
@@ -36,6 +40,12 @@ Download a sample corpus:
 
 ```bash
 curl https://raw.githubusercontent.com/gusye1234/nano-graphrag/main/tests/mock_data.txt > book.txt
+```
+
+Run with dotenvx:
+
+```bash
+dotenvx run -- uv run python your_script.py
 ```
 
 Run a minimal example:
@@ -87,7 +97,9 @@ graph = GraphRAG(
 - `GraphRAG(...)` keyword arguments remain available as compatibility aliases.
 - Reusing the same `working_dir` lets the runtime reload persisted state automatically.
 - `insert` accepts either a single string or a list of strings.
-- Async variants are available as `ainsert(...)` and `aquery(...)`.
+- Async variants are available as `ainsert(...)`, `aquery(...)`, and `astream_query(...)`.
+- Incremental inserts now persist a reverse contribution index so changed documents can rebuild only the affected graph records.
+- Opt-in entity linking is available via `enable_entity_linking=True` with `entity_linking_similarity_threshold` and `entity_linking_max_candidates` for conservative duplicate resolution.
 
 ## Components
 
@@ -96,7 +108,9 @@ graph = GraphRAG(
 | LLM | OpenAI via LiteLLM | Ollama, Anthropic, OpenAI-compatible endpoints |
 | Embedding | OpenAI | Ollama, custom embedding functions |
 | Vector store | `nano-vectordb` | `hnswlib`, Milvus, Qdrant, Faiss |
-| Graph store | `networkx` | Neo4j |
+| Graph store | `networkx` | `sqlite`, Neo4j |
+
+The default KV store is already SQLite-backed. `SQLiteGraphStorage` adds a disk-backed graph backend for users who want more persistence than in-memory `networkx` without running Neo4j.
 
 For Neo4j setup, see [`docs/guides/neo4j.md`](./docs/guides/neo4j.md).
 
@@ -108,10 +122,12 @@ Typical flow:
 
 ```bash
 cp .env.example .env
+# Edit .env with your API keys
+dotenvx encrypt
 uv sync
-uv run python experiments/validate_setup.py
-./experiments/run_all_benchmarks.sh --quick
-uv run python experiments/compare_results.py
+dotenvx run -- uv run python experiments/validate_setup.py
+dotenvx run -- ./experiments/run_all_benchmarks.sh --quick
+dotenvx run -- uv run python experiments/compare_results.py
 ```
 
 ## Historical Material

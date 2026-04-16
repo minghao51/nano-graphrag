@@ -12,7 +12,7 @@ Usage:
     ollama serve
     ollama pull llama3.2
     ollama pull nomic-embed-text
-    
+
     # Run this example
     python examples/using_ollama_new.py
 """
@@ -50,22 +50,22 @@ def insert():
     rag = GraphRAG(
         working_dir=WORKING_DIR,
         enable_llm_cache=True,
-        
+
         # LLM config - use Ollama
         llm_model="ollama/llama3.2",
         llm_api_base="http://localhost:11434",
-        
+
         # Embedding config - use Ollama
         embedding_model="ollama/nomic-embed-text",
         embedding_api_base="http://localhost:11434",
         embedding_dim=768,  # nomic-embed-text uses 768 dimensions
-        
+
         # Compute settings for local/Limited compute
         llm_max_async=4,
         extraction_max_async=4,
         embedding_func_max_async=4,
     )
-    
+
     start = time()
     rag.insert(FAKE_TEXT)
     print(f"Indexing time: {time() - start:.2f}s")
@@ -75,20 +75,20 @@ def query():
     # Same config for querying
     rag = GraphRAG(
         working_dir=WORKING_DIR,
-        
+
         # LLM config
         llm_model="ollama/llama3.2",
         llm_api_base="http://localhost:11434",
-        
+
         # Embedding config
         embedding_model="ollama/nomic-embed-text",
         embedding_api_base="http://localhost:11434",
         embedding_dim=768,
     )
-    
+
     print("\n=== Global Search ===")
     print(rag.query("What are the top themes in this story?", param=QueryParam(mode="global")))
-    
+
     print("\n=== Local Search ===")
     print(rag.query("What are the top themes in this story?", param=QueryParam(mode="local")))
 

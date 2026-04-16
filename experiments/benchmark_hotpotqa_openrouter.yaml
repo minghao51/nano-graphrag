@@ -13,7 +13,8 @@ dataset:
 graphrag:
   working_dir: ./workdirs/hotpotqa_openrouter
   llm_model: openrouter/anthropic/claude-3.5-sonnet
-  embedding_model: openrouter/microsoft/wizardlm-2-7b
+  embedding_model: openrouter/qwen/qwen3-embedding-8b
+  embedding_dim: 4096
   enable_llm_cache: true
 
 query:

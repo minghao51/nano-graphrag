@@ -1,6 +1,6 @@
 import unittest
 # from loguru import logger
-from nano_graphrag._utils import convert_response_to_json  
+from nano_graphrag._utils import convert_response_to_json
 
 class TestJSONExtraction(unittest.TestCase):
 

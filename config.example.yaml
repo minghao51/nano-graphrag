@@ -12,15 +12,15 @@ llm_model: "gpt-4o-mini"  # Main model for entity extraction and queries
 llm_cheap_model: "gpt-4o-mini"  # Cheaper model for summarization
 llm_api_base: null  # Custom API base (e.g., "http://localhost:11434" for Ollama)
 llm_api_key: null  # API key (can also be set via LLM_API_KEY env var)
-llm_max_async: 16  # Max concurrent LLM calls
+llm_max_async: 32  # Max concurrent LLM calls
 llm_max_tokens: 32768  # Max tokens for LLM response
 llm_timeout: 120  # Timeout for LLM calls in seconds
 
 # === Embedding Configuration ===
-embedding_model: "text-embedding-3-small"  # Embedding model
+embedding_model: "openrouter/qwen/qwen3-embedding-8b"  # Embedding model
 embedding_api_base: null  # Custom embedding API base
-embedding_api_key: null  # Embedding API key
-embedding_dim: 1536  # Embedding dimension
+embedding_api_key: null  # Embedding API key (OPENROUTER_API_KEY for OpenRouter)
+embedding_dim: 4096  # Embedding dimension (Qwen: 4096, text-embedding-3-small: 1536)
 embedding_max_async: 16  # Max concurrent embedding calls
 embedding_batch_size: 32  # Batch size for embedding
 

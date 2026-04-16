@@ -54,13 +54,23 @@ llm_model: openrouter/microsoft/phi-3-medium-128k-instruct
 
 ### For Embeddings
 
-```yaml
-# Works well with most LLMs
-embedding_model: openrouter/microsoft/wizardlm-2-7b
+OpenRouter supports many embedding models. Recommended choices:
 
-# Alternative
-embedding_model: openrouter/nomic-ai/nomic-embed-text-v1.5
+```yaml
+# Qwen3 (good balance of quality and cost)
+embedding_model: openrouter/qwen/qwen3-embedding-8b
+embedding_dim: 4096
+
+# OpenAI via OpenRouter (highest quality)
+embedding_model: openrouter/openai/text-embedding-3-small
+embedding_dim: 1536
+
+# BGE-M3 (multilingual support, long context)
+embedding_model: openrouter/baai/bge-m3
+embedding_dim: 1024
 ```
+
+**Note:** OpenRouter does not document specific concurrent call limits for embeddings. The models API returns `per_request_limits: null` for all embedding models. Rate limits primarily apply to free models (20 req/min, 50-1000/day depending on credits). For production use, implement proper backoff and retry logic.
 
 ## Configuration Examples
 
@@ -68,7 +78,8 @@ embedding_model: openrouter/nomic-ai/nomic-embed-text-v1.5
 ```yaml
 graphrag:
   llm_model: openrouter/meta-llama/llama-3.1-70b
-  embedding_model: openrouter/microsoft/wizardlm-2-7b
+  embedding_model: openrouter/qwen/qwen3-embedding-8b
+  embedding_dim: 4096
 ```
 **Cost:** ~$0.50 for quick test
 
@@ -76,7 +87,8 @@ graphrag:
 ```yaml
 graphrag:
   llm_model: openrouter/anthropic/claude-3.5-sonnet
-  embedding_model: openrouter/microsoft/wizardlm-2-7b
+  embedding_model: openrouter/openai/text-embedding-3-small
+  embedding_dim: 1536
 ```
 **Cost:** ~$1.50 for quick test
 
@@ -84,7 +96,8 @@ graphrag:
 ```yaml
 graphrag:
   llm_model: openrouter/microsoft/phi-3-medium-128k-instruct
-  embedding_model: openrouter/microsoft/wizardlm-2-7b
+  embedding_model: openrouter/sentence-transformers/all-mpnet-base-v2
+  embedding_dim: 768
 ```
 **Cost:** ~$0.20 for quick test
 

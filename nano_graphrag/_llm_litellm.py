@@ -1,5 +1,6 @@
 import asyncio
 import json
+from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any, List, Optional, Type, Union
 
 import litellm
@@ -20,6 +21,11 @@ PROVIDERS_SUPPORTING_STRUCTURED_OUTPUT = {
     "google_genai",
     "google_vertex_ai",
     "cohere",
+}
+
+# Models that should use prompt-based schema instead of native structured output
+MODELS_REQUIRE_PROMPT_SCHEMA = {
+    "gemma",  # Gemma models work better with schema in prompt
 }
 
 # Model name prefixes for provider detection
@@ -133,6 +139,24 @@ def is_qwen_model(model: str) -> bool:
     return "qwen" in model_lower or "@preset/cheap-fast" in model_lower
 
 
+def is_gemma_model(model: str) -> bool:
+    """Detect if model is Gemma-based and needs prompt-based schema.
+
+    Gemma 4+ supports native json_schema structured output via OpenRouter.
+    Only Gemma 1/2/3 need the legacy prompt-based approach.
+    """
+    model_lower = model.lower()
+    if "gemma" not in model_lower:
+        return False
+    # Gemma 4+ has native structured output support
+    # Match patterns: gemma-4, gemma4, gemma_4
+    import re
+
+    if re.search(r"gemma[\s_-]?4", model_lower):
+        return False
+    return True
+
+
 def build_qwen_response_format(response_format: Type[BaseModel]) -> dict[str, Any]:
     """Build Qwen-compatible json_object response format.
 
@@ -141,7 +165,7 @@ def build_qwen_response_format(response_format: Type[BaseModel]) -> dict[str, An
     return {"type": "json_object"}
 
 
-def ensure_json_keyword_in_prompt(messages: list, prompt: str) -> list:
+def ensure_json_keyword_in_prompt(messages: list) -> list:
     """Ensure 'JSON' keyword is in prompt for Qwen models.
 
     Qwen requires the word 'json' (case-insensitive) in messages to use
@@ -152,7 +176,7 @@ def ensure_json_keyword_in_prompt(messages: list, prompt: str) -> list:
 
     if not has_json:
         if messages and messages[0]["role"] == "system":
-            messages[0]["content"] = messages[0]["content"] + "\n\nPlease respond with JSON."
+            messages[0]["content"] += "\n\nPlease respond with JSON."
         else:
             messages.insert(0, {"role": "system", "content": "Please respond with JSON."})
 
@@ -247,11 +271,15 @@ async def litellm_completion(
 
     # Choose between native structured output or prompt-based schema guidance.
     if response_format is not None and supports_structured_output(model):
+        # For Gemma models, use legacy route (schema in prompt)
+        # Gemma through OpenRouter doesn't support json_schema format properly
+        if is_gemma_model(model):
+            _add_schema_instruction_to_messages(response_format, messages, bool(system_prompt))
         # For Qwen models, always use legacy route (schema in prompt) since
         # json_object doesn't enforce schema - model returns any JSON structure
-        if is_qwen_model(model):
+        elif is_qwen_model(model):
             _add_schema_instruction_to_messages(response_format, messages, bool(system_prompt))
-            messages = ensure_json_keyword_in_prompt(messages, prompt)
+            messages = ensure_json_keyword_in_prompt(messages)
             litellm_kwargs["response_format"] = {"type": "json_object"}
         elif use_native_structured_output:
             # Use provider-native strict schema mode when available.
@@ -268,12 +296,14 @@ async def litellm_completion(
             response = await litellm.acompletion(**litellm_kwargs)
             return response.choices[0].message.content
         except UNSUPPORTED_STRUCTURED_OUTPUT_ERRORS as e:
-            if (
-                "response_format" not in litellm_kwargs
-                or not should_fallback_without_structured_output(e)
-            ):
+            if "response_format" not in litellm_kwargs:
                 raise
-            logger.warning(f"Structured output not supported, retrying without it: {e}")
+            if not should_fallback_without_structured_output(e):
+                raise
+            logger.warning(
+                f"Structured output not supported by model '{model}', "
+                f"falling back to prompt-based schema. Error: {e}"
+            )
             litellm_kwargs.pop("response_format", None)
             response = await litellm.acompletion(**litellm_kwargs)
             return response.choices[0].message.content
@@ -298,10 +328,13 @@ async def litellm_completion(
             else:
                 result = parsed
         except Exception as e:
-            logger.warning(f"Failed to parse structured output: {e}")
+            logger.warning(f"Failed to parse structured output from model '{model}': {e}")
             if use_native_structured_output:
                 # Fallback to text mode
-                logger.info("Falling back to text parsing mode")
+                logger.info(
+                    f"Falling back to text parsing mode for model '{model}' "
+                    f"(schema will be added to prompt)"
+                )
                 return await litellm_completion(
                     model,
                     prompt,
@@ -316,7 +349,9 @@ async def litellm_completion(
                     **kwargs,
                 )
             # Return string as-is if parsing fails
-            logger.warning("Could not parse as structured output, returning raw string")
+            logger.warning(
+                f"Could not parse as structured output from model '{model}', returning raw string"
+            )
 
     if hashing_kv is not None:
         cached_payload = result.model_dump_json() if isinstance(result, BaseModel) else result
@@ -332,6 +367,73 @@ async def litellm_completion(
         await hashing_kv.index_done_callback()
 
     return result
+
+
+async def litellm_completion_stream(
+    model: str,
+    prompt: str,
+    system_prompt: Optional[str] = None,
+    history_messages: Optional[List[Any]] = None,
+    api_base: Optional[str] = None,
+    api_key: Optional[str] = None,
+    timeout: int = 120,
+    **kwargs,
+) -> AsyncIterator[str]:
+    history_messages = history_messages or []
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.extend(history_messages)
+    messages.append({"role": "user", "content": prompt})
+
+    litellm_kwargs = {
+        "model": model,
+        "messages": messages,
+        "timeout": timeout,
+        "stream": True,
+        **kwargs,
+    }
+    if api_base:
+        litellm_kwargs["api_base"] = api_base
+    if api_key:
+        litellm_kwargs["api_key"] = api_key
+
+    try:
+        response = await asyncio.wait_for(litellm.acompletion(**litellm_kwargs), timeout=timeout)
+    except Exception as e:
+        logger.warning(f"Streaming LiteLLM call failed, falling back to buffered completion: {e}")
+        result = await litellm_completion(
+            model=model,
+            prompt=prompt,
+            system_prompt=system_prompt,
+            history_messages=history_messages,
+            api_base=api_base,
+            api_key=api_key,
+            timeout=timeout,
+            **kwargs,
+        )
+        if isinstance(result, BaseModel):
+            yield result.model_dump_json()
+        elif result:
+            yield result
+        return
+
+    async for chunk in response:
+        if not getattr(chunk, "choices", None):
+            continue
+        delta = getattr(chunk.choices[0], "delta", None)
+        if delta is None:
+            continue
+        content = getattr(delta, "content", None)
+        if not content:
+            continue
+        if isinstance(content, list):
+            for item in content:
+                text = getattr(item, "text", None) or item.get("text")
+                if text:
+                    yield text
+            continue
+        yield content
 
 
 @retry(
@@ -399,3 +501,22 @@ class LiteLLMWrapper:
             timeout=self.timeout,
             **kwargs,
         )
+
+    async def astream(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        history_messages: Optional[List[Any]] = None,
+        **kwargs,
+    ) -> AsyncIterator[str]:
+        async for chunk in litellm_completion_stream(
+            model=self.model,
+            prompt=prompt,
+            system_prompt=system_prompt,
+            history_messages=history_messages,
+            api_base=self.api_base,
+            api_key=self.api_key,
+            timeout=self.timeout,
+            **kwargs,
+        ):
+            yield chunk

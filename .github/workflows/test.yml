@@ -37,13 +37,16 @@ jobs:
         run: uv python install ${{ matrix.python-version }}
       - name: Sync dependencies
         run: uv sync --frozen --all-extras
+      - name: Install dotenvx
+        run: npm install -g @dotenvx/dotenvx
       - name: Lint with ruff
         run: uv run ruff check nano_graphrag/
       - name: Build and Test
         env:
           NANO_GRAPHRAG_TEST_IGNORE_NEO4J: true
+          DOTENV_PRIVATE_KEY: ${{ secrets.DOTENV_PRIVATE_KEY }}
         run: |
-          uv run pytest -o log_cli=true -o log_cli_level="INFO" --cov=nano_graphrag --cov-report=xml -v ./tests/
+          dotenvx run -- uv run pytest -o log_cli=true -o log_cli_level="INFO" --cov=nano_graphrag --cov-report=xml -v ./tests/
       - name: Check codecov file
         id: check_files
         uses: andstor/file-existence-action@v1

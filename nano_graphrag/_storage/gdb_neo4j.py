@@ -408,7 +408,7 @@ class Neo4jStorage(BaseGraphStorage):
             )
 
     async def clustering(self, algorithm: str, affected_node_ids=None):
-        if algorithm != "leiden":
+        if algorithm not in {"leiden", "louvain"}:
             raise ValueError(
                 f"Clustering algorithm {algorithm} not supported in Neo4j implementation"
             )

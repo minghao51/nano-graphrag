@@ -26,7 +26,8 @@ dataset:
 graphrag:
   working_dir: ./workdirs/test
   llm_model: gpt-4o-mini
-  embedding_model: text-embedding-3-small
+  embedding_model: openrouter/qwen/qwen3-embedding-8b
+  embedding_dim: 4096
 
 query:
   modes:

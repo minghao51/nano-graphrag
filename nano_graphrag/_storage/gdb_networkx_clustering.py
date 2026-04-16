@@ -9,8 +9,7 @@ from .gdb_networkx_utils import stabilize_graph, stable_largest_connected_compon
 
 
 class ClusteringBackend(Protocol):
-    async def cluster(self, storage, affected_node_ids: Optional[set[str]] = None) -> None:
-        ...
+    async def cluster(self, storage, affected_node_ids: Optional[set[str]] = None) -> None: ...
 
 
 def build_community_schema(storage) -> dict[str, SingleCommunitySchema]:
@@ -91,7 +90,9 @@ class LeidenClusteringBackend:
             current_layer = next_layer
         return frontier
 
-    def _collect_level0_starting_communities(self, storage, frontier_nodes: set[str]) -> dict[str, int]:
+    def _collect_level0_starting_communities(
+        self, storage, frontier_nodes: set[str]
+    ) -> dict[str, int]:
         cluster_lookup = {}
         next_cluster_id = 0
         starting = {}
@@ -133,6 +134,8 @@ class LeidenClusteringBackend:
         if storage._graph.number_of_nodes() == 0:
             storage._last_affected_community_ids = set()
             storage._last_clustering_was_incremental = False
+            storage._graph.graph["community_update_counter"] = 0
+            logger.info("Full recluster complete, incremental update counter reset")
             return
         if storage._graph.number_of_edges() == 0:
             self._assign_singleton_clusters(storage)
@@ -159,13 +162,25 @@ class LeidenClusteringBackend:
                 should_try_incremental = False
 
         if should_try_incremental:
+            incremental_count = int(storage._graph.graph.get("community_update_counter", 0))
+            max_incremental = storage.global_config.get("max_incremental_updates_before_full", 10)
+            if incremental_count >= max_incremental:
+                should_try_incremental = False
+                logger.info(
+                    f"Incremental update counter ({incremental_count}) reached threshold "
+                    f"({max_incremental}), forcing full recluster"
+                )
+
+        if should_try_incremental:
             old_community_ids = {
                 str(cluster["cluster"])
                 for node_id in frontier_nodes
                 for cluster in self._extract_existing_clusters(storage, node_id)
             }
             frontier_graph = stabilize_graph(storage._graph.subgraph(frontier_nodes).copy())
-            starting_communities = self._collect_level0_starting_communities(storage, frontier_nodes)
+            starting_communities = self._collect_level0_starting_communities(
+                storage, frontier_nodes
+            )
 
             ig_graph, _ = to_igraph(frontier_graph)
             next_membership_id = max(starting_communities.values(), default=-1) + 1
@@ -185,6 +200,18 @@ class LeidenClusteringBackend:
                 n_iterations=8,
                 initial_membership=initial_membership,
             )
+
+            modularity = partition.modularity
+            storage._last_incremental_modularity = modularity
+
+            baseline_modularity = getattr(storage, "_last_full_modularity", None)
+            if baseline_modularity is not None:
+                drop_threshold = 0.1
+                if modularity < baseline_modularity - drop_threshold:
+                    logger.warning(
+                        f"Incremental clustering modularity ({modularity:.4f}) is significantly "
+                        f"lower than baseline ({baseline_modularity:.4f}). Consider triggering full recluster."
+                    )
 
             cluster_prefix = self._next_incremental_cluster_prefix(storage)
             new_level0_ids = {}
@@ -233,5 +260,66 @@ class LeidenClusteringBackend:
             str(cluster["cluster"])
             for clusters in node_communities.values()
             for cluster in clusters
+        }
+        storage._last_clustering_was_incremental = False
+
+        level0_partition = la.find_partition(
+            ig_graph,
+            la.ModularityVertexPartition,
+            seed=self._leiden_seed(storage),
+            n_iterations=8,
+        )
+        storage._last_full_modularity = level0_partition.modularity
+        logger.debug(f"Full clustering baseline modularity: {storage._last_full_modularity:.4f}")
+
+
+class LouvainClusteringBackend:
+    def _cluster_data_to_subgraphs(self, storage, cluster_data: dict[str, list[dict[str, str]]]):
+        for node_id, clusters in cluster_data.items():
+            storage._graph.nodes[node_id]["clusters"] = json.dumps(clusters)
+
+    def _leiden_seed(self, storage) -> int:
+        seed = storage.global_config.get("graph_cluster_seed", 0xDEADBEEF)
+        return seed % (2**31 - 1)
+
+    async def cluster(self, storage, affected_node_ids: Optional[set[str]] = None) -> None:
+        import leidenalg as la
+
+        if storage._graph.number_of_nodes() == 0:
+            storage._last_affected_community_ids = set()
+            storage._last_clustering_was_incremental = False
+            return
+        if storage._graph.number_of_edges() == 0:
+            self._assign_singleton_clusters(storage)
+            return
+
+        graph_to_cluster = stable_largest_connected_component(storage._graph)
+        ig_graph, _ = to_igraph(graph_to_cluster)
+
+        partition = la.find_partition(
+            ig_graph,
+            la.ModularityVertexPartition,
+            seed=self._leiden_seed(storage),
+            n_iterations=10,
+        )
+
+        node_communities: dict[str, list[dict[str, str]]] = {}
+        for node_idx, cluster_id in enumerate(partition.membership):
+            nx_node_id = ig_graph.vs[node_idx]["_nx_name"]
+            node_communities[nx_node_id] = [{"level": 0, "cluster": str(cluster_id)}]
+
+        logger.info(f"Louvain found {partition.__len__()} communities")
+        self._cluster_data_to_subgraphs(storage, node_communities)
+        storage._last_affected_community_ids = {str(c) for c in partition.membership}
+        storage._last_clustering_was_incremental = False
+
+    def _assign_singleton_clusters(self, storage):
+        node_communities = {
+            node_id: [{"level": 0, "cluster": f"singleton-{index}"}]
+            for index, node_id in enumerate(sorted(storage._graph.nodes()))
+        }
+        self._cluster_data_to_subgraphs(storage, node_communities)
+        storage._last_affected_community_ids = {
+            cluster["cluster"] for clusters in node_communities.values() for cluster in clusters
         }
         storage._last_clustering_was_incremental = False

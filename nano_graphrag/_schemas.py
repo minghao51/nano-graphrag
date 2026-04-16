@@ -4,9 +4,11 @@ from pydantic import BaseModel, Field
 
 
 class ExtractedEntity(BaseModel):
-    entity_name: str = Field(..., description="The name of the entity, capitalized")
-    entity_type: str = Field(..., description="The type of the entity")
+    entity_name: str = Field(..., alias="name", description="The name of the entity, capitalized")
+    entity_type: str = Field(..., alias="type", description="The type of the entity")
     description: str = Field(..., description="Comprehensive description of the entity")
+
+    model_config = {"populate_by_name": True}
 
 
 class ExtractedRelationship(BaseModel):
@@ -22,6 +24,23 @@ class EntityExtractionOutput(BaseModel):
     )
     relationships: List[ExtractedRelationship] = Field(
         default_factory=list, description="List of extracted relationships"
+    )
+
+
+class ChunkExtractionResult(BaseModel):
+    chunk_id: str = Field(..., description="Identifier of the source chunk")
+    entities: List[ExtractedEntity] = Field(
+        default_factory=list, description="Entities extracted from this chunk"
+    )
+    relationships: List[ExtractedRelationship] = Field(
+        default_factory=list, description="Relationships extracted from this chunk"
+    )
+
+
+class BatchedEntityExtractionOutput(BaseModel):
+    chunks: List[ChunkExtractionResult] = Field(
+        default_factory=list,
+        description="Extraction results for each chunk in the batch",
     )
 
 
