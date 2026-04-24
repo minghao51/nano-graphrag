@@ -12,15 +12,12 @@ from ._utils import (
     convert_response_to_json,
 )
 from .base import (
-    DEFAULT_CHEAP_MODEL,
-    DEFAULT_EMBEDDING_DIM,
-    DEFAULT_EMBEDDING_MODEL,
-    DEFAULT_LLM_MODEL,
     BaseGraphStorage,
     BaseKVStorage,
     BaseVectorStorage,
     GraphRAGConfig,
     QueryParam,
+    _ConfigFields,
 )
 from .graphrag_insert import (
     _ainsert_documents,
@@ -52,17 +49,15 @@ _CALLABLE_KEYS = {
 
 
 @dataclass
-class GraphRAG:
-    working_dir: str = field(
+class GraphRAG(_ConfigFields):
+    working_dir: str = field(  # type: ignore[assignment]
         default_factory=lambda: (
             f"./nano_graphrag_cache_{datetime.now().strftime('%Y-%m-%d-%H:%M:%S')}"
         )
     )
-    log_level: str = "INFO"
-    log_file: Optional[str] = None
-
-    enable_local: bool = True
-    enable_naive_rag: bool = False
+    llm_max_async: Optional[int] = None  # type: ignore[assignment]
+    embedding_max_async: Optional[int] = None  # type: ignore[assignment]
+    embedding_batch_size: Optional[int] = None  # type: ignore[assignment]
 
     tokenizer_type: str = "tiktoken"
     tiktoken_model_name: str = "gpt-4o"
@@ -82,17 +77,10 @@ class GraphRAG:
 
     entity_extract_max_gleaning: int = 0
     entity_summary_to_max_tokens: int = 500
-    extraction_max_async: int = 16
-    extraction_batch_size: int = 5
-    doc_extraction_max_async: int = 4
-    doc_flush_batch_size: int = 50
 
-    graph_cluster_algorithm: str = "leiden"
     max_graph_cluster_size: int = 10
     graph_cluster_seed: int = 0xDEADBEEF
     leiden_resolutions: list = field(default_factory=lambda: [2.0, 1.0, 0.5])
-    max_incremental_updates_before_full: int = 10
-    alias_batch_size: int = 20
 
     node_embedding_algorithm: str = "node2vec"
     node2vec_params: dict = field(
@@ -105,19 +93,12 @@ class GraphRAG:
             "random_seed": 3,
         }
     )
-    enable_node_embedding: bool = False
 
     special_community_report_llm_kwargs: dict = field(
         default_factory=lambda: {"response_format": CommunityReportOutput}
     )
 
     embedding_func: Optional[EmbeddingFunc] = None
-    embedding_model: str = DEFAULT_EMBEDDING_MODEL
-    embedding_api_base: Optional[str] = None
-    embedding_api_key: Optional[str] = None
-    embedding_dim: int = DEFAULT_EMBEDDING_DIM
-    embedding_max_async: Optional[int] = None
-    embedding_batch_size: Optional[int] = None
     embedding_batch_num: int = 32
     embedding_func_max_async: int = 16
 
@@ -128,31 +109,16 @@ class GraphRAG:
     cheap_model_max_token_size: int = 32768
     cheap_model_max_async: int = 16
 
-    llm_model: str = DEFAULT_LLM_MODEL
-    llm_cheap_model: str = DEFAULT_CHEAP_MODEL
-    llm_api_base: Optional[str] = None
-    llm_api_key: Optional[str] = None
-    llm_max_async: Optional[int] = None
-    llm_max_tokens: int = 32768
-    llm_timeout: int = 120
-
     structured_output: bool = True
     use_pydantic_structured_output: bool = True
     fallback_to_parsing: bool = True
 
     entity_extraction_func: Callable[..., Any] = extract_entities
-    entity_extraction_quality: str = "balanced"
-    extraction_backend: str = "llm"
 
     key_string_value_json_storage_cls: Type[BaseKVStorage] = None
     vector_db_storage_cls: Type[BaseVectorStorage] = None
     vector_db_storage_cls_kwargs: dict = field(default_factory=dict)
     graph_storage_cls: Type[BaseGraphStorage] = None
-    enable_llm_cache: bool = True
-    enable_entity_linking: bool = False
-    enable_community_reports: bool = True
-    entity_linking_similarity_threshold: float = 0.92
-    entity_linking_max_candidates: int = 3
 
     always_create_working_dir: bool = True
     addon_params: dict = field(default_factory=dict)

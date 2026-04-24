@@ -24,6 +24,7 @@ dependencies = [
     "litellm>=1.82.0",
     "pyyaml>=6.0",
     "python-dotenv>=1.0.0",
+    "pydantic-settings>=2.0.0",
     "xxhash",
 ]
 
@@ -80,6 +81,9 @@ dev = [
     "pytest-asyncio",
     "pytest-cov",
     "ruff",
+    "types-networkx",
+    "types-PyYAML",
+    "types-tqdm",
 ]
 
 # All extras combined
@@ -108,8 +112,12 @@ ignore = ["E501"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+addopts = ["-ra", "--strict-markers"]
 markers = [
-    "integration: marks tests that require live external services or credentials",
+    "unit: fast tests with no I/O or external dependencies",
+    "integration: tests requiring live services (LLM APIs, databases)",
+    "slow: tests taking >1s (additive, stacked on primary marker)",
+    "benchmark: benchmark and comparison tests in tests/benchmark/",
 ]
 
 [tool.uv]
@@ -119,4 +127,7 @@ dev-dependencies = [
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0.0",
     "ruff>=0.1.0",
+    "types-hnswlib>=0.8.0.20250227",
+    "types-networkx>=3.4.2.20250509",
+    "types-pyyaml>=6.0.12.20250915",
 ]

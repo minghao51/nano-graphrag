@@ -1,0 +1,82 @@
+# GraphRAG Configuration
+# Sensitive fields (api_key) should be set via environment variables or dotenvx.
+# This file contains non-sensitive defaults only.
+
+# === Core ===
+working_dir: "./nano_graphrag_cache"
+
+# === LLM Configuration ===
+llm:
+  model: "openrouter/google/gemma-4-31b-it"
+  cheap_model: "openrouter/google/gemma-4-31b-it"
+  # api_base: null        # Set via LLM_API_BASE env var
+  # api_key: null         # Set via LLM_API_KEY env var
+  max_async: 32
+  max_tokens: 32768
+  timeout: 120
+
+# === Embedding Configuration ===
+embedding:
+  model: "openrouter/qwen/qwen3-embedding-8b"
+  # api_base: null        # Set via EMBEDDING_API_BASE env var
+  # api_key: null         # Set via EMBEDDING_API_KEY env var
+  dim: 4096
+  max_async: 16
+  batch_size: 32
+
+# === Computation & Quality ===
+extraction:
+  max_async: 16
+  batch_size: 5
+  doc_max_async: 4
+  doc_flush_batch_size: 50
+  quality: "balanced"       # "fast" | "balanced" | "thorough"
+  backend: "llm"            # "llm" | "gliner"
+
+# === Graph Clustering ===
+clustering:
+  algorithm: "leiden"       # "leiden" | "louvain"
+  max_incremental_updates_before_full: 10
+  alias_batch_size: 20
+  alias_max_batches_in_flight: 5
+
+# === Entity Linking ===
+entity_linking:
+  enabled: false
+  similarity_threshold: 0.92
+  max_candidates: 3
+  iou_threshold: 0.3
+  min_common_neighbors: 2
+
+# === Entity Filtering ===
+entity_filter:
+  count_min_ratio: 2.0
+  count_min_absolute: 3
+
+# === Features ===
+features:
+  node_embedding: false
+  local_search: true
+  naive_rag: false
+  llm_cache: true
+  community_reports: true
+
+# === Logging ===
+logging:
+  level: "INFO"             # DEBUG | INFO | WARNING | ERROR | CRITICAL
+  # file: null             # e.g., "./graphrag.log"
+
+# === Examples ===
+# Using Ollama:
+#   llm:
+#     model: "ollama/llama3.2"
+#     api_base: "http://localhost:11434"
+#   embedding:
+#     model: "ollama/nomic-embed-text"
+#     api_base: "http://localhost:11434"
+
+# Using vLLM:
+#   llm:
+#     model: "openai/Qwen2.5-7B-Instruct"
+#     api_base: "http://localhost:8000/v1"
+#     api_key: "empty"

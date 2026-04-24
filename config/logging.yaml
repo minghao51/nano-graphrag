@@ -1,0 +1,8 @@
+# Logging Configuration
+# Controls the logging output format and handlers.
+
+level: "INFO"
+format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# File logging (optional, set via LOG_FILE env var for secrets)
+# file: "./graphrag.log"
