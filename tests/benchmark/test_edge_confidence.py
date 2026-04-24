@@ -34,7 +34,6 @@ class TestEdgeConfidence:
 
         return storage
 
-    @pytest.mark.asyncio
     async def test_score_edges_with_confidence(self, mock_graph_storage):
         """Test edge scoring with confidence values."""
         await score_edges_by_confidence(mock_graph_storage)
@@ -49,7 +48,6 @@ class TestEdgeConfidence:
         # 0.7 * 0.9 + 0.3 * (5/10) = 0.63 + 0.15 = 0.78
         assert 0.77 < weight < 0.79
 
-    @pytest.mark.asyncio
     async def test_score_edges_without_confidence(self, mock_graph_storage):
         """Test edge scoring when confidence is not provided."""
         await score_edges_by_confidence(mock_graph_storage)
@@ -61,7 +59,6 @@ class TestEdgeConfidence:
         # 0.7 * 1.0 + 0.3 * (1/10) = 0.7 + 0.03 = 0.73
         assert 0.72 < weight < 0.74
 
-    @pytest.mark.asyncio
     async def test_score_edges_custom_weights(self, mock_graph_storage):
         """Test edge scoring with custom weights."""
         await score_edges_by_confidence(
@@ -78,7 +75,6 @@ class TestEdgeConfidence:
         # 0.5 * 0.9 + 0.5 * (5/5) = 0.45 + 0.5 = 0.95
         assert 0.94 < weight < 0.96
 
-    @pytest.mark.asyncio
     async def test_get_edge_weight(self, mock_graph_storage):
         """Test getting edge weight."""
         # First score the edges
@@ -98,7 +94,6 @@ class TestEdgeConfidence:
         assert weight is not None
         assert 0.7 < weight < 0.8
 
-    @pytest.mark.asyncio
     async def test_get_edge_weight_nonexistent(self, mock_graph_storage):
         """Test getting weight for non-existent edge."""
         mock_graph_storage.get_edge = AsyncMock(return_value=None)
@@ -117,7 +112,6 @@ class TestEdgeConfidence:
         # Verify the hook is callable
         assert callable(hook)
 
-    @pytest.mark.asyncio
     async def test_edge_confidence_hook(self, mock_graph_storage):
         """Test using the created hook."""
         hook = create_edge_confidence_hook()
@@ -127,7 +121,6 @@ class TestEdgeConfidence:
         # Verify that edges were scored
         assert mock_graph_storage.upsert_edge.call_count == 4
 
-    @pytest.mark.asyncio
     async def test_score_edges_frequency_cap(self, mock_graph_storage):
         """Test that frequency is properly capped."""
         # Add an edge with very high frequency

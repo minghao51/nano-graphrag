@@ -6,6 +6,7 @@ from .metrics import (
     TokenF1Metric,
     get_baseline_suite,
 )
+from .token_tracker import TokenTracker, TokenUsage
 
 __all__ = [
     "Metric",
@@ -14,4 +15,6 @@ __all__ = [
     "TokenF1Metric",
     "NativeContextRecallMetric",
     "get_baseline_suite",
+    "TokenTracker",
+    "TokenUsage",
 ]

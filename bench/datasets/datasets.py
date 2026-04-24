@@ -321,7 +321,8 @@ class HotpotQADataset:
         dataset_dir.mkdir(parents=True, exist_ok=True)
 
         print(f"[Download] Loading HotpotQA {self.split} split from HuggingFace...")
-        hf_dataset = load_dataset("hotpotqa/hotpot_qa", self.split)
+        hf_split = "validation" if self.split in ("test", "validation", "dev") else self.split
+        hf_dataset = load_dataset("hotpot_qa", "fullwiki", split=hf_split)
 
         questions_data = []
         corpus_docs = {}
@@ -330,16 +331,42 @@ class HotpotQADataset:
             qa_id = item.get("id", f"hotpot_{len(questions_data)}")
             supporting_facts = []
 
-            context = item.get("context", [])
-            for title, sentences in context:
-                if isinstance(sentences, list):
-                    content = " ".join(sentences)
-                else:
-                    content = str(sentences)
-
-                if title not in corpus_docs:
-                    doc_id = compute_mdhash_id(title, prefix="hotpot_")
-                    corpus_docs[title] = {"id": doc_id, "title": title, "content": content}
+            context = item.get("context", {})
+            context_pairs = []
+            if isinstance(context, dict) and "title" in context and "sentences" in context:
+                titles = context["title"]
+                sentences_list = context["sentences"]
+                for title, sents in zip(titles, sentences_list):
+                    context_pairs.append(
+                        [title, list(sents) if isinstance(sents, list) else [str(sents)]]
+                    )
+                    if title not in corpus_docs:
+                        doc_id = compute_mdhash_id(title, prefix="hotpot_")
+                        corpus_docs[title] = {
+                            "id": doc_id,
+                            "title": title,
+                            "content": " ".join(context_pairs[-1][1]),
+                        }
+            elif isinstance(context, list):
+                for entry in context:
+                    if isinstance(entry, (list, tuple)) and len(entry) >= 2:
+                        title, sentences = entry[0], entry[1]
+                    elif isinstance(entry, dict):
+                        title = entry.get("title", "")
+                        sentences = entry.get("sentences", [])
+                    else:
+                        continue
+                    sents_list = (
+                        list(sentences) if isinstance(sentences, list) else [str(sentences)]
+                    )
+                    context_pairs.append([title, sents_list])
+                    if title not in corpus_docs:
+                        doc_id = compute_mdhash_id(title, prefix="hotpot_")
+                        corpus_docs[title] = {
+                            "id": doc_id,
+                            "title": title,
+                            "content": " ".join(sents_list),
+                        }
 
             sp = item.get("supporting_facts", {})
             if isinstance(sp, dict) and "title" in sp:
@@ -349,10 +376,11 @@ class HotpotQADataset:
 
             questions_data.append(
                 {
-                    "id": qa_id,
+                    "_id": qa_id,
                     "question": item["question"],
                     "answer": item["answer"],
                     "supporting_facts": supporting_facts,
+                    "context": context_pairs,
                     "metadata": {
                         "type": item.get("type", "unknown"),
                         "level": item.get("level", "unknown"),

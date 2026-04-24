@@ -5,7 +5,6 @@ import pytest
 from bench.cache import create_benchmark_cache
 
 
-@pytest.mark.asyncio
 async def test_cache_tracks_hits_and_misses():
     """Cache should track hits and misses correctly."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -31,7 +30,6 @@ async def test_cache_tracks_hits_and_misses():
         assert stats["hit_rate"] == 0.5  # 1 hit out of 2 calls
 
 
-@pytest.mark.asyncio
 async def test_cache_disabled_no_tracking():
     """Cache should not track hits/misses when disabled."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -59,7 +57,6 @@ async def test_cache_disabled_no_tracking():
         assert cache.misses == 0
 
 
-@pytest.mark.asyncio
 async def test_cache_hit_rate_with_no_calls():
     """Cache hit rate should be 0.0 when no calls have been made."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -72,7 +69,6 @@ async def test_cache_hit_rate_with_no_calls():
         assert stats["misses"] == 0
 
 
-@pytest.mark.asyncio
 async def test_cache_wrapper_decorates_llm_function():
     """Cache.wrap() should add caching to any LLM function."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -107,7 +103,6 @@ async def test_cache_wrapper_decorates_llm_function():
         assert cache.misses == 2
 
 
-@pytest.mark.asyncio
 async def test_cache_wrapper_with_model_in_kwargs():
     """Cache.wrap() should handle model parameter in kwargs."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -138,7 +133,6 @@ async def test_cache_wrapper_with_model_in_kwargs():
         assert call_count["value"] == 2
 
 
-@pytest.mark.asyncio
 async def test_cache_wrapper_with_system_prompt():
     """Cache.wrap() should handle system_prompt parameter correctly."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -175,7 +169,6 @@ async def test_cache_wrapper_with_system_prompt():
         assert call_count["value"] == 3
 
 
-@pytest.mark.asyncio
 async def test_cache_wrapper_preserves_function_metadata():
     """Cache.wrap() should preserve original function's metadata."""
     with tempfile.TemporaryDirectory() as tmpdir:

@@ -1,0 +1,22 @@
+name: smoke_test
+version: "1.0"
+description: "Smoke test with 5 samples on HotpotQA, local mode only"
+
+dataset:
+  name: hotpotqa
+  split: validation
+  max_samples: 2
+  max_corpus_samples: 5
+  auto_download: true
+
+graphrag:
+  working_dir: ./benchmark_workdirs/smoke_test
+  enable_llm_cache: true
+
+query:
+  modes: [local]
+
+metrics: [exact_match, token_f1, context_recall]
+
+output:
+  results_dir: ./benchmark_results/smoke_test

@@ -33,7 +33,6 @@ def _get_default_model() -> tuple[str, str]:
     return ("gpt-4o-mini", "openai")  # Default fallback
 
 
-@pytest.mark.asyncio
 @pytest.mark.integration
 async def test_multihop_e2e_small_dataset():
     """End-to-end test of multi-hop retrieval on small dataset."""

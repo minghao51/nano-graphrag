@@ -69,7 +69,6 @@ class TestRaptorRetriever:
         with pytest.raises(ValueError, match="Unknown cluster model"):
             RaptorRetriever(cluster_model="invalid")
 
-    @pytest.mark.asyncio
     async def test_call_with_no_tree(self):
         """Test retrieval when tree hasn't been built."""
         retriever = RaptorRetriever()
@@ -78,7 +77,6 @@ class TestRaptorRetriever:
 
         assert result == ""
 
-    @pytest.mark.asyncio
     async def test_summarize_cluster(self):
         """Test cluster summarization."""
         retriever = RaptorRetriever()
@@ -96,7 +94,6 @@ class TestRaptorRetriever:
         assert summary_node.content == "Summary content"
         assert summary_node.level == 0
 
-    @pytest.mark.asyncio
     async def test_summarize_cluster_with_best_model(self):
         """Test cluster summarization with best model."""
         retriever = RaptorRetriever(summary_model="best")
@@ -111,7 +108,6 @@ class TestRaptorRetriever:
 
         assert summary_node.content == "Best summary"
 
-    @pytest.mark.asyncio
     async def test_collect_nodes(self):
         """Test collecting all nodes from tree."""
         retriever = RaptorRetriever()

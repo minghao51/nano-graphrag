@@ -4,7 +4,6 @@ import pytest
 from bench import NativeContextRecallMetric, QAPair
 
 
-@pytest.mark.asyncio
 async def test_context_recall_with_supporting_facts():
     """Context recall should measure if supporting facts appear in retrieved context."""
     metric = NativeContextRecallMetric()
@@ -29,7 +28,6 @@ async def test_context_recall_with_supporting_facts():
     assert score == 1.0
 
 
-@pytest.mark.asyncio
 async def test_context_recall_partial_match():
     """Context recall should handle partial matches."""
     metric = NativeContextRecallMetric()

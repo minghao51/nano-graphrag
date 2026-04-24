@@ -52,6 +52,13 @@ class HippoRAGRetriever:
         self._alpha = alpha
         self._top_k_seed = top_k_seed
         self._top_k_result = top_k_result
+        self._stats: dict[str, int] = {
+            "llm_calls": 0,
+            "graph_operations": 0,
+            "seed_entities_found": 0,
+            "ppr_runs": 0,
+            "fallback_used": 0,
+        }
 
     async def __call__(
         self,
@@ -75,20 +82,23 @@ class HippoRAGRetriever:
         graph = graph_rag.chunk_entity_relation_graph._graph
 
         if graph.number_of_nodes() == 0:
-            # Empty graph, fallback to local mode
             return await graph_rag.aquery(query, param=QueryParam(mode="local"))
 
-        # Find seed entities via embedding similarity
         seed_entities = await self._find_seed_entities(query, graph_rag)
 
         if not seed_entities:
-            # No seeds found, use high-degree nodes as fallback
+            self._stats["fallback_used"] += 1
             seed_entities = [
                 node
                 for node, _ in sorted(graph.degree(), key=lambda x: x[1], reverse=True)[
                     : self._top_k_seed
                 ]
             ]
+        else:
+            self._stats["seed_entities_found"] += len(seed_entities)
+
+        self._stats["ppr_runs"] += 1
+        self._stats["graph_operations"] += 1
 
         # Run PPR from seed entities
         scores = nx.pagerank(
@@ -171,6 +181,10 @@ class HippoRAGRetriever:
                         context_parts.append(f"  {content[:300]}")
 
         return "\n".join(context_parts)
+
+    @property
+    def stats(self) -> dict[str, int]:
+        return dict(self._stats)
 
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> "HippoRAGRetriever":

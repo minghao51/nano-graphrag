@@ -48,7 +48,6 @@ class TestHybridRetriever:
         with pytest.raises(ValueError, match="Number of weights"):
             HybridRetriever(retrievers=["local", "global"], weights=[0.5])
 
-    @pytest.mark.asyncio
     async def test_call_with_weighted_avg_fusion(self):
         """Test weighted avg fusion logic directly."""
         retriever = HybridRetriever(
@@ -70,7 +69,6 @@ class TestHybridRetriever:
         assert isinstance(result, str)
         assert "Passage A" in result  # Higher weight first
 
-    @pytest.mark.asyncio
     async def test_call_with_reciprocal_rank_fusion(self):
         """Test reciprocal rank fusion logic directly."""
         retriever = HybridRetriever(
@@ -97,7 +95,6 @@ class TestHybridRetriever:
         assert b_index >= 0  # B should be present
         assert b_index <= a_index if a_index >= 0 else True  # B should rank same or higher than A
 
-    @pytest.mark.asyncio
     async def test_fusion_with_empty_results(self):
         """Test fusion with empty result lists."""
         retriever = HybridRetriever(
@@ -109,7 +106,6 @@ class TestHybridRetriever:
 
         assert result == ""
 
-    @pytest.mark.asyncio
     async def test_fusion_with_single_result(self):
         """Test fusion with single result."""
         retriever = HybridRetriever(

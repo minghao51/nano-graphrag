@@ -4,7 +4,6 @@ import pytest
 from bench.runner import BenchmarkConfig
 
 
-@pytest.mark.asyncio
 async def test_multihop_mode_support():
     """Verify ExperimentRunner supports multihop mode."""
     config = BenchmarkConfig(
@@ -26,7 +25,6 @@ async def test_multihop_mode_support():
     assert "multihop" in runner.config.query_modes
 
 
-@pytest.mark.asyncio
 async def test_injected_context():
     """Verify MultiHopGraphRAG accepts injected_context parameter."""
     from nano_graphrag import GraphRAG

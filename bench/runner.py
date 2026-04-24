@@ -2,17 +2,20 @@
 
 import asyncio
 import json
+import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from nano_graphrag._config import FLAT_FIELD_TO_ENV_VAR
 from nano_graphrag.base import GraphRAGConfig, QueryParam
 from nano_graphrag.graphrag import GraphRAG
 
 from .cache import create_benchmark_cache
 from .datasets import BenchmarkDataset, MultiHopRAGDataset
 from .metrics import MetricSuite
+from .metrics.token_tracker import TokenTracker
 from .registry import list_registered, resolve
 
 
@@ -241,6 +244,7 @@ class ExperimentResult:
     )  # mode -> list of {question, prediction, gold}
     duration_seconds: float = 0.0
     cache_stats: Optional[Dict[str, Any]] = None
+    token_usage: Dict[str, Dict[str, Any]] = field(default_factory=dict)  # mode -> TokenUsage dict
 
     def save(self, output_dir: str) -> str:
         """Save results to JSON file.
@@ -264,6 +268,7 @@ class ExperimentResult:
             "predictions": self.predictions,
             "duration_seconds": self.duration_seconds,
             "cache_stats": self.cache_stats,
+            "token_usage": self.token_usage,
         }
 
         with open(filepath, "w", encoding="utf-8") as f:
@@ -358,12 +363,22 @@ class ExperimentRunner:
     def _create_graphrag(self) -> GraphRAG:
         """Create GraphRAG instance from config.
 
-        Merges env vars as base, then applies YAML overrides.
+        Merges shared settings, then env vars, then experiment overrides.
         """
-        env_config = GraphRAGConfig.from_env()
-        env_dict = env_config.to_dict()
-        env_dict.update(self.config.graphrag_config)
-        rag_config = GraphRAGConfig.from_dict(env_dict)
+        project_settings_path = Path("config/settings.yaml")
+        if project_settings_path.exists():
+            base_dict = GraphRAGConfig.from_yaml(str(project_settings_path)).to_dict()
+        else:
+            base_dict = GraphRAGConfig().to_dict()
+
+        env_config = GraphRAGConfig.from_env().to_dict()
+        env_overrides = {
+            field: env_config[field]
+            for field, env_var in FLAT_FIELD_TO_ENV_VAR.items()
+            if env_var in os.environ
+        }
+        merged_dict = {**base_dict, **env_overrides, **self.config.graphrag_config}
+        rag_config = GraphRAGConfig.from_dict(merged_dict)
 
         # Use MultiHopGraphRAG if multihop mode is enabled
         if "multihop" in self.config.query_modes:
@@ -382,7 +397,7 @@ class ExperimentRunner:
 
     def _create_metric_suite(self) -> MetricSuite:
         """Create metric suite from config."""
-        from .metrics import ExactMatchMetric, TokenF1Metric
+        from .metrics import ExactMatchMetric, NativeContextRecallMetric, TokenF1Metric
 
         suite = MetricSuite()
 
@@ -391,6 +406,8 @@ class ExperimentRunner:
                 suite.add_metric("exact_match", ExactMatchMetric())
             elif metric_name == "token_f1":
                 suite.add_metric("token_f1", TokenF1Metric())
+            elif metric_name == "context_recall":
+                suite.add_metric("context_recall", NativeContextRecallMetric())
             else:
                 raise ValueError(f"Unknown metric: {metric_name}")
 
@@ -435,106 +452,130 @@ class ExperimentRunner:
         # Run queries for each mode
         mode_results = {}
         all_predictions = {}
+        all_token_usage: Dict[str, Dict[str, Any]] = {}
+        base_best_model_func = self._rag.best_model_func
+        base_cheap_model_func = self._rag.cheap_model_func
 
         for mode in self.config.query_modes:
             print(f"\n[Query] Running {mode} queries...")
             predictions = []
             golds = []
 
+            token_tracker = TokenTracker()
+            if base_best_model_func is not None:
+                self._rag.best_model_func = token_tracker.wrap(base_best_model_func)
+            if base_cheap_model_func is not None:
+                self._rag.cheap_model_func = token_tracker.wrap(base_cheap_model_func)
+
             registered_retrievers = list_registered("retriever")
             is_registered_retriever = mode in registered_retrievers
 
-            for i, qa in enumerate(questions_list):
-                question = qa.question
-                gold = qa.answer
+            try:
+                for i, qa in enumerate(questions_list):
+                    question = qa.question
+                    gold = qa.answer
 
-                # Run query based on mode
-                if mode == "multihop":
-                    # Use MultiHopRetriever
-                    from .retrievers.multihop import MultiHopRetriever
+                    # Run query based on mode
+                    if mode == "multihop":
+                        # Use MultiHopRetriever
+                        from .retrievers.multihop import MultiHopRetriever
 
-                    retriever = MultiHopRetriever(
-                        max_hops=self.config.query_params.get("max_hops", 4),
-                        entities_per_hop=self.config.query_params.get("entities_per_hop", 10),
-                        context_token_budget=self.config.query_params.get(
-                            "context_token_budget", 8000
-                        ),
-                    )
-                    context = await retriever.retrieve(question, self._rag)
-                    # Generate answer with retrieved context
-                    prediction = await self._rag.aquery(
-                        question,
-                        param=QueryParam(mode="local"),
-                        injected_context=context,
-                    )
-                elif is_registered_retriever and mode not in ("local", "global", "naive"):
-                    # Use registered retriever from registry (Phase 4 techniques)
-                    retriever_class = resolve("retriever", mode)
-                    # Build retriever config from query_params
-                    retriever_config = {}
-                    if mode == "hipporag":
-                        retriever_config = {
-                            "alpha": self.config.query_params.get("alpha", 0.85),
-                            "top_k_seed": self.config.query_params.get("top_k_seed", 5),
-                            "top_k_result": self.config.query_params.get("top_k_result", 20),
-                        }
-                    elif mode == "hybrid":
-                        retriever_weights = self.config.query_params.get("retriever_weights", {})
-                        retriever_config = {
-                            "retrievers": list(retriever_weights) or None,
-                            "weights": list(retriever_weights.values()) or None,
-                            "fusion": self.config.query_params.get(
-                                "fusion_strategy", "reciprocal_rank"
+                        retriever = MultiHopRetriever(
+                            max_hops=self.config.query_params.get("max_hops", 4),
+                            entities_per_hop=self.config.query_params.get("entities_per_hop", 10),
+                            context_token_budget=self.config.query_params.get(
+                                "context_token_budget", 8000
                             ),
-                            "top_k": self.config.query_params.get("top_k", 20),
-                        }
-                    elif mode == "raptor":
-                        retriever_config = {
-                            "max_levels": self.config.query_params.get("max_tree_levels", 3),
-                            "cluster_model": self.config.query_params.get("cluster_method", "gmm"),
-                            "summary_model": "cheap",
-                            "chunk_size": self.config.query_params.get("summary_token_limit", 500)
-                            // 2,  # Approximate tokens to chars
-                            "top_k": self.config.query_params.get("top_k_cluster", 5),
-                        }
-                    elif mode == "adaptive":
-                        retriever_config = {
-                            "use_llm_fallback": False,
-                            "llm_fallback_threshold": self.config.query_params.get(
-                                "llm_fallback_threshold", 2
-                            ),
-                        }
-                    retriever = retriever_class(**retriever_config)
-                    query_param = QueryParam(mode="local", only_need_context=True)  # Base param
-                    context = await retriever(question, self._rag, query_param)
-                    # Generate answer with retrieved context
-                    prediction = await self._rag.aquery(
-                        question,
-                        param=QueryParam(mode="local"),
-                        injected_context=context,
-                    )
-                else:
-                    # Use standard GraphRAG modes
-                    query_param = QueryParam(mode=mode, **self.config.query_params)  # type: ignore[arg-type]
-                    prediction = await self._rag.aquery(question, query_param)
+                        )
+                        context = await retriever.retrieve(question, self._rag)
+                        # Generate answer with retrieved context
+                        prediction = await self._rag.aquery(
+                            question,
+                            param=QueryParam(mode="local"),
+                            injected_context=context,
+                        )
+                    elif is_registered_retriever and mode not in ("local", "global", "naive"):
+                        # Use registered retriever from registry (Phase 4 techniques)
+                        retriever_class = resolve("retriever", mode)
+                        # Build retriever config from query_params
+                        retriever_config = {}
+                        if mode == "hipporag":
+                            retriever_config = {
+                                "alpha": self.config.query_params.get("alpha", 0.85),
+                                "top_k_seed": self.config.query_params.get("top_k_seed", 5),
+                                "top_k_result": self.config.query_params.get("top_k_result", 20),
+                            }
+                        elif mode == "hybrid":
+                            retriever_weights = self.config.query_params.get(
+                                "retriever_weights", {}
+                            )
+                            retriever_config = {
+                                "retrievers": list(retriever_weights) or None,
+                                "weights": list(retriever_weights.values()) or None,
+                                "fusion": self.config.query_params.get(
+                                    "fusion_strategy", "reciprocal_rank"
+                                ),
+                                "top_k": self.config.query_params.get("top_k", 20),
+                            }
+                        elif mode == "raptor":
+                            retriever_config = {
+                                "max_levels": self.config.query_params.get("max_tree_levels", 3),
+                                "cluster_model": self.config.query_params.get(
+                                    "cluster_method", "gmm"
+                                ),
+                                "summary_model": "cheap",
+                                "chunk_size": self.config.query_params.get(
+                                    "summary_token_limit", 500
+                                )
+                                // 2,  # Approximate tokens to chars
+                                "top_k": self.config.query_params.get("top_k_cluster", 5),
+                            }
+                        elif mode == "adaptive":
+                            retriever_config = {
+                                "use_llm_fallback": False,
+                                "llm_fallback_threshold": self.config.query_params.get(
+                                    "llm_fallback_threshold", 2
+                                ),
+                            }
+                        retriever = retriever_class(**retriever_config)
+                        query_param = QueryParam(mode="local", only_need_context=True)  # Base param
+                        context = await retriever(question, self._rag, query_param)
+                        # Generate answer with retrieved context
+                        prediction = await self._rag.aquery(
+                            question,
+                            param=QueryParam(mode="local"),
+                            injected_context=context,
+                        )
+                    else:
+                        # Use standard GraphRAG modes
+                        query_param = QueryParam(mode=mode, **self.config.query_params)  # type: ignore[arg-type]
+                        prediction = await self._rag.aquery(question, query_param)
 
-                predictions.append(prediction)
-                golds.append(gold)
+                    predictions.append(prediction)
+                    golds.append(gold)
 
-                if (i + 1) % 10 == 0:
-                    print(f"  Processed {i + 1}/{len(questions_list)} queries")
+                    if (i + 1) % 10 == 0:
+                        print(f"  Processed {i + 1}/{len(questions_list)} queries")
 
-            # Compute metrics
-            scores = await self._metric_suite.compute_batch(predictions, golds)
-            mode_results[mode] = scores
+                # Compute metrics
+                scores = await self._metric_suite.compute_batch(predictions, golds)
+                mode_results[mode] = scores
 
-            # Store predictions
-            all_predictions[mode] = [
-                {"question": qa.question, "prediction": pred, "gold": qa.answer}
-                for qa, pred in zip(questions_list, predictions)
-            ]
+                # Store predictions
+                all_predictions[mode] = [
+                    {"question": qa.question, "prediction": pred, "gold": qa.answer}
+                    for qa, pred in zip(questions_list, predictions)
+                ]
 
-            print(f"[Query] {mode} results: {scores}")
+                print(f"[Query] {mode} results: {scores}")
+                print(
+                    f"[Tokens] {mode}: {token_tracker.usage.total_tokens} total tokens, "
+                    f"{token_tracker.usage.llm_calls} LLM calls"
+                )
+                all_token_usage[mode] = token_tracker.usage.to_dict()
+            finally:
+                self._rag.best_model_func = base_best_model_func
+                self._rag.cheap_model_func = base_cheap_model_func
 
         # Compute duration
         end_time = datetime.now()
@@ -557,6 +598,7 @@ class ExperimentRunner:
             predictions=all_predictions,
             duration_seconds=duration_seconds,
             cache_stats=cache_stats,
+            token_usage=all_token_usage,
         )
 
         # Save results

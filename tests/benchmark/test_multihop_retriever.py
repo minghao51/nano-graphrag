@@ -6,7 +6,6 @@ from bench.retrievers.multihop import MultiHopRetriever
 from bench.retrievers.base import HopState
 
 
-@pytest.mark.asyncio
 async def test_multihop_retriever_initialization():
     """Verify MultiHopRetriever initializes with roadmap parameters."""
     retriever = MultiHopRetriever(
@@ -21,7 +20,6 @@ async def test_multihop_retriever_initialization():
     assert retriever.decompose_model == "gpt-4o-mini"
 
 
-@pytest.mark.asyncio
 async def test_query_decomposition():
     """Verify MultiHopRetriever decomposes multi-hop questions."""
     retriever = MultiHopRetriever(max_hops=3)
@@ -42,7 +40,6 @@ async def test_query_decomposition():
     assert sub_questions[2] == "How are X and Y related?"
 
 
-@pytest.mark.asyncio
 async def test_query_decomposition_fallback_parsing():
     """Verify fallback parsing when LLM doesn't return JSON."""
     retriever = MultiHopRetriever(max_hops=3)
@@ -59,7 +56,6 @@ async def test_query_decomposition_fallback_parsing():
     assert len(sub_questions) == 3
 
 
-@pytest.mark.asyncio
 async def test_entity_carry_over():
     """Verify entities are carried over between hops."""
     retriever = MultiHopRetriever(max_hops=2, entities_per_hop=5)
@@ -90,7 +86,6 @@ async def test_entity_carry_over():
     assert result == "merged"
 
 
-@pytest.mark.asyncio
 async def test_context_merge_deduplication():
     """Verify context merging deduplicates chunks."""
     retriever = MultiHopRetriever(context_token_budget=1000)
@@ -115,7 +110,6 @@ async def test_context_merge_deduplication():
     assert merged.count("chunk B") == 1  # Only once
 
 
-@pytest.mark.asyncio
 async def test_token_budget_enforcement():
     """Verify context merging respects token budget."""
     retriever = MultiHopRetriever(context_token_budget=100)  # ~25 chars
@@ -133,7 +127,6 @@ async def test_token_budget_enforcement():
     assert len(merged) <= 150  # Some margin
 
 
-@pytest.mark.asyncio
 async def test_parse_context_extracts_entities():
     """Verify _parse_context extracts entities using heuristics."""
     retriever = MultiHopRetriever(entities_per_hop=10)

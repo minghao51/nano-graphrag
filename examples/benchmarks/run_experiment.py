@@ -7,14 +7,18 @@ import os
 import sys
 from pathlib import Path
 
-from dotenv import load_dotenv
-
-# Load .env file from project root
 project_root = Path(__file__).parent.parent.parent
 dotenv_path = project_root / ".env"
 if dotenv_path.exists():
-    load_dotenv(dotenv_path)
-    print(f"[Env] Loaded environment from {dotenv_path}")
+    llm_model = os.getenv("LLM_MODEL", "")
+    if llm_model and not llm_model.startswith("encrypted:"):
+        print("[Env] Using pre-loaded environment (dotenvx)")
+    else:
+        print(
+            f"[Env] Found encrypted env file at {dotenv_path}. "
+            "Run this script with: dotenvx run -- uv run examples/benchmarks/run_experiment.py ..."
+        )
+        sys.exit(1)
 else:
     print("[Env] No .env file found, using environment variables")
 

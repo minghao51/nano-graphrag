@@ -51,7 +51,6 @@ class TestHippoRAGRetriever:
 
         return graph_rag
 
-    @pytest.mark.asyncio
     async def test_init_with_defaults(self):
         """Test initialization with default parameters."""
         retriever = HippoRAGRetriever()
@@ -60,7 +59,6 @@ class TestHippoRAGRetriever:
         assert retriever._top_k_seed == 5
         assert retriever._top_k_result == 20
 
-    @pytest.mark.asyncio
     async def test_init_with_custom_params(self):
         """Test initialization with custom parameters."""
         retriever = HippoRAGRetriever(alpha=0.9, top_k_seed=10, top_k_result=50)
@@ -69,7 +67,6 @@ class TestHippoRAGRetriever:
         assert retriever._top_k_seed == 10
         assert retriever._top_k_result == 50
 
-    @pytest.mark.asyncio
     async def test_call_with_empty_graph(self):
         """Test retrieval with an empty graph."""
         retriever = HippoRAGRetriever()
@@ -88,7 +85,6 @@ class TestHippoRAGRetriever:
         mock_graph_rag.aquery.assert_called_once()
         assert result == "Fallback answer"
 
-    @pytest.mark.asyncio
     async def test_call_with_graph(self, mock_graph_rag):
         """Test retrieval with a populated graph."""
         retriever = HippoRAGRetriever(alpha=0.85, top_k_result=3)
@@ -101,7 +97,6 @@ class TestHippoRAGRetriever:
         # Should not fallback to aquery
         mock_graph_rag.aquery.assert_not_called()
 
-    @pytest.mark.asyncio
     async def test_find_seed_entities_with_vector_db(self):
         """Test finding seed entities via vector DB."""
         retriever = HippoRAGRetriever()
@@ -120,7 +115,6 @@ class TestHippoRAGRetriever:
         assert "Entity1" in seeds
         assert "Entity2" in seeds
 
-    @pytest.mark.asyncio
     async def test_find_seed_entities_without_vector_db(self):
         """Test finding seed entities when vector DB is not available."""
         retriever = HippoRAGRetriever()
@@ -131,7 +125,6 @@ class TestHippoRAGRetriever:
 
         assert seeds == []
 
-    @pytest.mark.asyncio
     async def test_nodes_to_context(self, mock_graph_rag):
         """Test converting nodes to context."""
         retriever = HippoRAGRetriever()
@@ -142,7 +135,6 @@ class TestHippoRAGRetriever:
         assert isinstance(context, str)
         assert "Entity1" in context or "entity1" in context.lower()
 
-    @pytest.mark.asyncio
     async def test_nodes_to_context_with_chunks(self, mock_graph_rag):
         """Test that chunks are included in context."""
         retriever = HippoRAGRetriever()

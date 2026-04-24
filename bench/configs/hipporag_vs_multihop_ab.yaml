@@ -1,0 +1,35 @@
+name: hipporag_vs_multihop
+version: "1.0"
+description: "A/B test: HippoRAG PPR vs iterative Multi-hop on MuSiQue"
+
+shared:
+  dataset:
+    name: musique
+    split: test
+    max_samples: 100
+    auto_download: true
+  graphrag:
+    working_dir: ./benchmark_workdirs/ab_hipporag_multihop
+    enable_llm_cache: true
+  metrics: [exact_match, token_f1, context_recall]
+
+variant_a:
+  label: multihop
+  query:
+    modes: [multihop]
+    param_overrides:
+      max_hops: 4
+      entities_per_hop: 10
+      context_token_budget: 8000
+
+variant_b:
+  label: hipporag
+  query:
+    modes: [hipporag]
+    param_overrides:
+      alpha: 0.85
+      top_k_seed: 5
+      top_k_result: 20
+
+output:
+  results_dir: ./benchmark_results/ab_hipporag_vs_multihop

@@ -5,7 +5,6 @@ from nano_graphrag import GraphRAG
 from nano_graphrag.base import QueryParam
 
 
-@pytest.mark.asyncio
 async def test_retriever_protocol_exists():
     """Verify Retriever protocol is defined."""
     from bench.retrievers.base import Retriever, RetrieverResult
@@ -13,7 +12,6 @@ async def test_retriever_protocol_exists():
     assert RetrieverResult is not None
 
 
-@pytest.mark.asyncio
 async def test_retriever_result_dataclass():
     """Verify RetrieverResult dataclass has required fields."""
     from bench.retrievers.base import RetrieverResult

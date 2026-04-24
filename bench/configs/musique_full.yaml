@@ -1,0 +1,28 @@
+name: musique_full_benchmark
+version: "1.0"
+description: "Full benchmark on MuSiQue dataset across all retrieval modes"
+
+dataset:
+  name: musique
+  split: test
+  max_samples: 200
+  auto_download: true
+
+graphrag:
+  working_dir: ./benchmark_workdirs/musique
+  enable_llm_cache: true
+
+query:
+  modes: [local, global, multihop, hipporag, naive]
+  param_overrides:
+    max_hops: 4
+    entities_per_hop: 10
+    context_token_budget: 8000
+    alpha: 0.85
+    top_k_seed: 5
+    top_k_result: 20
+
+metrics: [exact_match, token_f1, context_recall]
+
+output:
+  results_dir: ./benchmark_results/musique

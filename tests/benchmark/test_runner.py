@@ -10,7 +10,6 @@ from bench.cache import create_benchmark_cache
 from bench.runner import BenchmarkConfig, ExperimentRunner
 
 
-@pytest.mark.asyncio
 async def test_runner_uses_cache_when_enabled():
     """ExperimentRunner should wrap LLM functions when cache is enabled."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -37,7 +36,6 @@ async def test_runner_uses_cache_when_enabled():
         assert runner._cache.enabled is True, "Cache should be enabled"
 
 
-@pytest.mark.asyncio
 async def test_runner_skips_cache_when_disabled():
     """ExperimentRunner should not create cache when disabled."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -63,7 +61,6 @@ async def test_runner_skips_cache_when_disabled():
         assert runner._cache is None, "Cache should be None when disabled"
 
 
-@pytest.mark.asyncio
 async def test_runner_includes_cache_stats_in_results():
     """ExperimentResult should include cache statistics."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -112,7 +109,6 @@ async def test_runner_includes_cache_stats_in_results():
         assert isinstance(result.cache_stats["hit_rate"], float)
 
 
-@pytest.mark.asyncio
 async def test_runner_saves_cache_stats_to_json():
     """Cache statistics should be saved in results JSON."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -190,3 +186,27 @@ experiment_name: yaml_cache_test
         # Verify cache.enabled is extracted into graphrag_config
         assert config.graphrag_config.get("enable_llm_cache") is True, \
             "cache.enabled should be set in graphrag_config"
+
+
+def test_runner_uses_shared_settings_defaults_when_not_overridden():
+    """ExperimentRunner should inherit defaults from config/settings.yaml."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        config = BenchmarkConfig(
+            dataset_name="multihop_rag",
+            dataset_path="tests/fixtures/sample_questions.json",
+            corpus_path="tests/fixtures/sample_corpus.json",
+            max_samples=1,
+            graphrag_config={
+                "working_dir": tmpdir,
+                "enable_llm_cache": False,
+            },
+            query_modes=["local"],
+            metrics=["exact_match"],
+            output_dir=tmpdir,
+            experiment_name="test_settings_defaults",
+        )
+
+        runner = ExperimentRunner(config)
+        rag = runner._create_graphrag()
+
+        assert rag.entity_extraction_quality == "balanced"

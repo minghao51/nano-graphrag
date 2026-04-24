@@ -200,6 +200,49 @@ class GraphRAGSettings(BaseSettings):
         return cls(**_unflatten_data(data))
 
 
+FLAT_FIELD_TO_ENV_VAR: Dict[str, str] = {
+    "working_dir": "GRAPH_WORKING_DIR",
+    "llm_model": "LLM_MODEL",
+    "llm_cheap_model": "LLM_CHEAP_MODEL",
+    "llm_api_base": "LLM_API_BASE",
+    "llm_api_key": "LLM_API_KEY",
+    "llm_max_async": "LLM_MAX_ASYNC",
+    "llm_max_tokens": "LLM_MAX_TOKENS",
+    "llm_timeout": "LLM_TIMEOUT",
+    "embedding_model": "EMBEDDING_MODEL",
+    "embedding_api_base": "EMBEDDING_API_BASE",
+    "embedding_api_key": "EMBEDDING_API_KEY",
+    "embedding_dim": "EMBEDDING_DIM",
+    "embedding_max_async": "EMBEDDING_MAX_ASYNC",
+    "embedding_batch_size": "EMBEDDING_BATCH_SIZE",
+    "extraction_max_async": "EXTRACTION_MAX_ASYNC",
+    "extraction_batch_size": "EXTRACTION_BATCH_SIZE",
+    "doc_extraction_max_async": "DOC_EXTRACTION_MAX_ASYNC",
+    "doc_flush_batch_size": "DOC_FLUSH_BATCH_SIZE",
+    "entity_extraction_quality": "ENTITY_EXTRACTION_QUALITY",
+    "extraction_backend": "EXTRACTION_BACKEND",
+    "graph_cluster_algorithm": "GRAPH_CLUSTER_ALGORITHM",
+    "max_incremental_updates_before_full": "MAX_INCREMENTAL_UPDATES_BEFORE_FULL",
+    "alias_batch_size": "ALIAS_BATCH_SIZE",
+    "alias_max_batches_in_flight": "ALIAS_MAX_BATCHES_IN_FLIGHT",
+    "enable_node_embedding": "ENABLE_NODE_EMBEDDING",
+    "enable_local": "ENABLE_LOCAL",
+    "enable_naive_rag": "ENABLE_NAIVE_RAG",
+    "enable_llm_cache": "ENABLE_LLM_CACHE",
+    "enable_entity_linking": "ENABLE_ENTITY_LINKING",
+    "entity_linking_use_neighborhood_evidence": "ENTITY_LINKING_USE_NEIGHBORHOOD_EVIDENCE",
+    "enable_community_reports": "ENABLE_COMMUNITY_REPORTS",
+    "entity_linking_similarity_threshold": "ENTITY_LINKING_SIMILARITY_THRESHOLD",
+    "entity_linking_max_candidates": "ENTITY_LINKING_MAX_CANDIDATES",
+    "entity_linking_iou_threshold": "ENTITY_LINKING_IOU_THRESHOLD",
+    "entity_linking_min_common_neighbors": "ENTITY_LINKING_MIN_COMMON_NEIGHBORS",
+    "entity_count_min_ratio": "ENTITY_COUNT_MIN_RATIO",
+    "entity_count_min_absolute": "ENTITY_COUNT_MIN_ABSOLUTE",
+    "log_level": "LOG_LEVEL",
+    "log_file": "LOG_FILE",
+}
+
+
 def _is_nested_format(data: Dict[str, Any]) -> bool:
     nested_keys = {
         "llm",
