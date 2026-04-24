@@ -74,16 +74,16 @@ async def _find_most_related_text_unit_from_entities(
         split_string_by_multi_markers(dp["source_id"], [GRAPH_FIELD_SEP]) for dp in node_datas
     ]
     edges = await knowledge_graph_inst.get_nodes_edges_batch([dp["id"] for dp in node_datas])
-    all_one_hop_nodes = set()
+    all_one_hop_nodes: set[str] = set()
     for this_edges in edges:
         if not this_edges:
             continue
         all_one_hop_nodes.update([e[1] for e in this_edges])
-    all_one_hop_nodes = list(all_one_hop_nodes)
-    all_one_hop_nodes_data = await knowledge_graph_inst.get_nodes_batch(all_one_hop_nodes)
+    all_one_hop_node_list: list[str] = list(all_one_hop_nodes)
+    all_one_hop_nodes_data = await knowledge_graph_inst.get_nodes_batch(all_one_hop_node_list)
     all_one_hop_text_units_lookup = {
         k: set(split_string_by_multi_markers(v["source_id"], [GRAPH_FIELD_SEP]))
-        for k, v in zip(all_one_hop_nodes, all_one_hop_nodes_data)
+        for k, v in zip(all_one_hop_node_list, all_one_hop_nodes_data)
         if v is not None
     }
     all_text_units_lookup = {}

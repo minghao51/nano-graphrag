@@ -104,14 +104,14 @@ class NetworkXStorage(BaseGraphStorage):
         async with self._graph_lock:
             return self._graph.nodes.get(node_id)
 
-    async def get_nodes_batch(self, node_ids: list[str]) -> dict[str, Union[dict, None]]:
+    async def get_nodes_batch(self, node_ids: list[str]) -> list[Union[dict, None]]:
         return await asyncio.gather(*[self.get_node(node_id) for node_id in node_ids])
 
     async def node_degree(self, node_id: str) -> int:
         async with self._graph_lock:
             return self._graph.degree(node_id) if self._graph.has_node(node_id) else 0
 
-    async def node_degrees_batch(self, node_ids: List[str]) -> List[str]:
+    async def node_degrees_batch(self, node_ids: List[str]) -> List[int]:
         return await asyncio.gather(*[self.node_degree(node_id) for node_id in node_ids])
 
     async def edge_degree(self, src_id: str, tgt_id: str) -> int:

@@ -1,4 +1,7 @@
-from typing import List, Literal, Optional, Union
+import logging
+from typing import Any, Callable, List, Literal, Optional, Union
+
+logger = logging.getLogger("nano-graphrag")
 
 
 class SeparatorSplitter:
@@ -8,9 +11,18 @@ class SeparatorSplitter:
         keep_separator: Union[bool, Literal["start", "end"]] = "end",
         chunk_size: int = 4000,
         chunk_overlap: int = 200,
-        length_function: callable = len,
+        length_function: Callable[[Any], int] = len,
     ):
-        self._separators = separators or []
+        # Some tokenizers collapse whitespace/punctuation separators to empty token sequences.
+        # Ignore those so separator matching cannot get stuck on a zero-length advance.
+        original_count = len(separators) if separators else 0
+        self._separators = [separator for separator in (separators or []) if separator]
+        if original_count > 0 and not self._separators:
+            logger.warning(
+                "All %d separators were empty/zero-length and filtered out. "
+                "Chunking will produce a single chunk for the entire input.",
+                original_count,
+            )
         self._keep_separator = keep_separator
         self._chunk_size = chunk_size
         self._chunk_overlap = chunk_overlap
@@ -50,7 +62,7 @@ class SeparatorSplitter:
             return []
 
         merged_splits = []
-        current_chunk = []
+        current_chunk: List[int] = []
 
         for split in splits:
             if not current_chunk:

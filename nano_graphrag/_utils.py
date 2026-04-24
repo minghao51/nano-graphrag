@@ -8,7 +8,7 @@ import re
 from dataclasses import dataclass
 from functools import wraps
 from hashlib import md5, sha256
-from typing import Any, Literal, Union
+from typing import Any, Callable, Literal, Union
 
 import numpy as np
 import tiktoken
@@ -17,7 +17,7 @@ from pydantic import BaseModel
 try:
     from transformers import AutoTokenizer
 except ImportError:
-    AutoTokenizer = None
+    AutoTokenizer = None  # type: ignore[assignment,misc]
 
 logger = logging.getLogger("nano-graphrag")
 logging.getLogger("neo4j").setLevel(logging.ERROR)
@@ -163,10 +163,18 @@ class TokenizerWrapper:
     def get_tokenizer(self):
         """Provides access to the underlying tokenizer object."""
         self._lazy_load_tokenizer()
+        if self._tokenizer is None:
+            raise ImportError(
+                f"Tokenizer failed to load: type='{self.tokenizer_type}', name='{self.model_name}'"
+            )
         return self._tokenizer
 
     def encode(self, text: str) -> list[int]:
         self._lazy_load_tokenizer()
+        if self._tokenizer is None:
+            raise ImportError(
+                f"Tokenizer failed to load: type='{self.tokenizer_type}', name='{self.model_name}'"
+            )
         if text in self._encode_cache:
             self._encode_cache.move_to_end(text)
             return self._encode_cache[text]
@@ -178,6 +186,10 @@ class TokenizerWrapper:
 
     def decode(self, tokens: list[int]) -> str:
         self._lazy_load_tokenizer()
+        if self._tokenizer is None:
+            raise ImportError(
+                f"Tokenizer failed to load: type='{self.tokenizer_type}', name='{self.model_name}'"
+            )
         key = tuple(tokens)
         if key in self._decode_cache:
             self._decode_cache.move_to_end(key)
@@ -190,17 +202,20 @@ class TokenizerWrapper:
 
     def decode_batch(self, tokens_list: list[list[int]]) -> list[str]:
         self._lazy_load_tokenizer()
-        # Defensive: simulating list concatenation via newline
+        if self._tokenizer is None:
+            raise ImportError(
+                f"Tokenizer failed to load: type='{self.tokenizer_type}', name='{self.model_name}'"
+            )
         if self.tokenizer_type == "tiktoken":
             return [self._tokenizer.decode(tokens) for tokens in tokens_list]
-        elif self.tokenizer_type == "huggingface":
-            return self._tokenizer.batch_decode(tokens_list, skip_special_tokens=True)
-        else:
-            raise ValueError(f"Unknown tokenizer_type: {self.tokenizer_type}")
+        return self._tokenizer.batch_decode(tokens_list, skip_special_tokens=True)
 
 
 def truncate_list_by_token_size(
-    list_data: list, key: callable, max_token_size: int, tokenizer_wrapper: TokenizerWrapper
+    list_data: list,
+    key: Callable[[Any], str],
+    max_token_size: int,
+    tokenizer_wrapper: "TokenizerWrapper",
 ):
     """Truncate a list of data by token size using a provided tokenizer wrapper."""
     if max_token_size <= 0:
@@ -311,7 +326,7 @@ def clean_str(input: Any) -> str:
 class EmbeddingFunc:
     embedding_dim: int
     max_token_size: int
-    func: callable
+    func: Callable[..., Any]
 
     async def __call__(self, *args, **kwargs) -> np.ndarray:
         return await self.func(*args, **kwargs)

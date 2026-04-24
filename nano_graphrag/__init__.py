@@ -1,3 +1,4 @@
+from ._config import GraphRAGSettings as GraphRAGSettings
 from ._llm_litellm import (
     LiteLLMWrapper as LiteLLMWrapper,
 )

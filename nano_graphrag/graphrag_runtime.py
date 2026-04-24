@@ -247,7 +247,8 @@ def _build_storages(self):
 def _runtime_config(self) -> dict:
     runtime_config = self._to_config_dict()
     runtime_config["_use_structured_extraction"] = self._use_structured_extraction
-    runtime_config["entity_registry"] = self.entity_registry  # For entity-grounded RAG
+    runtime_config["entity_registry"] = self.entity_registry
+    runtime_config["knowledge_graph_inst"] = self.chunk_entity_relation_graph
     runtime_config["best_model_stream_func"] = self.best_model_stream_func
     runtime_config["cheap_model_stream_func"] = self.cheap_model_stream_func
     return runtime_config

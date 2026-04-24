@@ -9,6 +9,8 @@ from nano_graphrag import GraphRAG, QueryParam
 from nano_graphrag._storage import SQLiteGraphStorage
 from nano_graphrag._utils import generate_stable_entity_id, wrap_embedding_func_with_attrs
 
+pytestmark = pytest.mark.unit
+
 WORKING_DIR = "./tests/nano_graphrag_cache_sqlite_graph_storage"
 FAKE_COMMUNITY_REPORT = json.dumps(
     {
@@ -61,7 +63,6 @@ def sqlite_storage(setup_teardown):
     return rag.chunk_entity_relation_graph
 
 
-@pytest.mark.asyncio
 async def test_upsert_and_get_node(sqlite_storage):
     await sqlite_storage.upsert_node("node1", {"attr1": "value1", "source_id": "chunk1"})
 
@@ -70,7 +71,6 @@ async def test_upsert_and_get_node(sqlite_storage):
     assert await sqlite_storage.has_node("node1") is True
 
 
-@pytest.mark.asyncio
 async def test_upsert_and_get_edge_with_canonical_order(sqlite_storage):
     await sqlite_storage.upsert_node("node1", {"source_id": "chunk1"})
     await sqlite_storage.upsert_node("node2", {"source_id": "chunk2"})
@@ -88,7 +88,6 @@ async def test_upsert_and_get_edge_with_canonical_order(sqlite_storage):
     }
 
 
-@pytest.mark.asyncio
 async def test_batch_apis_and_degree_methods(sqlite_storage):
     await sqlite_storage.upsert_nodes_batch(
         [
@@ -121,7 +120,6 @@ async def test_batch_apis_and_degree_methods(sqlite_storage):
     ]
 
 
-@pytest.mark.asyncio
 async def test_get_node_edges_returns_stable_canonical_tuples(sqlite_storage):
     await sqlite_storage.upsert_nodes_batch(
         [
@@ -141,7 +139,6 @@ async def test_get_node_edges_returns_stable_canonical_tuples(sqlite_storage):
     ]
 
 
-@pytest.mark.asyncio
 async def test_delete_and_nonexistent_behavior(sqlite_storage):
     await sqlite_storage.upsert_nodes_batch(
         [
@@ -165,7 +162,6 @@ async def test_delete_and_nonexistent_behavior(sqlite_storage):
     assert await sqlite_storage.edge_degree("missing", "other") == 0
 
 
-@pytest.mark.asyncio
 async def test_persistence_across_reload(setup_teardown):
     rag = GraphRAG(
         working_dir=WORKING_DIR,
@@ -184,7 +180,6 @@ async def test_persistence_across_reload(setup_teardown):
     assert await reloaded.get_node("node1") == {"attr": "value", "source_id": "chunk1"}
 
 
-@pytest.mark.asyncio
 async def test_clustering_persists_clusters(setup_teardown):
     rag = GraphRAG(
         working_dir=WORKING_DIR,
@@ -210,7 +205,6 @@ async def test_clustering_persists_clusters(setup_teardown):
     assert json.loads(node["clusters"])
 
 
-@pytest.mark.asyncio
 async def test_incremental_clustering_updates_frontier_only(sqlite_storage):
     sqlite_storage.global_config["addon_params"]["community_update_max_frontier_ratio"] = 0.9
     for node_id in ["A", "B", "C", "D", "E", "F"]:
@@ -246,7 +240,6 @@ async def test_incremental_clustering_updates_frontier_only(sqlite_storage):
     assert len(sqlite_storage._last_affected_community_ids) > 0
 
 
-@pytest.mark.asyncio
 async def test_community_schema_with_multiple_levels(sqlite_storage):
     await sqlite_storage.upsert_node(
         "node1",

@@ -8,6 +8,8 @@ from nano_graphrag import GraphRAG
 from nano_graphrag._storage import JsonKVStorage
 from nano_graphrag._utils import wrap_embedding_func_with_attrs
 
+pytestmark = pytest.mark.unit
+
 WORKING_DIR = "./tests/nano_graphrag_cache_kv_storage_test"
 
 
@@ -27,7 +29,6 @@ async def mock_embedding(texts: list[str]):
     return [[0.0] * 8 for _ in texts]
 
 
-@pytest.mark.asyncio
 async def test_sqlite_kv_storage_migrates_legacy_json_data(setup_teardown):
     namespace = "migration"
     legacy_path = os.path.join(WORKING_DIR, f"kv_store_{namespace}.json")

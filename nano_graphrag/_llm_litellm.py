@@ -463,7 +463,7 @@ async def litellm_embedding(
 class LiteLLMWrapper:
     def __init__(
         self,
-        model: str = "gpt-4o-mini",  # Aligned with DEFAULT_LLM_MODEL (no provider prefix)
+        model: str = "openrouter/google/gemma-4-31b-it",
         structured_output: bool = True,
         use_native_structured_output: bool = True,
         hashing_kv: Optional[BaseKVStorage] = None,

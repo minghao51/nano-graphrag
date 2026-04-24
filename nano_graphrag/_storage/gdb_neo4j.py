@@ -2,7 +2,7 @@ import asyncio
 import json
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import List, Union
+from typing import Any, List, Union
 
 from neo4j import AsyncGraphDatabase
 
@@ -128,9 +128,9 @@ class Neo4jStorage(BaseGraphStorage):
         results = await self.node_degrees_batch([node_id])
         return results[0] if results else 0
 
-    async def node_degrees_batch(self, node_ids: List[str]) -> List[str]:
+    async def node_degrees_batch(self, node_ids: List[str]) -> List[int]:
         if not node_ids:
-            return {}
+            return []
 
         result_dict = {node_id: 0 for node_id in node_ids}
         async with self.async_driver.session() as session:
@@ -203,9 +203,9 @@ class Neo4jStorage(BaseGraphStorage):
         result = await self.get_nodes_batch([node_id])
         return result[0] if result else None
 
-    async def get_nodes_batch(self, node_ids: list[str]) -> dict[str, Union[dict, None]]:
+    async def get_nodes_batch(self, node_ids: list[str]) -> list[Union[dict, None]]:
         if not node_ids:
-            return {}
+            return []
 
         result_dict = {node_id: None for node_id in node_ids}
 
@@ -463,7 +463,7 @@ class Neo4jStorage(BaseGraphStorage):
                 await session.run(f"CALL gds.graph.drop('graph_{self.namespace}')")
 
     async def community_schema(self) -> dict[str, SingleCommunitySchema]:
-        results = defaultdict(
+        results: dict[str, dict[str, Any]] = defaultdict(
             lambda: dict(
                 level=None,
                 title=None,

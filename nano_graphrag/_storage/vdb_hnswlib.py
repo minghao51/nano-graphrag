@@ -26,7 +26,7 @@ class HNSWVectorStorage(BaseVectorStorage):
     ef_search: int = 50
     num_threads: int = -1
     _index: Any = field(init=False)
-    _metadata: dict[str, dict] = field(default_factory=dict)
+    _metadata: dict[int, dict] = field(default_factory=dict)
     _current_elements: int = 0
 
     def _create_fresh_index(self, max_elements: int) -> hnswlib.Index:
@@ -80,7 +80,7 @@ class HNSWVectorStorage(BaseVectorStorage):
         logger.info(f"Inserting {len(data)} vectors to {self.namespace}")
         if not data:
             logger.warning("You insert an empty data to vector DB")
-            return []
+            return np.array([])
 
         if self._current_elements + len(data) > self.max_elements:
             new_max = max(self.max_elements * 2, self._current_elements + len(data))
@@ -117,7 +117,7 @@ class HNSWVectorStorage(BaseVectorStorage):
         )
         self._metadata.update(
             {
-                id_int: {k: v for k, v in d.items() if k in self.meta_fields or k == "id"}
+                int(id_int): {k: v for k, v in d.items() if k in self.meta_fields or k == "id"}
                 for id_int, d in zip(ids, list_data)
             }
         )
@@ -164,14 +164,15 @@ class HNSWVectorStorage(BaseVectorStorage):
 
         results = []
         for label, distance in zip(labels[0], distances[0]):
-            if label not in self._metadata:
+            label_int = int(label)
+            if label_int not in self._metadata:
                 continue
             similarity = 1 - distance
             if better_than_threshold is not None and similarity < better_than_threshold:
                 continue
             results.append(
                 {
-                    **self._metadata.get(label, {}),
+                    **self._metadata.get(label_int, {}),
                     "distance": distance,
                     "similarity": similarity,
                 }
@@ -211,7 +212,9 @@ class HNSWVectorStorage(BaseVectorStorage):
         new_max = max(len(active_ids) * 2, self.max_elements)
         self._index = self._create_fresh_index(new_max)
         self._index.add_items(
-            data=old_vectors, ids=np.array(active_ids), num_threads=self.num_threads
+            data=old_vectors,
+            ids=np.array(active_ids, dtype=np.uint64),
+            num_threads=self.num_threads,
         )
         self.max_elements = new_max
         self._current_elements = len(active_ids)

@@ -9,6 +9,8 @@ from nano_graphrag import GraphRAG
 from nano_graphrag._storage import Neo4jStorage
 from nano_graphrag._utils import wrap_embedding_func_with_attrs
 
+pytestmark = pytest.mark.integration
+
 if os.environ.get("NANO_GRAPHRAG_TEST_IGNORE_NEO4J", False):
     pytest.skip("skipping neo4j tests", allow_module_level=True)
 
@@ -84,7 +86,6 @@ def test_neo4j_storage_init():
         )
 
 
-@pytest.mark.asyncio
 @reset_graph
 async def test_upsert_and_get_node(neo4j_storage):
     node_id = "node1"
@@ -100,7 +101,6 @@ async def test_upsert_and_get_node(neo4j_storage):
     assert has_node is True
 
 
-@pytest.mark.asyncio
 @reset_graph
 async def test_upsert_and_get_edge(neo4j_storage):
     source_id = "node1"
@@ -119,7 +119,6 @@ async def test_upsert_and_get_edge(neo4j_storage):
     assert has_edge is True
 
 
-@pytest.mark.asyncio
 @reset_graph
 async def test_node_degree(neo4j_storage):
     node_id = "center"
@@ -135,7 +134,6 @@ async def test_node_degree(neo4j_storage):
     assert degree == num_neighbors
 
 
-@pytest.mark.asyncio
 @reset_graph
 async def test_edge_degree(neo4j_storage):
     source_id = "node1"
@@ -162,7 +160,6 @@ async def test_edge_degree(neo4j_storage):
     assert edge_degree == expected_edge_degree
 
 
-@pytest.mark.asyncio
 @reset_graph
 async def test_get_node_edges(neo4j_storage):
     center_id = "center"
@@ -180,7 +177,6 @@ async def test_get_node_edges(neo4j_storage):
     assert set(result) == set(expected_edges)
 
 
-@pytest.mark.asyncio
 @reset_graph
 async def test_leiden_clustering(neo4j_storage):
     for i in range(10):
@@ -206,7 +202,6 @@ async def test_leiden_clustering(neo4j_storage):
         print(community)
 
 
-@pytest.mark.asyncio
 @reset_graph
 async def test_nonexistent_node_and_edge(neo4j_storage):
     assert await neo4j_storage.has_node("nonexistent") is False
@@ -218,7 +213,6 @@ async def test_nonexistent_node_and_edge(neo4j_storage):
     assert await neo4j_storage.edge_degree("node1", "node2") == 0
 
 
-@pytest.mark.asyncio
 @reset_graph
 async def test_cluster_error_handling(neo4j_storage):
     with pytest.raises(
@@ -227,7 +221,6 @@ async def test_cluster_error_handling(neo4j_storage):
         await neo4j_storage.clustering("invalid_algo")
 
 
-@pytest.mark.asyncio
 @reset_graph
 async def test_index_done(neo4j_storage):
     await neo4j_storage.index_done_callback()

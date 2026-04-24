@@ -10,6 +10,8 @@ from nano_graphrag import GraphRAG
 from nano_graphrag._storage import NetworkXStorage
 from nano_graphrag._utils import wrap_embedding_func_with_attrs
 
+pytestmark = pytest.mark.unit
+
 WORKING_DIR = "./tests/nano_graphrag_cache_networkx_storage_test"
 
 
@@ -38,7 +40,6 @@ def networkx_storage(setup_teardown):
     )
 
 
-@pytest.mark.asyncio
 async def test_upsert_and_get_node(networkx_storage):
     node_id = "node1"
     node_data = {"attr1": "value1", "attr2": "value2"}
@@ -52,7 +53,6 @@ async def test_upsert_and_get_node(networkx_storage):
     assert has_node is True
 
 
-@pytest.mark.asyncio
 async def test_upsert_and_get_edge(networkx_storage):
     source_id = "node1"
     target_id = "node2"
@@ -69,7 +69,6 @@ async def test_upsert_and_get_edge(networkx_storage):
     assert has_edge is True
 
 
-@pytest.mark.asyncio
 async def test_node_degree(networkx_storage):
     node_id = "center"
     await networkx_storage.upsert_node(node_id, {})
@@ -84,7 +83,6 @@ async def test_node_degree(networkx_storage):
     assert degree == num_neighbors
 
 
-@pytest.mark.asyncio
 async def test_edge_degree(networkx_storage):
     source_id = "node1"
     target_id = "node2"
@@ -110,7 +108,6 @@ async def test_edge_degree(networkx_storage):
     assert edge_degree == expected_edge_degree
 
 
-@pytest.mark.asyncio
 async def test_get_node_edges(networkx_storage):
     center_id = "center"
     await networkx_storage.upsert_node(center_id, {})
@@ -127,7 +124,6 @@ async def test_get_node_edges(networkx_storage):
 
 
 @pytest.mark.parametrize("algorithm", ["leiden"])
-@pytest.mark.asyncio
 async def test_clustering(networkx_storage, algorithm):
     # [numberchiffre]: node ID is case-sensitive for clustering with leiden.
     for i in range(10):
@@ -155,7 +151,6 @@ async def test_clustering(networkx_storage, algorithm):
 
 
 @pytest.mark.parametrize("algorithm", ["leiden"])
-@pytest.mark.asyncio
 async def test_leiden_clustering_consistency(networkx_storage, algorithm):
     for i in range(10):
         await networkx_storage.upsert_node(f"NODE{i}", {"source_id": f"chunk{i}"})
@@ -172,7 +167,6 @@ async def test_leiden_clustering_consistency(networkx_storage, algorithm):
 
 
 @pytest.mark.parametrize("algorithm", ["leiden"])
-@pytest.mark.asyncio
 async def test_leiden_clustering_community_structure(networkx_storage, algorithm):
     for i in range(10):
         await networkx_storage.upsert_node(f"A{i}", {"source_id": f"chunkA{i}"})
@@ -193,7 +187,6 @@ async def test_leiden_clustering_community_structure(networkx_storage, algorithm
 
 
 @pytest.mark.parametrize("algorithm", ["leiden"])
-@pytest.mark.asyncio
 async def test_leiden_clustering_hierarchical_structure(networkx_storage, algorithm):
     await networkx_storage.upsert_node("NODE1", {"source_id": "chunk1", "clusters": json.dumps([{"level": 0, "cluster": "0"}, {"level": 1, "cluster": "1"}])})
     await networkx_storage.upsert_node("NODE2", {"source_id": "chunk2", "clusters": json.dumps([{"level": 0, "cluster": "0"}, {"level": 1, "cluster": "2"}])})
@@ -208,7 +201,6 @@ async def test_leiden_clustering_hierarchical_structure(networkx_storage, algori
     assert communities_per_level[0] >= communities_per_level.get(max(levels), 0), "Lower levels should have more or equal number of communities"
 
 
-@pytest.mark.asyncio
 async def test_persistence(setup_teardown):
     rag = GraphRAG(working_dir=WORKING_DIR, embedding_func=mock_embedding)
     initial_storage = NetworkXStorage(
@@ -238,7 +230,6 @@ async def test_persistence(setup_teardown):
     assert edge_data == {"weight": 1.0}
 
 
-@pytest.mark.asyncio
 async def test_embed_nodes(networkx_storage):
     for i in range(5):
         await networkx_storage.upsert_node(f"node{i}", {"id": f"node{i}"})
@@ -253,7 +244,6 @@ async def test_embed_nodes(networkx_storage):
     assert all(f"node{i}" in node_ids for i in range(5))
 
 
-@pytest.mark.asyncio
 async def test_stable_largest_connected_component_equal_components():
     G = nx.Graph()
     G.add_edges_from([("A", "B"), ("C", "D"), ("E", "F")])
@@ -262,7 +252,6 @@ async def test_stable_largest_connected_component_equal_components():
     assert list(result.edges()) == [("A", "B")]
 
 
-@pytest.mark.asyncio
 async def test_stable_largest_connected_component_stability():
     G = nx.Graph()
     G.add_edges_from([("A", "B"), ("B", "C"), ("C", "D"), ("E", "F")])
@@ -273,7 +262,6 @@ async def test_stable_largest_connected_component_stability():
     assert list(result1.edges()) == list(result2.edges())
 
 
-@pytest.mark.asyncio
 async def test_stable_largest_connected_component_directed_graph():
     G = nx.DiGraph()
     G.add_edges_from([("A", "B"), ("B", "C"), ("C", "D"), ("E", "F")])
@@ -282,7 +270,6 @@ async def test_stable_largest_connected_component_directed_graph():
     assert sorted(result.edges()) == [("A", "B"), ("B", "C"), ("C", "D")]
 
 
-@pytest.mark.asyncio
 async def test_stable_largest_connected_component_self_loops_and_parallel_edges():
     G = nx.Graph()
     G.add_edges_from([("A", "B"), ("B", "C"), ("C", "A"), ("A", "A"), ("B", "B"), ("A", "B")])
@@ -291,7 +278,6 @@ async def test_stable_largest_connected_component_self_loops_and_parallel_edges(
     assert sorted(result.edges()) == [('A', 'A'), ('A', 'B'), ('A', 'C'), ('B', 'B'), ('B', 'C')]
 
 
-@pytest.mark.asyncio
 async def test_community_schema_with_no_clusters(networkx_storage):
     await networkx_storage.upsert_node("node1", {"source_id": "chunk1"})
     await networkx_storage.upsert_node("node2", {"source_id": "chunk2"})
@@ -301,7 +287,6 @@ async def test_community_schema_with_no_clusters(networkx_storage):
     assert len(community_schema) == 0
 
 
-@pytest.mark.asyncio
 async def test_community_schema_multiple_levels(networkx_storage):
     await networkx_storage.upsert_node("node1", {"source_id": "chunk1", "clusters": json.dumps([{"level": 0, "cluster": "0"}, {"level": 1, "cluster": "1"}])})
     await networkx_storage.upsert_node("node2", {"source_id": "chunk2", "clusters": json.dumps([{"level": 0, "cluster": "0"}, {"level": 1, "cluster": "2"}])})
@@ -316,7 +301,6 @@ async def test_community_schema_multiple_levels(networkx_storage):
     assert set(community_schema["0"]["sub_communities"]) == {"1", "2"}
 
 
-@pytest.mark.asyncio
 async def test_community_schema_occurrence(networkx_storage):
     await networkx_storage.upsert_node("node1", {"source_id": "chunk1,chunk2", "clusters": json.dumps([{"level": 0, "cluster": "0"}])})
     await networkx_storage.upsert_node("node2", {"source_id": "chunk3", "clusters": json.dumps([{"level": 0, "cluster": "0"}])})
@@ -328,7 +312,6 @@ async def test_community_schema_occurrence(networkx_storage):
     assert community_schema["1"]["occurrence"] == 0.5
 
 
-@pytest.mark.asyncio
 async def test_community_schema_sub_communities(networkx_storage):
     await networkx_storage.upsert_node("node1", {"source_id": "chunk1", "clusters": json.dumps([{"level": 0, "cluster": "0"}, {"level": 1, "cluster": "1"}])})
     await networkx_storage.upsert_node("node2", {"source_id": "chunk2", "clusters": json.dumps([{"level": 0, "cluster": "0"}, {"level": 1, "cluster": "2"}])})
@@ -343,7 +326,6 @@ async def test_community_schema_sub_communities(networkx_storage):
     assert community_schema["4"]["sub_communities"] == []
 
 
-@pytest.mark.asyncio
 async def test_concurrent_operations(networkx_storage):
     async def add_nodes(start, end):
         for i in range(start, end):
@@ -358,7 +340,6 @@ async def test_concurrent_operations(networkx_storage):
     assert len(networkx_storage._graph.nodes) == 1000
 
 
-@pytest.mark.asyncio
 async def test_nonexistent_node_and_edge(networkx_storage):
     assert await networkx_storage.has_node("nonexistent") is False
     assert await networkx_storage.has_edge("node1", "node2") is False
@@ -369,7 +350,6 @@ async def test_nonexistent_node_and_edge(networkx_storage):
     assert await networkx_storage.edge_degree("node1", "node2") == 0
 
 
-@pytest.mark.asyncio
 async def test_error_handling(networkx_storage):
     with pytest.raises(ValueError, match="Clustering algorithm invalid_algo not supported"):
         await networkx_storage.clustering("invalid_algo")
@@ -378,7 +358,6 @@ async def test_error_handling(networkx_storage):
         await networkx_storage.embed_nodes("invalid_algo")
 
 
-@pytest.mark.asyncio
 async def test_incremental_clustering_updates_frontier_only(networkx_storage):
     networkx_storage.global_config["addon_params"]["community_update_max_frontier_ratio"] = 0.9
     for node_id in ["A", "B", "C", "D", "E", "F"]:
@@ -415,7 +394,6 @@ async def test_incremental_clustering_updates_frontier_only(networkx_storage):
     assert len(networkx_storage._last_affected_community_ids) > 0
 
 
-@pytest.mark.asyncio
 async def test_incremental_clustering_works_for_multi_level_graphs(networkx_storage):
     """Incremental clustering is now allowed for multi-level graphs when frontier is small."""
     networkx_storage.global_config["addon_params"]["community_update_max_frontier_ratio"] = 0.9
@@ -455,7 +433,6 @@ async def test_incremental_clustering_works_for_multi_level_graphs(networkx_stor
     assert n0_clusters[0]["cluster"].startswith("inc-")
 
 
-@pytest.mark.asyncio
 async def test_incremental_clustering_seeds_from_existing_level0_clusters(
     networkx_storage, monkeypatch
 ):

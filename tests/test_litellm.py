@@ -16,7 +16,9 @@ from nano_graphrag._llm_litellm import (
 )
 from nano_graphrag._schemas import EntityExtractionOutput
 from nano_graphrag import GraphRAG
-from nano_graphrag.base import GraphRAGConfig
+from nano_graphrag.base import GraphRAGConfig, DEFAULT_CHEAP_MODEL
+
+pytestmark = pytest.mark.unit
 
 
 class TestDetectProvider:
@@ -88,7 +90,6 @@ class TestSupportsStructuredOutput:
         assert supports_structured_output("llama3.2") is False
 
 
-@pytest.mark.asyncio
 class TestLiteLLMCompletion:
     """Test LiteLLM completion function."""
 
@@ -242,7 +243,6 @@ class TestLiteLLMCompletion:
         assert build_provider_requirements("gpt-4o") is None
 
 
-@pytest.mark.asyncio
 class TestLiteLLMWrapper:
     """Test LiteLLMWrapper class."""
 
@@ -329,7 +329,7 @@ class TestGraphRAGConfig:
         assert config.llm_model == "gpt-4o"
         assert config.llm_api_base == "http://localhost:11434"
         # Default values should be preserved
-        assert config.llm_cheap_model == "gpt-4o-mini"
+        assert config.llm_cheap_model == DEFAULT_CHEAP_MODEL
 
     def test_to_dict(self):
         """Test converting config to dict."""
@@ -341,7 +341,7 @@ class TestGraphRAGConfig:
 
         assert config_dict["llm_model"] == "gpt-4o"
         assert config_dict["llm_api_base"] == "http://localhost:11434"
-        assert config_dict["llm_cheap_model"] == "gpt-4o-mini"
+        assert config_dict["llm_cheap_model"] == DEFAULT_CHEAP_MODEL
 
     def test_from_yaml(self, tmp_path):
         """Test loading config from YAML file."""
@@ -376,8 +376,8 @@ class TestGraphRAGConfig:
         with open(config_file, "r") as f:
             loaded_data = yaml.safe_load(f)
 
-        assert loaded_data["llm_model"] == "gpt-4o"
-        assert loaded_data["llm_api_base"] == "http://localhost:11434"
+        assert loaded_data["llm"]["model"] == "gpt-4o"
+        assert loaded_data["llm"]["api_base"] == "http://localhost:11434"
 
     def test_from_env(self, monkeypatch):
         """Test loading config from environment variables."""
@@ -385,6 +385,8 @@ class TestGraphRAGConfig:
         monkeypatch.setenv("LLM_API_BASE", "http://localhost:11434")
         monkeypatch.setenv("LLM_MAX_ASYNC", "32")
         monkeypatch.setenv("ENABLE_NODE_EMBEDDING", "true")
+        monkeypatch.setenv("ENABLE_COMMUNITY_REPORTS", "false")
+        monkeypatch.setenv("ENTITY_LINKING_USE_NEIGHBORHOOD_EVIDENCE", "false")
         monkeypatch.setenv("LOG_LEVEL", "DEBUG")
 
         config = GraphRAGConfig.from_env()
@@ -393,6 +395,8 @@ class TestGraphRAGConfig:
         assert config.llm_api_base == "http://localhost:11434"
         assert config.llm_max_async == 32
         assert config.enable_node_embedding is True
+        assert config.enable_community_reports is False
+        assert config.entity_linking_use_neighborhood_evidence is False
         assert config.log_level == "DEBUG"
 
     def test_merge(self):
@@ -438,6 +442,24 @@ class TestGraphRAG:
         assert rag.llm_model == "gpt-4o"
         assert rag.llm_api_base == "http://localhost:11434"
         assert rag.enable_local is True
+
+    def test_from_config_preserves_experiment_knobs(self):
+        config = GraphRAGConfig(
+            working_dir="./test_cache",
+            alias_max_batches_in_flight=9,
+            entity_count_min_ratio=4.5,
+            entity_count_min_absolute=11,
+        )
+
+        rag = GraphRAG.from_config(config)
+        runtime_config = rag._to_config_dict()
+
+        assert rag.alias_max_batches_in_flight == 9
+        assert rag.entity_count_min_ratio == 4.5
+        assert rag.entity_count_min_absolute == 11
+        assert runtime_config["alias_max_batches_in_flight"] == 9
+        assert runtime_config["entity_count_min_ratio"] == 4.5
+        assert runtime_config["entity_count_min_absolute"] == 11
 
     def test_timeout_passed_to_litellm_wrapper(self):
         """Test that timeout is passed to LiteLLMWrapper."""
@@ -526,7 +548,7 @@ class TestGraphRAGConfigValidation:
         import pytest
         from nano_graphrag.base import GraphRAGConfig
 
-        with pytest.raises(ValueError, match="Invalid entity_extraction_quality"):
+        with pytest.raises(ValueError, match="quality"):
             GraphRAGConfig(entity_extraction_quality="invalid")
 
     def test_valid_quality_modes_accepted(self):
@@ -542,7 +564,7 @@ class TestGraphRAGConfigValidation:
         import pytest
         from nano_graphrag.base import GraphRAGConfig
 
-        with pytest.raises(ValueError, match="Invalid graph_cluster_algorithm"):
+        with pytest.raises(ValueError, match="algorithm"):
             GraphRAGConfig(graph_cluster_algorithm="invalid")
 
     def test_valid_cluster_algorithms_accepted(self):
@@ -558,7 +580,7 @@ class TestGraphRAGConfigValidation:
         import pytest
         from nano_graphrag.base import GraphRAGConfig
 
-        with pytest.raises(ValueError, match="Invalid log_level"):
+        with pytest.raises(ValueError, match="log_level|level"):
             GraphRAGConfig(log_level="invalid")
 
     def test_valid_log_levels_accepted(self):
@@ -575,7 +597,7 @@ class TestGraphRAGConfigValidation:
         from nano_graphrag.base import GraphRAGConfig
 
         monkeypatch.setenv("ENTITY_EXTRACTION_QUALITY", "invalid")
-        with pytest.raises(ValueError, match="Invalid entity_extraction_quality"):
+        with pytest.raises(ValueError, match="quality"):
             GraphRAGConfig.from_env()
 
     def test_from_yaml_with_invalid_cluster_algorithm(self, tmp_path):
@@ -589,5 +611,5 @@ class TestGraphRAGConfigValidation:
         with open(config_file, "w") as f:
             yaml.dump(config_data, f)
 
-        with pytest.raises(ValueError, match="Invalid graph_cluster_algorithm"):
+        with pytest.raises(ValueError, match="algorithm"):
             GraphRAGConfig.from_yaml(str(config_file))
