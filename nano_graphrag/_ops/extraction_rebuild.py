@@ -1,3 +1,4 @@
+import asyncio
 import json
 from collections import defaultdict
 from typing import Optional
@@ -409,6 +410,8 @@ async def rebuild_knowledge_graph_for_documents(
 
     entity_ids_to_refresh = set(affected_entity_ids).union(entity_id_remap.values())
     entity_vdb_batch: dict[str, dict] = {}
+
+    entities_to_summarize: list[tuple[str, dict]] = []
     for entity_id in entity_ids_to_refresh:
         combined = combined_entities.get(entity_id_remap.get(entity_id, entity_id))
         if entity_id_remap.get(entity_id, entity_id) != entity_id:
@@ -431,12 +434,23 @@ async def rebuild_knowledge_graph_for_documents(
             if entity_registry is not None:
                 entity_registry.remove_entity(entity_id)
             continue
-        combined["description"] = await _handle_entity_relation_summary(
-            combined["entity_name"],
-            combined["description"],
-            global_config,
-            tokenizer_wrapper,
-        )
+        entities_to_summarize.append((entity_id, combined))
+
+    if entities_to_summarize:
+        summary_semaphore = asyncio.Semaphore(global_config.get("extraction_max_async", 16))
+
+        async def _summarize_entity(entity_id: str, combined: dict) -> None:
+            async with summary_semaphore:
+                combined["description"] = await _handle_entity_relation_summary(
+                    combined["entity_name"],
+                    combined["description"],
+                    global_config,
+                    tokenizer_wrapper,
+                )
+
+        await asyncio.gather(*[_summarize_entity(eid, ent) for eid, ent in entities_to_summarize])
+
+    for entity_id, combined in entities_to_summarize:
         node_payload = {**combined, "aliases": json.dumps(combined.get("aliases", []))}
         await knowledge_graph_inst.upsert_node(entity_id, node_payload)
         if entity_vdb is not None:
@@ -470,6 +484,8 @@ async def rebuild_knowledge_graph_for_documents(
     relationship_ids_to_refresh = set(affected_relationship_ids).union(
         combined_relationships.keys()
     )
+
+    rels_to_process: list[tuple[str, dict, Optional[tuple[str, str]]]] = []
     for relationship_id in relationship_ids_to_refresh:
         removed_edge = removed_relationship_lookup.get(relationship_id)
         if removed_edge is not None:
@@ -492,12 +508,23 @@ async def rebuild_knowledge_graph_for_documents(
                 endpoint_combined = combined_entities.get(endpoint)
                 if endpoint_combined is not None:
                     await knowledge_graph_inst.upsert_node(endpoint, endpoint_combined)
-        combined["description"] = await _handle_entity_relation_summary(
-            f"{combined['src_entity_id']}->{combined['tgt_entity_id']}",
-            combined["description"],
-            global_config,
-            tokenizer_wrapper,
-        )
+        rels_to_process.append((relationship_id, combined, removed_edge))
+
+    if rels_to_process:
+        rel_semaphore = asyncio.Semaphore(global_config.get("extraction_max_async", 16))
+
+        async def _summarize_relationship(combined: dict) -> None:
+            async with rel_semaphore:
+                combined["description"] = await _handle_entity_relation_summary(
+                    f"{combined['src_entity_id']}->{combined['tgt_entity_id']}",
+                    combined["description"],
+                    global_config,
+                    tokenizer_wrapper,
+                )
+
+        await asyncio.gather(*[_summarize_relationship(c) for _, c, _ in rels_to_process])
+
+    for relationship_id, combined, removed_edge in rels_to_process:
         await knowledge_graph_inst.upsert_edge(
             combined["src_entity_id"],
             combined["tgt_entity_id"],

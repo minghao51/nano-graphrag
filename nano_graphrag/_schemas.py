@@ -7,6 +7,10 @@ class ExtractedEntity(BaseModel):
     entity_name: str = Field(..., alias="name", description="The name of the entity, capitalized")
     entity_type: str = Field(..., alias="type", description="The type of the entity")
     description: str = Field(..., description="Comprehensive description of the entity")
+    aliases: List[str] = Field(
+        default_factory=list,
+        description="Alternative names, abbreviations, or nicknames for the entity",
+    )
 
     model_config = {"populate_by_name": True}
 

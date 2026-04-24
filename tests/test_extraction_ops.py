@@ -6,6 +6,13 @@ import numpy as np
 import pytest
 
 from nano_graphrag._entity_registry import EntityRegistry
+from nano_graphrag._ops.extraction import (
+    _compute_neighborhood_iou,
+    _disambiguate_entity_link,
+    _get_graph_neighbor_names,
+    _get_manifest_neighbor_names,
+    _resolve_manifest_entity_link,
+)
 from nano_graphrag._ops.extraction_common import _normalize_entity_name
 from nano_graphrag._ops.extraction_rebuild import (
     _append_doc_id,
@@ -25,6 +32,8 @@ from nano_graphrag._utils import (
     generate_stable_entity_id,
     wrap_embedding_func_with_attrs,
 )
+
+pytestmark = pytest.mark.unit
 
 os.environ["OPENAI_API_KEY"] = "FAKE"
 
@@ -136,7 +145,6 @@ class TestAppendDocId:
 
 
 class TestRebuildGraphContributionIndex:
-    @pytest.mark.asyncio
     async def test_builds_index_from_documents(self):
         _clean()
         config = _make_global_config()
@@ -164,7 +172,6 @@ class TestRebuildGraphContributionIndex:
 
 
 class TestUpdateGraphContributionIndex:
-    @pytest.mark.asyncio
     async def test_adds_new_document_contributions(self):
         _clean()
         config = _make_global_config()
@@ -186,7 +193,6 @@ class TestUpdateGraphContributionIndex:
 
 
 class TestRebuildKnowledgeGraph:
-    @pytest.mark.asyncio
     async def test_rebuild_with_empty_manifests_returns_graph(self):
         _clean()
         config = _make_global_config()
@@ -202,7 +208,6 @@ class TestRebuildKnowledgeGraph:
         doc_index.close()
         contrib_index.close()
 
-    @pytest.mark.asyncio
     async def test_rebuild_with_no_affected_ids_returns_early(self):
         _clean()
         config = _make_global_config()
@@ -309,3 +314,222 @@ class TestParseSingleResult:
         })
         entities, relationships = _parse_single_result(json_str, "chunk-0")
         assert len(entities) == 1
+
+
+class TestGetManifestNeighborNames:
+    def test_finds_neighbors_in_relationships(self):
+        manifest = _make_manifest(
+            entities={
+                "e1": _entity_entry("Apple"),
+                "e2": _entity_entry("iPhone"),
+                "e3": _entity_entry("Tim Cook"),
+            },
+            relationships={
+                "r1": _rel_entry("e1", "e2"),
+                "r2": _rel_entry("e1", "e3"),
+                "r3": _rel_entry("e2", "e3"),
+            },
+        )
+        neighbors = _get_manifest_neighbor_names("e1", manifest)
+        assert "iphone" in neighbors
+        assert "tim cook" in neighbors
+        assert len(neighbors) == 2
+
+    def test_returns_empty_for_isolated_entity(self):
+        manifest = _make_manifest(
+            entities={
+                "e1": _entity_entry("Apple"),
+                "e2": _entity_entry("iPhone"),
+            },
+            relationships={},
+        )
+        neighbors = _get_manifest_neighbor_names("e1", manifest)
+        assert neighbors == set()
+
+    def test_ignores_unknown_entity_ids(self):
+        manifest = _make_manifest(
+            entities={"e1": _entity_entry("Apple")},
+            relationships={"r1": _rel_entry("e1", "e_unknown")},
+        )
+        neighbors = _get_manifest_neighbor_names("e1", manifest)
+        assert neighbors == set()
+
+
+class TestComputeNeighborhoodIoU:
+    def test_perfect_overlap(self):
+        iou, common = _compute_neighborhood_iou({"a", "b"}, {"a", "b"})
+        assert iou == 1.0
+        assert common == {"a", "b"}
+
+    def test_partial_overlap(self):
+        iou, common = _compute_neighborhood_iou({"a", "b", "c"}, {"b", "c", "d"})
+        assert abs(iou - 0.5) < 1e-9
+        assert common == {"b", "c"}
+
+    def test_no_overlap(self):
+        iou, common = _compute_neighborhood_iou({"a", "b"}, {"c", "d"})
+        assert iou == 0.0
+        assert common == set()
+
+    def test_empty_sets(self):
+        iou, common = _compute_neighborhood_iou(set(), set())
+        assert iou == 0.0
+        assert common == set()
+
+    def test_one_empty(self):
+        iou, common = _compute_neighborhood_iou({"a"}, set())
+        assert iou == 0.0
+        assert common == set()
+
+
+class TestGetGraphNeighborNames:
+    async def test_returns_neighbor_names_from_registry(self):
+        _clean()
+        config = _make_global_config()
+        graph = NetworkXStorage(namespace="test_graph", global_config=config)
+
+        registry = EntityRegistry()
+        registry.register_entity("e_apple", "Apple", entity_type="Organization")
+        registry.register_entity("e_iphone", "iPhone", entity_type="Product")
+        registry.register_entity("e_tim", "Tim Cook", entity_type="Person")
+
+        await graph.upsert_node("e_apple", {"entity_name": "Apple", "entity_type": "Organization"})
+        await graph.upsert_node("e_iphone", {"entity_name": "iPhone", "entity_type": "Product"})
+        await graph.upsert_node("e_tim", {"entity_name": "Tim Cook", "entity_type": "Person"})
+        await graph.upsert_edge("e_apple", "e_iphone", {"weight": 1.0})
+        await graph.upsert_edge("e_apple", "e_tim", {"weight": 1.0})
+
+        neighbors = await _get_graph_neighbor_names("e_apple", graph, registry)
+        assert "iphone" in neighbors
+        assert "tim cook" in neighbors
+        assert "apple" not in neighbors
+
+    async def test_returns_empty_for_isolated_node(self):
+        _clean()
+        config = _make_global_config()
+        graph = NetworkXStorage(namespace="test_graph", global_config=config)
+        registry = EntityRegistry()
+        registry.register_entity("e1", "Foo")
+
+        await graph.upsert_node("e1", {"entity_name": "Foo"})
+
+        neighbors = await _get_graph_neighbor_names("e1", graph, registry)
+        assert neighbors == set()
+
+
+class TestResolveManifestEntityLinkWithNeighborhood:
+    async def test_auto_links_single_candidate_with_high_iou(self):
+        registry = EntityRegistry()
+        registry.register_entity("e_apple_tech", "Apple", entity_type="Organization")
+        registry.register_entity("e_iphone", "iPhone", entity_type="Product")
+        registry.register_entity("e_tim", "Tim Cook", entity_type="Person")
+
+        _clean()
+        config = _make_global_config()
+        config["entity_linking_iou_threshold"] = 0.3
+        config["entity_linking_min_common_neighbors"] = 2
+        config["entity_linking_similarity_threshold"] = 1.0
+
+        graph = NetworkXStorage(namespace="test_graph", global_config=config)
+        await graph.upsert_node("e_apple_tech", {"entity_name": "Apple", "entity_type": "Organization"})
+        await graph.upsert_node("e_iphone", {"entity_name": "iPhone"})
+        await graph.upsert_node("e_tim", {"entity_name": "Tim Cook"})
+        await graph.upsert_edge("e_apple_tech", "e_iphone", {"weight": 1.0})
+        await graph.upsert_edge("e_apple_tech", "e_tim", {"weight": 1.0})
+
+        manifest_neighbors = {"iphone", "tim cook"}
+
+        entity = {"entity_name": "Apple", "entity_type": "Organization"}
+
+        result = await _resolve_manifest_entity_link(
+            entity,
+            registry,
+            config,
+            manifest_neighbors=manifest_neighbors,
+            knowledge_graph_inst=graph,
+        )
+        assert result == "e_apple_tech"
+
+    async def test_does_not_auto_link_with_no_neighbor_overlap(self):
+        registry = EntityRegistry()
+        registry.register_entity("e_apple_music", "Apple", entity_type="Organization")
+        registry.register_entity("e_beatles", "Beatles", entity_type="Organization")
+
+        _clean()
+        config = _make_global_config()
+        config["entity_linking_iou_threshold"] = 0.3
+        config["entity_linking_min_common_neighbors"] = 2
+        config["entity_linking_similarity_threshold"] = 0.6
+        config["enable_entity_linking"] = False
+
+        graph = NetworkXStorage(namespace="test_graph", global_config=config)
+        await graph.upsert_node("e_apple_music", {"entity_name": "Apple"})
+        await graph.upsert_node("e_beatles", {"entity_name": "Beatles"})
+        await graph.upsert_edge("e_apple_music", "e_beatles", {"weight": 1.0})
+
+        entity = {"entity_name": "Apple Computer", "entity_type": "Organization"}
+        manifest_neighbors = {"iphone", "tim cook"}
+
+        result = await _resolve_manifest_entity_link(
+            entity,
+            registry,
+            config,
+            manifest_neighbors=manifest_neighbors,
+            knowledge_graph_inst=graph,
+        )
+        assert result is None
+
+    async def test_returns_none_without_graph_storage(self):
+        registry = EntityRegistry()
+        config = _make_global_config()
+
+        entity = {"entity_name": "Unknown", "entity_type": "Organization"}
+
+        result = await _resolve_manifest_entity_link(
+            entity, registry, config,
+            manifest_neighbors={"foo"},
+            knowledge_graph_inst=None,
+        )
+        assert result is None
+
+
+class TestDisambiguateWithNeighborhoodEvidence:
+    async def test_prompt_includes_neighborhood_evidence(self):
+        registry = EntityRegistry()
+        registry.register_entity("e_apple_tech", "Apple", entity_type="Organization")
+        registry.register_entity("e_apple_music", "Apple Records", entity_type="Organization")
+        registry.add_aliases("e_apple_music", ["Apple"])
+
+        _clean()
+        config = _make_global_config()
+
+        graph = NetworkXStorage(namespace="test_graph", global_config=config)
+        await graph.upsert_node("e_apple_tech", {"entity_name": "Apple"})
+        await graph.upsert_node("e_iphone", {"entity_name": "iPhone"})
+        await graph.upsert_edge("e_apple_tech", "e_iphone", {"weight": 1.0})
+
+        captured_prompt = None
+
+        async def capture_llm(prompt, **kwargs):
+            nonlocal captured_prompt
+            captured_prompt = prompt
+            return '{"decision": "existing", "entity_id": "e_apple_tech"}'
+
+        config["cheap_model_func"] = capture_llm
+        config["enable_entity_linking"] = True
+        config["entity_linking_similarity_threshold"] = 0.5
+
+        entity = {"entity_name": "Apple", "entity_type": "Organization", "descriptions": ["Tech company"]}
+        candidates = [("e_apple_tech", 0.95), ("e_apple_music", 0.90)]
+
+        result = await _disambiguate_entity_link(
+            entity, candidates, registry, config,
+            manifest_neighbors={"iphone", "tim cook"},
+            knowledge_graph_inst=graph,
+        )
+
+        assert result == "e_apple_tech"
+        assert captured_prompt is not None
+        assert "Structural Evidence" in captured_prompt
+        assert "iphone" in captured_prompt.lower()
+        assert "IoU" in captured_prompt

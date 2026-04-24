@@ -68,12 +68,14 @@ def _parse_single_result(
         if not entity_name:
             continue
         entity_type = _normalize_entity_type(entity.entity_type)
+        aliases = [a for a in getattr(entity, "aliases", []) if a]
         entity_id = _upsert_document_entity(
             entities,
             entity_name,
             entity_type,
             entity.description,
             chunk_key,
+            aliases=aliases,
         )
         entity_name_to_id[entity_name] = entity_id
 
@@ -124,7 +126,8 @@ async def _process_single_chunk(
             content,
             system_prompt=f"""You are an entity extraction assistant. Extract entities and relationships from the text.
 Entity types: {", ".join(entity_types)}.
-Return a JSON with 'entities' (name, type, description) and 'relationships' (source, target, description, weight).""",
+Return a JSON with 'entities' (name, type, description, aliases) and 'relationships' (source, target, description, weight).
+For aliases: include alternative names, abbreviations, or nicknames. Use an empty list if none.""",
             response_format=EntityExtractionOutput,
         )
         return _parse_single_result(result, chunk_key)
@@ -152,7 +155,8 @@ async def _process_batch_chunks(
 
     system_prompt = f"""You are an entity extraction assistant. Extract entities and relationships from each chunk below.
 Entity types: {", ".join(entity_types)}.
-Return a JSON with a 'chunks' array. Each element has: chunk_id (string matching the id in the header), entities (name, type, description), relationships (source, target, description, weight).
+Return a JSON with a 'chunks' array. Each element has: chunk_id (string matching the id in the header), entities (name, type, description, aliases), relationships (source, target, description, weight).
+For aliases: include alternative names, abbreviations, or nicknames. Use an empty list if none.
 Preserve the chunk_id exactly as given."""
 
     try:
@@ -304,9 +308,13 @@ async def extract_document_entity_relationships_structured(
                 entity["entity_type"],
                 _join_unique(entity["descriptions"]),
                 entity["source_chunk_ids"][0],
+                aliases=entity.get("aliases", []),
             )
             manifest_entities[entity_id]["descriptions"].extend(entity["descriptions"][1:])
             manifest_entities[entity_id]["source_chunk_ids"].extend(entity["source_chunk_ids"][1:])
+            existing_aliases = set(manifest_entities[entity_id].get("aliases", []))
+            new_aliases = existing_aliases.union(a for a in entity.get("aliases", []) if a)
+            manifest_entities[entity_id]["aliases"] = sorted(new_aliases)
         for relationship_id, relationship in relationships.items():
             _upsert_document_relationship(
                 manifest_relationships,

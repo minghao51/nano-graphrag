@@ -47,6 +47,7 @@ async def _parse_legacy_extraction_records(
                 entity["entity_type"],
                 entity["description"],
                 chunk_key,
+                aliases=entity.get("aliases"),
             )
             entity_name_to_id[entity["entity_name"]] = entity_id
             continue
@@ -124,11 +125,18 @@ async def _handle_single_entity_extraction(
         return None
     entity_type = _normalize_entity_type(record_attributes[2])
     entity_description = clean_str(record_attributes[3])
+    entity_aliases_raw = clean_str(record_attributes[4]) if len(record_attributes) >= 5 else ""
+    entity_aliases = [
+        a.strip()
+        for a in entity_aliases_raw.split(",")
+        if a.strip() and a.strip().lower() != entity_name.lower()
+    ]
     entity_source_id = chunk_key
     return dict(
         entity_name=entity_name,
         entity_type=entity_type,
         description=entity_description,
+        aliases=entity_aliases,
         source_id=entity_source_id,
     )
 
@@ -260,6 +268,7 @@ def _upsert_document_entity(
     entity_type: str,
     description: str,
     chunk_key: str,
+    aliases: Optional[list[str]] = None,
 ) -> str:
     entity_id = generate_stable_entity_id(entity_name, entity_type)
     entity_entry = entities.setdefault(
@@ -269,10 +278,14 @@ def _upsert_document_entity(
             "entity_type": entity_type,
             "descriptions": [],
             "source_chunk_ids": [],
+            "aliases": [],
         },
     )
     entity_entry["descriptions"].append(description)
     entity_entry["source_chunk_ids"].append(chunk_key)
+    if aliases:
+        existing = set(entity_entry.get("aliases", []))
+        entity_entry["aliases"] = sorted(existing.union(a for a in aliases if a))
     return entity_id
 
 

@@ -315,6 +315,21 @@ class EntityRegistry:
         """Check if an entity ID is registered."""
         return entity_id in self._entities
 
+    def __iter__(self):
+        """Iterate over entity IDs."""
+        return iter(self._entities)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Export registry state as a dictionary (alias for export_state)."""
+        return self.export_state()
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "EntityRegistry":
+        """Create a registry from a dictionary (alias for import_state)."""
+        registry = cls()
+        registry.import_state(data)
+        return registry
+
     def save_to_file(self, filepath: str) -> None:
         """Save registry state to a JSON file.
 
