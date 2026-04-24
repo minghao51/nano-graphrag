@@ -4,6 +4,7 @@ import os
 import shutil
 
 import numpy as np
+import pytest
 
 from nano_graphrag import GraphRAG, QueryParam
 from nano_graphrag._entity_grounded_query import QueryResult
@@ -13,6 +14,8 @@ from nano_graphrag._utils import (
     generate_stable_entity_id,
     wrap_embedding_func_with_attrs,
 )
+
+pytestmark = pytest.mark.unit
 
 os.environ["OPENAI_API_KEY"] = "FAKE"
 

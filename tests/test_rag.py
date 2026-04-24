@@ -3,6 +3,7 @@ import json
 import shutil
 import asyncio
 import numpy as np
+import pytest
 from nano_graphrag import GraphRAG, QueryParam
 from nano_graphrag._ops.extraction import extract_document_entity_relationships
 from nano_graphrag._utils import (
@@ -10,6 +11,8 @@ from nano_graphrag._utils import (
     generate_stable_entity_id,
     wrap_embedding_func_with_attrs,
 )
+
+pytestmark = pytest.mark.unit
 
 os.environ["OPENAI_API_KEY"] = "FAKE"
 

@@ -2,9 +2,12 @@ import asyncio
 import os
 
 import numpy as np
+import pytest
 
 from nano_graphrag import GraphRAG, QueryParam
 from nano_graphrag._utils import wrap_embedding_func_with_attrs
+
+pytestmark = pytest.mark.unit
 
 os.environ["OPENAI_API_KEY"] = "FAKE"
 

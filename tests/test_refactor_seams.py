@@ -18,6 +18,7 @@ from nano_graphrag._ops.community import generate_community_report
 from nano_graphrag._storage import NetworkXStorage
 from nano_graphrag._utils import wrap_embedding_func_with_attrs
 
+pytestmark = pytest.mark.unit
 
 WORKING_DIR = "./tests/nano_graphrag_cache_refactor_seams"
 
@@ -49,7 +50,6 @@ def test_ops_re_exports_survive_module_split():
     assert callable(rebuild_knowledge_graph_for_documents)
 
 
-@pytest.mark.asyncio
 async def test_structured_and_legacy_manifest_shapes_match():
     async def structured_model(prompt, system_prompt=None, history_messages=None, response_format=None, **kwargs):
         if response_format is not None:
@@ -154,7 +154,6 @@ class _GraphWithCommunities:
         return {}
 
 
-@pytest.mark.asyncio
 async def test_generate_community_report_deletes_filtered_stale_reports():
     kv = _MemoryKV({"old-community": {"report_string": "stale"}})
     graph = _GraphWithCommunities()
@@ -171,7 +170,6 @@ async def test_generate_community_report_deletes_filtered_stale_reports():
     assert kv.data == {}
 
 
-@pytest.mark.asyncio
 async def test_networkx_storage_export_still_uses_public_class():
     rag = GraphRAG(working_dir=WORKING_DIR, embedding_func=mock_embedding)
     storage = NetworkXStorage(namespace="test", global_config=rag.__dict__)

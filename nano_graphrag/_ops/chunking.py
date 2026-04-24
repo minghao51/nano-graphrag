@@ -1,4 +1,4 @@
-from typing import Dict, Union
+from typing import Dict, Optional, Union
 
 from .._splitter import SeparatorSplitter
 from .._utils import TokenizerWrapper, compute_sha256_id
@@ -68,9 +68,11 @@ def chunking_by_seperators(
 def get_chunks(
     new_docs,
     chunk_func=chunking_by_token_size,
-    tokenizer_wrapper: TokenizerWrapper = None,
+    tokenizer_wrapper: Optional[TokenizerWrapper] = None,
     **chunk_func_params,
 ):
+    if tokenizer_wrapper is None:
+        raise ValueError("tokenizer_wrapper is required")
     inserting_chunks: Dict[str, Dict[str, Union[str, int]]] = {}
     new_docs_list = list(new_docs.items())
     docs = [new_doc[1]["content"] for new_doc in new_docs_list]

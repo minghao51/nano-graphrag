@@ -1,6 +1,10 @@
+import pytest
 import unittest
 # from loguru import logger
 from nano_graphrag._utils import convert_response_to_json
+
+pytestmark = pytest.mark.unit
+
 
 class TestJSONExtraction(unittest.TestCase):
 
