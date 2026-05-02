@@ -1,6 +1,27 @@
-from typing import List
+import re
+from datetime import datetime
+from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+def _coerce_iso_date(v):
+    if not v or not isinstance(v, str):
+        return None
+    v = v.strip()
+    if not v:
+        return None
+    try:
+        return datetime.fromisoformat(v).strftime("%Y-%m-%d")
+    except (ValueError, TypeError):
+        pass
+    if re.match(r"^\d{4}$", v):
+        return f"{v}-01-01"
+    if re.match(r"^\d{4}-\d{2}$", v):
+        return f"{v}-01"
+    if re.match(r"^\d{4}/\d{2}/\d{2}$", v):
+        return v.replace("/", "-")
+    return None
 
 
 class ExtractedEntity(BaseModel):
@@ -11,6 +32,15 @@ class ExtractedEntity(BaseModel):
         default_factory=list,
         description="Alternative names, abbreviations, or nicknames for the entity",
     )
+    event_date: Optional[str] = Field(
+        default=None,
+        description="For EVENT type entities only: the date the event occurred in YYYY-MM-DD format. Must be null for non-event entities.",
+    )
+
+    @field_validator("event_date", mode="before")
+    @classmethod
+    def coerce_event_date(cls, v):
+        return _coerce_iso_date(v)
 
     model_config = {"populate_by_name": True}
 
@@ -20,6 +50,23 @@ class ExtractedRelationship(BaseModel):
     target: str = Field(..., description="Name of the target entity, capitalized")
     description: str = Field(..., description="Explanation of the relationship")
     weight: float = Field(default=1.0, description="Strength of the relationship (0-10)")
+    temporal_context: Optional[str] = Field(
+        default=None,
+        description="Free-text description of when this relationship was/is true (e.g. 'in 2023', 'from 2019 to 2022')",
+    )
+    valid_from: Optional[str] = Field(
+        default=None,
+        description="Start date in YYYY-MM-DD format when this relationship became true. Null if unknown.",
+    )
+    valid_to: Optional[str] = Field(
+        default=None,
+        description="End date in YYYY-MM-DD format when this relationship ceased to be true. Null if still current or unknown.",
+    )
+
+    @field_validator("valid_from", "valid_to", mode="before")
+    @classmethod
+    def coerce_date_fields(cls, v):
+        return _coerce_iso_date(v)
 
 
 class EntityExtractionOutput(BaseModel):

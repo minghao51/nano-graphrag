@@ -36,7 +36,7 @@ class NetworkXStorage(BaseGraphStorage):
             logger.info(
                 f"Loaded graph from {self._graphml_xml_file} with {preloaded_graph.number_of_nodes()} nodes, {preloaded_graph.number_of_edges()} edges"
             )
-        self._graph = preloaded_graph or nx.Graph()
+        self._graph = preloaded_graph or nx.MultiGraph()
         self._clustering_algorithms = {
             "leiden": LeidenClusteringBackend(),
             "louvain": LouvainClusteringBackend(),
@@ -109,7 +109,9 @@ class NetworkXStorage(BaseGraphStorage):
 
     async def node_degree(self, node_id: str) -> int:
         async with self._graph_lock:
-            return self._graph.degree(node_id) if self._graph.has_node(node_id) else 0
+            if not self._graph.has_node(node_id):
+                return 0
+            return len(self._graph[node_id])
 
     async def node_degrees_batch(self, node_ids: List[str]) -> List[int]:
         return await asyncio.gather(*[self.node_degree(node_id) for node_id in node_ids])
@@ -126,8 +128,56 @@ class NetworkXStorage(BaseGraphStorage):
         )
 
     async def get_edge(self, source_node_id: str, target_node_id: str) -> Union[dict, None]:
+        """Get edge data between two nodes.
+
+        When multiple edges exist between the same node pair (temporal multi-edges),
+        they are merged into a single dict with aggregated descriptions/weights and
+        first-found temporal fields. Use direct storage access for per-edge temporal detail.
+        """
         async with self._graph_lock:
-            return self._graph.edges.get((source_node_id, target_node_id))
+            if not self._graph.has_edge(source_node_id, target_node_id):
+                return None
+            edges = self._graph.get_edge_data(source_node_id, target_node_id)
+            if not edges:
+                return None
+            if len(edges) == 1:
+                return dict(list(edges.values())[0])
+            combined = {}
+            all_descriptions = []
+            total_weight = 0.0
+            all_source_ids = []
+            temporal_context = None
+            valid_from = None
+            valid_to = None
+            for key, data in edges.items():
+                if not isinstance(data, dict):
+                    continue
+                if "description" in data:
+                    all_descriptions.append(data["description"])
+                total_weight += data.get("weight", 0.0)
+                if "source_id" in data:
+                    all_source_ids.append(data["source_id"])
+                if not temporal_context and data.get("temporal_context"):
+                    temporal_context = data["temporal_context"]
+                if not valid_from and data.get("valid_from"):
+                    valid_from = data["valid_from"]
+                if not valid_to and data.get("valid_to"):
+                    valid_to = data["valid_to"]
+            from ..prompt import GRAPH_FIELD_SEP
+
+            combined["description"] = GRAPH_FIELD_SEP.join(
+                sorted(set(d for d in all_descriptions if d))
+            )
+            combined["weight"] = total_weight
+            combined["source_id"] = GRAPH_FIELD_SEP.join(
+                sorted(set(s for s in all_source_ids if s))
+            )
+            combined["temporal_context"] = temporal_context
+            combined["valid_from"] = valid_from
+            combined["valid_to"] = valid_to
+            if all_source_ids:
+                combined["order"] = 1
+            return combined
 
     async def get_edges_batch(self, edge_pairs: list[tuple[str, str]]) -> list[Union[dict, None]]:
         return await asyncio.gather(
@@ -140,7 +190,7 @@ class NetworkXStorage(BaseGraphStorage):
     async def get_node_edges(self, source_node_id: str):
         async with self._graph_lock:
             if self._graph.has_node(source_node_id):
-                return list(self._graph.edges(source_node_id))
+                return list({(u, v) for u, v, k in self._graph.edges(source_node_id, keys=True)})
             return None
 
     async def get_nodes_edges_batch(self, node_ids: list[str]) -> list[list[tuple[str, str]]]:
@@ -148,6 +198,7 @@ class NetworkXStorage(BaseGraphStorage):
 
     async def upsert_node(self, node_id: str, node_data: dict[str, str]):
         async with self._graph_lock:
+            node_data = {k: v for k, v in node_data.items() if v is not None}
             self._graph.add_node(node_id, **node_data)
             self._community_schema_cache = None
 
@@ -160,7 +211,21 @@ class NetworkXStorage(BaseGraphStorage):
         self, source_node_id: str, target_node_id: str, edge_data: dict[str, str]
     ):
         async with self._graph_lock:
-            self._graph.add_edge(source_node_id, target_node_id, **edge_data)
+            edge_data = {k: v for k, v in edge_data.items() if v is not None}
+            edge_key = edge_data.get("relationship_id", None)
+            if edge_key is None:
+                from .._utils import compute_sha256_id
+
+                edge_key = compute_sha256_id(
+                    f"{source_node_id}|{target_node_id}|{edge_data.get('description', '')}",
+                    prefix="edge_",
+                )
+                edge_data["relationship_id"] = edge_key
+            if self._graph.has_edge(source_node_id, target_node_id, key=edge_key):
+                existing = self._graph[source_node_id][target_node_id][edge_key]
+                existing.update(edge_data)
+            else:
+                self._graph.add_edge(source_node_id, target_node_id, key=edge_key, **edge_data)
             self._community_schema_cache = None
 
     async def upsert_edges_batch(self, edges_data: list[tuple[str, str, dict[str, str]]]):
@@ -187,14 +252,18 @@ class NetworkXStorage(BaseGraphStorage):
     async def delete_edge(self, source_node_id: str, target_node_id: str):
         async with self._graph_lock:
             if self._graph.has_edge(source_node_id, target_node_id):
-                self._graph.remove_edge(source_node_id, target_node_id)
+                keys = list(self._graph[source_node_id][target_node_id].keys())
+                for key in keys:
+                    self._graph.remove_edge(source_node_id, target_node_id, key=key)
                 self._community_schema_cache = None
 
     async def delete_edges_batch(self, edge_pairs: list[tuple[str, str]]):
         async with self._graph_lock:
             for source_node_id, target_node_id in edge_pairs:
                 if self._graph.has_edge(source_node_id, target_node_id):
-                    self._graph.remove_edge(source_node_id, target_node_id)
+                    keys = list(self._graph[source_node_id][target_node_id].keys())
+                    for key in keys:
+                        self._graph.remove_edge(source_node_id, target_node_id, key=key)
             self._community_schema_cache = None
 
     async def clustering(self, algorithm: str, affected_node_ids: Union[set[str], None] = None):

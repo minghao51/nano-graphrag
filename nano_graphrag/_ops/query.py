@@ -19,6 +19,37 @@ from ..base import (
 from ..prompt import GRAPH_FIELD_SEP, PROMPTS
 
 
+def _normalize_date_str(s):
+    if not s:
+        return ""
+    s = s.strip()
+    if len(s) == 4 and s.isdigit():
+        return f"{s}-01-01"
+    if len(s) == 7 and s[4] == "-":
+        return f"{s}-01"
+    return s
+
+
+def _edge_matches_time_range(edge_data: dict, query_param: QueryParam) -> bool:
+    if query_param.time_range is None:
+        return True
+    valid_from = _normalize_date_str(edge_data.get("valid_from"))
+    valid_to = _normalize_date_str(edge_data.get("valid_to"))
+    if not valid_from and not valid_to:
+        return True
+    query_start = _normalize_date_str(query_param.time_range[0])
+    query_end = _normalize_date_str(query_param.time_range[1])
+    if query_param.temporal_mode == "at_point":
+        if valid_from and query_start < valid_from:
+            return False
+        if valid_to and query_start > valid_to:
+            return False
+        return True
+    edge_start = valid_from or ""
+    edge_end = valid_to or "9999"
+    return not (edge_end < query_start or edge_start > query_end)
+
+
 async def _find_most_related_community_from_entities(
     node_datas: list[dict],
     query_param: QueryParam,
@@ -86,10 +117,22 @@ async def _find_most_related_text_unit_from_entities(
         for k, v in zip(all_one_hop_node_list, all_one_hop_nodes_data)
         if v is not None
     }
+
+    all_chunk_ids = set()
+    for this_text_units in text_units:
+        all_chunk_ids.update(this_text_units)
+
+    all_chunk_data = await text_chunks_db.get_by_ids(list(all_chunk_ids))
+    chunk_data_lookup = {
+        cid: data for cid, data in zip(all_chunk_ids, all_chunk_data) if data is not None
+    }
+
     all_text_units_lookup = {}
     for index, (this_text_units, this_edges) in enumerate(zip(text_units, edges)):
         for c_id in this_text_units:
             if c_id in all_text_units_lookup:
+                continue
+            if c_id not in chunk_data_lookup:
                 continue
             relation_counts = 0
             for e in this_edges:
@@ -99,7 +142,7 @@ async def _find_most_related_text_unit_from_entities(
                 ):
                     relation_counts += 1
             all_text_units_lookup[c_id] = {
-                "data": await text_chunks_db.get_by_id(c_id),
+                "data": chunk_data_lookup[c_id],
                 "order": index,
                 "relation_counts": relation_counts,
             }
@@ -156,6 +199,8 @@ async def _find_most_related_edges_from_entities(
         for k, v, d in zip(all_edges, all_edges_pack, all_edges_degree)
         if v is not None
     ]
+    if query_param.time_range is not None:
+        all_edges_data = [e for e in all_edges_data if _edge_matches_time_range(e, query_param)]
     all_edges_data = sorted(all_edges_data, key=lambda x: (x["rank"], x["weight"]), reverse=True)
     return truncate_list_by_token_size(
         all_edges_data,
@@ -211,8 +256,15 @@ async def _build_local_query_context(
         )
     entities_context = list_of_list_to_csv(entites_section_list)
 
-    relations_section_list = [["id", "source", "target", "description", "weight", "rank"]]
+    relations_section_list = [
+        ["id", "source", "target", "description", "weight", "rank", "temporal"]
+    ]
     for i, e in enumerate(use_relations):
+        temporal = e.get("temporal_context") or ""
+        valid_from = e.get("valid_from") or ""
+        valid_to = e.get("valid_to") or ""
+        if valid_from or valid_to:
+            temporal = f"{valid_from or '?'} to {valid_to or 'now'}"
         relations_section_list.append(
             [
                 i,
@@ -221,6 +273,7 @@ async def _build_local_query_context(
                 e["description"],
                 e["weight"],
                 e["rank"],
+                temporal,
             ]
         )
     relations_context = list_of_list_to_csv(relations_section_list)

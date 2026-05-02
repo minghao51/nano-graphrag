@@ -60,6 +60,7 @@ features:
   naive_rag: false
   llm_cache: true
   community_reports: true
+  temporal_extraction: false
 
 # === Logging ===
 logging:

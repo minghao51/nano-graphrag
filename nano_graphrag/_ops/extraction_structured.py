@@ -69,6 +69,7 @@ def _parse_single_result(
             continue
         entity_type = _normalize_entity_type(entity.entity_type)
         aliases = [a for a in getattr(entity, "aliases", []) if a]
+        event_date = getattr(entity, "event_date", None)
         entity_id = _upsert_document_entity(
             entities,
             entity_name,
@@ -76,6 +77,7 @@ def _parse_single_result(
             entity.description,
             chunk_key,
             aliases=aliases,
+            event_date=event_date,
         )
         entity_name_to_id[entity_name] = entity_id
 
@@ -107,6 +109,9 @@ def _parse_single_result(
             relationship.description,
             relationship.weight,
             chunk_key,
+            temporal_context=getattr(relationship, "temporal_context", None),
+            valid_from=getattr(relationship, "valid_from", None),
+            valid_to=getattr(relationship, "valid_to", None),
         )
 
     return entities, relationships
@@ -121,13 +126,20 @@ async def _process_single_chunk(
 ) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
     """Extract entities from a single chunk via structured output."""
     fallback_to_parsing = global_config.get("fallback_to_parsing", True)
+    temporal = global_config.get("enable_temporal_extraction", False)
+    if temporal:
+        temporal_instructions = """ For aliases: include alternative names, abbreviations, or nicknames. Use an empty list if none.
+For event_date: only for EVENT type entities, when the event occurred (ISO-8601 or free-text). Null for non-events.
+For temporal_context: free-text about when the relationship was true (e.g. "since 2020", "from 2018 to 2022"). Null if unknown.
+For valid_from/valid_to: ISO-8601 dates if known, null if unknown."""
+    else:
+        temporal_instructions = """ For aliases: include alternative names, abbreviations, or nicknames. Use an empty list if none."""
     try:
         result = await use_llm_func(
             content,
             system_prompt=f"""You are an entity extraction assistant. Extract entities and relationships from the text.
 Entity types: {", ".join(entity_types)}.
-Return a JSON with 'entities' (name, type, description, aliases) and 'relationships' (source, target, description, weight).
-For aliases: include alternative names, abbreviations, or nicknames. Use an empty list if none.""",
+Return a JSON with 'entities' (name, type, description, aliases) and 'relationships' (source, target, description, weight).{temporal_instructions}""",
             response_format=EntityExtractionOutput,
         )
         return _parse_single_result(result, chunk_key)
@@ -153,10 +165,18 @@ async def _process_batch_chunks(
         numbered_text.append(f"--- CHUNK {i} (id: {chunk_key}) ---\n{chunk_dp['content']}")
     combined_text = "\n\n".join(numbered_text)
 
+    temporal = global_config.get("enable_temporal_extraction", False)
+    if temporal:
+        temporal_instructions = """ For aliases: include alternative names, abbreviations, or nicknames. Use an empty list if none.
+For event_date: only for EVENT type entities, when the event occurred. Null for non-events.
+For temporal_context: free-text about when the relationship was/is true. Null if unknown.
+For valid_from/valid_to: ISO-8601 dates if known, null if unknown."""
+    else:
+        temporal_instructions = """ For aliases: include alternative names, abbreviations, or nicknames. Use an empty list if none."""
+
     system_prompt = f"""You are an entity extraction assistant. Extract entities and relationships from each chunk below.
 Entity types: {", ".join(entity_types)}.
-Return a JSON with a 'chunks' array. Each element has: chunk_id (string matching the id in the header), entities (name, type, description, aliases), relationships (source, target, description, weight).
-For aliases: include alternative names, abbreviations, or nicknames. Use an empty list if none.
+Return a JSON with a 'chunks' array. Each element has: chunk_id (string matching the id in the header), entities (name, type, description, aliases), relationships (source, target, description, weight).{temporal_instructions}
 Preserve the chunk_id exactly as given."""
 
     try:
@@ -309,12 +329,15 @@ async def extract_document_entity_relationships_structured(
                 _join_unique(entity["descriptions"]),
                 entity["source_chunk_ids"][0],
                 aliases=entity.get("aliases", []),
+                event_date=entity.get("event_date"),
             )
             manifest_entities[entity_id]["descriptions"].extend(entity["descriptions"][1:])
             manifest_entities[entity_id]["source_chunk_ids"].extend(entity["source_chunk_ids"][1:])
             existing_aliases = set(manifest_entities[entity_id].get("aliases", []))
             new_aliases = existing_aliases.union(a for a in entity.get("aliases", []) if a)
             manifest_entities[entity_id]["aliases"] = sorted(new_aliases)
+            if entity.get("event_date") and not manifest_entities[entity_id].get("event_date"):
+                manifest_entities[entity_id]["event_date"] = entity["event_date"]
         for relationship_id, relationship in relationships.items():
             _upsert_document_relationship(
                 manifest_relationships,
@@ -324,6 +347,9 @@ async def extract_document_entity_relationships_structured(
                 relationship["weight"],
                 relationship["source_chunk_ids"][0],
                 relationship.get("relation_type", "related"),
+                temporal_context=relationship.get("temporal_context"),
+                valid_from=relationship.get("valid_from"),
+                valid_to=relationship.get("valid_to"),
             )
             manifest_relationships[relationship_id]["descriptions"].extend(
                 relationship["descriptions"][1:]

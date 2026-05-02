@@ -41,6 +41,9 @@ class QueryParam:
     entity_grounded_max_answer_length: int = 50  # tokens
     entity_grounded_require_entity_match: bool = True
     entity_grounded_fuzzy_threshold: float = 0.85
+    # temporal search
+    time_range: Optional[tuple[str, str]] = None
+    temporal_mode: str = "any"
 
 
 class ResponseType:
@@ -277,6 +280,7 @@ class _ConfigFields:
     enable_entity_linking: bool = False
     entity_linking_use_neighborhood_evidence: bool = True
     enable_community_reports: bool = True
+    enable_temporal_extraction: bool = False
     entity_linking_similarity_threshold: float = 0.92
     entity_linking_max_candidates: int = 3
     entity_linking_iou_threshold: float = 0.3

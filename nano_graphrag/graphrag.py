@@ -26,6 +26,7 @@ from .graphrag_insert import (
     _insert_start,
     _legacy_custom_ainsert,
     _rebuild_graph_from_manifests,
+    _rollback_insert_storages,
 )
 from .graphrag_query import _query_done, aquery, astream_query
 from .graphrag_runtime import (
@@ -192,6 +193,7 @@ class GraphRAG(_ConfigFields):
     _rebuild_graph_from_manifests = _rebuild_graph_from_manifests
     _insert_start = _insert_start
     _insert_done = _insert_done
+    _rollback_insert_storages = _rollback_insert_storages
     aquery = aquery
     _query_done = _query_done
     astream_query = astream_query

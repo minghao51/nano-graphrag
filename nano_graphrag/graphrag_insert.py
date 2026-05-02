@@ -116,6 +116,39 @@ async def _legacy_custom_ainsert(self, documents: dict[str, str]):
         await self._insert_done()
 
 
+async def _rollback_insert_storages(
+    self,
+    inserted_chunk_ids: set[str],
+    inserted_doc_ids: set[str],
+    inserted_entity_ids: set[str],
+):
+    """Rollback storage changes from a failed insert operation.
+
+    This handles the case where graph rebuild fails after some storages
+    have been committed, ensuring we don't leave the system in an
+    inconsistent state.
+    """
+    rollback_tasks = []
+
+    if inserted_chunk_ids:
+        rollback_tasks.append(self.text_chunks.delete(list(inserted_chunk_ids)))
+        if self.enable_naive_rag:
+            rollback_tasks.append(self.chunks_vdb.delete(list(inserted_chunk_ids)))
+
+    if inserted_doc_ids:
+        rollback_tasks.append(self.full_docs.delete(list(inserted_doc_ids)))
+
+    if inserted_entity_ids and self.entities_vdb is not None:
+        rollback_tasks.append(self.entities_vdb.delete(list(inserted_entity_ids)))
+
+    if rollback_tasks:
+        await asyncio.gather(*rollback_tasks)
+        logger.info(
+            f"Rolled back insert: {len(inserted_chunk_ids)} chunks, "
+            f"{len(inserted_doc_ids)} docs, {len(inserted_entity_ids)} entities"
+        )
+
+
 async def _ainsert_documents(
     self, documents: dict[str, str], allow_legacy_custom: bool, force_rebuild: bool = False
 ):
@@ -288,9 +321,21 @@ async def _ainsert_documents(
             await self.text_chunks.upsert(inserting_chunks)
             if self.enable_naive_rag:
                 await self.chunks_vdb.upsert(inserting_chunks)
+            inserted_chunk_ids = set(inserting_chunks.keys())
+        else:
+            inserted_chunk_ids = set()
 
         await self.full_docs.upsert(normalized_docs)
+        inserted_doc_ids = set(normalized_docs.keys())
+
         await self.document_index.upsert(new_document_index_entries)
+
+        inserted_entity_ids = {
+            entity_id
+            for manifest in new_document_index_entries.values()
+            if manifest is not None
+            for entity_id in manifest.get("entities", {}).keys()
+        }
 
         logger.info("[Graph Rebuild] refreshing affected entities and relationships")
         snapshot_path = None
@@ -358,10 +403,10 @@ async def _ainsert_documents(
                 )
                 found = sum(1 for r in results if r)
                 if found == 0:
-                    logger.warning(
-                        f"Integrity check: {manifest_entity_count} entities in manifests "
+                    raise RuntimeError(
+                        f"Integrity check failed: {manifest_entity_count} entities in manifests "
                         f"but 0 found in graph. Graph rebuild may have silently failed. "
-                        f"Consider re-running with force_rebuild=True."
+                        f"Rolling back document_index and raising for transaction rollback."
                     )
                 elif found < manifest_entity_count:
                     logger.info(
@@ -374,6 +419,9 @@ async def _ainsert_documents(
         except Exception as e:
             if snapshot_path and self.chunk_entity_relation_graph is not None:
                 await self.chunk_entity_relation_graph._restore_graph(snapshot_path)
+            await self._rollback_insert_storages(
+                inserted_chunk_ids, inserted_doc_ids, inserted_entity_ids
+            )
             new_doc_ids = list(new_document_index_entries.keys())
             if new_doc_ids:
                 await self.document_index.delete(new_doc_ids)

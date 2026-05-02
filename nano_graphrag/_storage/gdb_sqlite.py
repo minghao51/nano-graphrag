@@ -59,25 +59,58 @@ class SQLiteGraphStorage(BaseGraphStorage):
         )
         self._conn.execute(
             """
-            CREATE TABLE IF NOT EXISTS edges (
-                source_id TEXT NOT NULL,
-                target_id TEXT NOT NULL,
-                data TEXT NOT NULL,
-                PRIMARY KEY (source_id, target_id)
-            )
-            """
-        )
-        self._conn.execute(
-            """
             CREATE TABLE IF NOT EXISTS graph_meta (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             )
             """
         )
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS edges (
+                source_id TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                edge_key TEXT NOT NULL DEFAULT '',
+                data TEXT NOT NULL,
+                PRIMARY KEY (source_id, target_id, edge_key)
+            )
+            """
+        )
         self._conn.execute("CREATE INDEX IF NOT EXISTS idx_edges_source_id ON edges(source_id)")
         self._conn.execute("CREATE INDEX IF NOT EXISTS idx_edges_target_id ON edges(target_id)")
+        self._migrate_edges_to_multigraph()
         self._conn.commit()
+
+    def _migrate_edges_to_multigraph(self):
+        rows = self._conn.execute("PRAGMA table_info(edges)").fetchall()
+        column_names = [row[1] for row in rows]
+        if "edge_key" in column_names:
+            return
+        logger.info("Migrating SQLite edges table to multigraph schema (adding edge_key)")
+        self._conn.execute("ALTER TABLE edges RENAME TO edges_old")
+        self._conn.execute(
+            """
+            CREATE TABLE edges (
+                source_id TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                edge_key TEXT NOT NULL DEFAULT '',
+                data TEXT NOT NULL,
+                PRIMARY KEY (source_id, target_id, edge_key)
+            )
+            """
+        )
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_edges_source_id ON edges(source_id)")
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_edges_target_id ON edges(target_id)")
+        old_rows = self._conn.execute("SELECT source_id, target_id, data FROM edges_old").fetchall()
+        for source_id, target_id, raw_data in old_rows:
+            data = json.loads(raw_data)
+            edge_key = data.get("relationship_id", "")
+            self._conn.execute(
+                "INSERT OR IGNORE INTO edges (source_id, target_id, edge_key, data) VALUES (?, ?, ?, ?)",
+                (source_id, target_id, edge_key, raw_data),
+            )
+        self._conn.execute("DROP TABLE edges_old")
+        logger.info(f"Migrated {len(old_rows)} edges to multigraph schema")
 
     def _set_meta(self, key: str, value: Any):
         self._conn.execute(
@@ -91,20 +124,22 @@ class SQLiteGraphStorage(BaseGraphStorage):
             return default
         return json.loads(row[0])
 
-    def _build_projection(self) -> nx.Graph:
-        graph = nx.Graph()
+    def _build_projection(self) -> nx.MultiGraph:
+        graph = nx.MultiGraph()
         node_rows = self._conn.execute("SELECT id, data FROM nodes").fetchall()
         for node_id, raw_data in node_rows:
             graph.add_node(node_id, **json.loads(raw_data))
 
-        edge_rows = self._conn.execute("SELECT source_id, target_id, data FROM edges").fetchall()
-        for source_id, target_id, raw_data in edge_rows:
-            graph.add_edge(source_id, target_id, **json.loads(raw_data))
+        edge_rows = self._conn.execute(
+            "SELECT source_id, target_id, edge_key, data FROM edges"
+        ).fetchall()
+        for source_id, target_id, edge_key, raw_data in edge_rows:
+            graph.add_edge(source_id, target_id, key=edge_key, **json.loads(raw_data))
 
         graph.graph["community_update_counter"] = self._get_meta("community_update_counter", 0)
         return graph
 
-    def _write_clusters_from_projection(self, graph: nx.Graph):
+    def _write_clusters_from_projection(self, graph: nx.MultiGraph):
         for node_id, node_data in graph.nodes(data=True):
             existing = self._conn.execute(
                 "SELECT 1 FROM nodes WHERE id = ?",
@@ -162,7 +197,7 @@ class SQLiteGraphStorage(BaseGraphStorage):
     async def has_edge(self, source_node_id: str, target_node_id: str) -> bool:
         source_id, target_id = _canonical_edge(source_node_id, target_node_id)
         row = self._conn.execute(
-            "SELECT 1 FROM edges WHERE source_id = ? AND target_id = ?",
+            "SELECT 1 FROM edges WHERE source_id = ? AND target_id = ? LIMIT 1",
             (source_id, target_id),
         ).fetchone()
         return row is not None
@@ -170,11 +205,11 @@ class SQLiteGraphStorage(BaseGraphStorage):
     async def node_degree(self, node_id: str) -> int:
         row = self._conn.execute(
             """
-            SELECT COUNT(*)
+            SELECT COUNT(DISTINCT CASE WHEN source_id = ? THEN target_id ELSE source_id END)
             FROM edges
             WHERE source_id = ? OR target_id = ?
             """,
-            (node_id, node_id),
+            (node_id, node_id, node_id),
         ).fetchone()
         return int(row[0]) if row is not None else 0
 
@@ -197,14 +232,53 @@ class SQLiteGraphStorage(BaseGraphStorage):
         return [await self.get_node(node_id) for node_id in node_ids]
 
     async def get_edge(self, source_node_id: str, target_node_id: str) -> Optional[dict]:
+        """Get edge data between two nodes.
+
+        When multiple edges exist between the same node pair (temporal multi-edges),
+        they are merged into a single dict with aggregated descriptions/weights and
+        first-found temporal fields. Use direct storage access for per-edge temporal detail.
+        """
         source_id, target_id = _canonical_edge(source_node_id, target_node_id)
-        row = self._conn.execute(
+        rows = self._conn.execute(
             "SELECT data FROM edges WHERE source_id = ? AND target_id = ?",
             (source_id, target_id),
-        ).fetchone()
-        if row is None:
+        ).fetchall()
+        if not rows:
             return None
-        return json.loads(row[0])
+        if len(rows) == 1:
+            return json.loads(rows[0][0])
+        from ..prompt import GRAPH_FIELD_SEP
+
+        combined = {}
+        all_descriptions = []
+        total_weight = 0.0
+        all_source_ids = []
+        temporal_context = None
+        valid_from = None
+        valid_to = None
+        for (raw_data,) in rows:
+            data = json.loads(raw_data)
+            if "description" in data:
+                all_descriptions.append(data["description"])
+            total_weight += data.get("weight", 0.0)
+            if "source_id" in data:
+                all_source_ids.append(data["source_id"])
+            if not temporal_context and data.get("temporal_context"):
+                temporal_context = data["temporal_context"]
+            if not valid_from and data.get("valid_from"):
+                valid_from = data["valid_from"]
+            if not valid_to and data.get("valid_to"):
+                valid_to = data["valid_to"]
+        combined["description"] = GRAPH_FIELD_SEP.join(
+            sorted(set(d for d in all_descriptions if d))
+        )
+        combined["weight"] = total_weight
+        combined["source_id"] = GRAPH_FIELD_SEP.join(sorted(set(s for s in all_source_ids if s)))
+        combined["temporal_context"] = temporal_context
+        combined["valid_from"] = valid_from
+        combined["valid_to"] = valid_to
+        combined["order"] = 1
+        return combined
 
     async def get_edges_batch(self, edge_pairs: list[tuple[str, str]]) -> list[Optional[dict]]:
         return [await self.get_edge(source_id, target_id) for source_id, target_id in edge_pairs]
@@ -240,12 +314,13 @@ class SQLiteGraphStorage(BaseGraphStorage):
         self, source_node_id: str, target_node_id: str, edge_data: dict[str, Any]
     ):
         source_id, target_id = _canonical_edge(source_node_id, target_node_id)
+        edge_key = edge_data.get("relationship_id", "")
         self._conn.execute(
             """
-            INSERT OR REPLACE INTO edges (source_id, target_id, data)
-            VALUES (?, ?, ?)
+            INSERT OR REPLACE INTO edges (source_id, target_id, edge_key, data)
+            VALUES (?, ?, ?, ?)
             """,
-            (source_id, target_id, json.dumps(edge_data)),
+            (source_id, target_id, edge_key, json.dumps(edge_data)),
         )
 
     async def upsert_edges_batch(self, edges_data: list[tuple[str, str, dict[str, Any]]]):

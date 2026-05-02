@@ -67,6 +67,7 @@ class FeatureFlags(BaseModel):
     naive_rag: bool = False
     llm_cache: bool = True
     community_reports: bool = True
+    temporal_extraction: bool = False
 
 
 class LoggingConfig(BaseModel):
@@ -169,6 +170,7 @@ class GraphRAGSettings(BaseSettings):
                 naive_rag=_parse_bool_env("ENABLE_NAIVE_RAG", False),
                 llm_cache=_parse_bool_env("ENABLE_LLM_CACHE", True),
                 community_reports=_parse_bool_env("ENABLE_COMMUNITY_REPORTS", True),
+                temporal_extraction=_parse_bool_env("ENABLE_TEMPORAL_EXTRACTION", False),
             ),
             logging=LoggingConfig(
                 level=os.getenv("LOG_LEVEL", "INFO"),
@@ -232,6 +234,7 @@ FLAT_FIELD_TO_ENV_VAR: Dict[str, str] = {
     "enable_entity_linking": "ENABLE_ENTITY_LINKING",
     "entity_linking_use_neighborhood_evidence": "ENTITY_LINKING_USE_NEIGHBORHOOD_EVIDENCE",
     "enable_community_reports": "ENABLE_COMMUNITY_REPORTS",
+    "enable_temporal_extraction": "ENABLE_TEMPORAL_EXTRACTION",
     "entity_linking_similarity_threshold": "ENTITY_LINKING_SIMILARITY_THRESHOLD",
     "entity_linking_max_candidates": "ENTITY_LINKING_MAX_CANDIDATES",
     "entity_linking_iou_threshold": "ENTITY_LINKING_IOU_THRESHOLD",
@@ -298,6 +301,7 @@ def _unflatten_data(data: Dict[str, Any]) -> Dict[str, Any]:
         "enable_naive_rag": ("features", "naive_rag"),
         "enable_llm_cache": ("features", "llm_cache"),
         "enable_community_reports": ("features", "community_reports"),
+        "enable_temporal_extraction": ("features", "temporal_extraction"),
         "log_level": ("logging", "level"),
         "log_file": ("logging", "file"),
     }

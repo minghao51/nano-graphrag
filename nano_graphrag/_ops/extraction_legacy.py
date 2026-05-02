@@ -21,7 +21,10 @@ async def extract_document_entity_relationships_legacy(
     entity_extract_max_gleaning = global_config["entity_extract_max_gleaning"]
     ordered_chunks = list(chunks.items())
 
-    entity_extract_prompt = PROMPTS["entity_extraction"]
+    if global_config.get("enable_temporal_extraction", False):
+        entity_extract_prompt = PROMPTS["entity_extraction_temporal"]
+    else:
+        entity_extract_prompt = PROMPTS["entity_extraction"]
     context_base = dict(
         tuple_delimiter=PROMPTS["DEFAULT_TUPLE_DELIMITER"],
         record_delimiter=PROMPTS["DEFAULT_RECORD_DELIMITER"],
@@ -99,10 +102,13 @@ async def extract_document_entity_relationships_legacy(
                     "entity_type": entity["entity_type"],
                     "descriptions": [],
                     "source_chunk_ids": [],
+                    "event_date": entity.get("event_date"),
                 },
             )
             target["descriptions"].extend(entity["descriptions"])
             target["source_chunk_ids"].extend(entity["source_chunk_ids"])
+            if entity.get("event_date") and not target.get("event_date"):
+                target["event_date"] = entity["event_date"]
         for relationship_id, relationship in relationships.items():
             target = manifest_relationships.setdefault(
                 relationship_id,
@@ -113,9 +119,18 @@ async def extract_document_entity_relationships_legacy(
                     "descriptions": [],
                     "weight": 0.0,
                     "source_chunk_ids": [],
+                    "temporal_context": relationship.get("temporal_context"),
+                    "valid_from": relationship.get("valid_from"),
+                    "valid_to": relationship.get("valid_to"),
                 },
             )
             target["descriptions"].extend(relationship["descriptions"])
             target["weight"] += relationship["weight"]
             target["source_chunk_ids"].extend(relationship["source_chunk_ids"])
+            if relationship.get("temporal_context") and not target.get("temporal_context"):
+                target["temporal_context"] = relationship["temporal_context"]
+            if relationship.get("valid_from") and not target.get("valid_from"):
+                target["valid_from"] = relationship["valid_from"]
+            if relationship.get("valid_to") and not target.get("valid_to"):
+                target["valid_to"] = relationship["valid_to"]
     return _normalize_document_manifest(manifest)

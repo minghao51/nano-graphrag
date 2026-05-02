@@ -321,6 +321,62 @@ PROMPTS[
 """
 
 PROMPTS["DEFAULT_ENTITY_TYPES"] = ["organization", "person", "geo", "event"]
+
+
+PROMPTS["entity_extraction_temporal"] = """-Goal-
+Given a text document that is potentially relevant to this activity and a list of entity types, identify all entities of those types from the text and all relationships among the identified entities. Pay special attention to temporal information — when events happened and when relationships were true.
+
+-Steps-
+1. Identify all entities. For each identified entity, extract the following information:
+- entity_name: Name of the entity, capitalized
+- entity_type: One of the following types: [{entity_types}]
+- entity_description: Comprehensive description of the entity's attributes and activities
+- entity_aliases: Alternative names, abbreviations, or nicknames for the entity (comma-separated, empty string if none)
+- event_date: Only for EVENT type entities: when the event occurred (ISO-8601 date or descriptive text like "Q3 2023", "January 2020"). Empty string for non-event entities.
+Format each entity as ("entity"{tuple_delimiter}<entity_name>{tuple_delimiter}<entity_type>{tuple_delimiter}<entity_description>{tuple_delimiter}<entity_aliases>{tuple_delimiter}<event_date>)
+
+2. From the entities identified in step 1, identify all pairs of (source_entity, target_entity) that are *clearly related* to each other.
+For each pair of related entities, extract the following information:
+- source_entity: name of the source entity, as identified in step 1
+- target_entity: name of the target entity, as identified in step 1
+- relationship_description: explanation as to why you think the source entity and the target entity are related to each other, including any temporal context
+- relationship_strength: a numeric score indicating strength of the relationship between the source entity and target entity
+- temporal_context: When this relationship is/was true (e.g., "since 2020", "from 2018 to 2022", "in 2023"). Empty string if no temporal information is available.
+- valid_from: ISO-8601 start date if known (e.g., "2020-01-01"). Empty string if unknown.
+- valid_to: ISO-8601 end date if known (e.g., "2022-12-31"). Empty string if still current or unknown.
+Format each relationship as ("relationship"{tuple_delimiter}<source_entity>{tuple_delimiter}<target_entity>{tuple_delimiter}<relationship_description>{tuple_delimiter}<relationship_strength>{tuple_delimiter}<temporal_context>{tuple_delimiter}<valid_from>{tuple_delimiter}<valid_to>)
+
+3. Return output in English as a single list of all the entities and relationships identified in steps 1 and 2. Use **{{record_delimiter}}** as the list delimiter.
+
+4. When finished, output {completion_delimiter}
+
+######################
+-Examples-
+######################
+Example 1:
+
+Entity_types: [person, technology, mission, organization, location, event]
+Text:
+In March 2023, Tesla CEO Elon Musk announced that the company would be building a new Gigafactory in Monterrey, Mexico. The announcement came after months of negotiations with Mexican officials. Previously, Musk had served as CEO of Tesla since October 2008. Before joining Tesla, he co-founded SpaceX in 2002.
+################
+Output:
+("entity"{tuple_delimiter}"ELON MUSK"{tuple_delimiter}"person"{tuple_delimiter}"Elon Musk is the CEO of Tesla since 2008 and co-founder of SpaceX since 2002"{tuple_delimiter}""){record_delimiter}
+("entity"{tuple_delimiter}"TESLA"{tuple_delimiter}"organization"{tuple_delimiter}"Tesla is an electric vehicle company led by CEO Elon Musk"{tuple_delimiter}""){record_delimiter}
+("entity"{tuple_delimiter}"SPACEX"{tuple_delimiter}"organization"{tuple_delimiter}"SpaceX is an aerospace company co-founded by Elon Musk in 2002"{tuple_delimiter}""){record_delimiter}
+("entity"{tuple_delimiter}"GIGAFACTORY MEXICO ANNOUNCEMENT"{tuple_delimiter}"event"{tuple_delimiter}"Announcement of a new Tesla Gigafactory in Monterrey, Mexico"{tuple_delimiter}""{tuple_delimiter}"2023-03"){record_delimiter}
+("entity"{tuple_delimiter}"MONTERREY"{tuple_delimiter}"geo"{tuple_delimiter}"Monterrey is a city in Mexico selected as the site for a new Tesla Gigafactory"{tuple_delimiter}""){record_delimiter}
+("relationship"{tuple_delimiter}"ELON MUSK"{tuple_delimiter}"TESLA"{tuple_delimiter}"Elon Musk has served as CEO of Tesla since October 2008"{tuple_delimiter}10{tuple_delimiter}"since October 2008"{tuple_delimiter}"2008-10"{tuple_delimiter}""){record_delimiter}
+("relationship"{tuple_delimiter}"ELON MUSK"{tuple_delimiter}"SPACEX"{tuple_delimiter}"Elon Musk co-founded SpaceX in 2002"{tuple_delimiter}9{tuple_delimiter}"since 2002"{tuple_delimiter}"2002"{tuple_delimiter}""){record_delimiter}
+("relationship"{tuple_delimiter}"TESLA"{tuple_delimiter}"GIGAFACTORY MEXICO ANNOUNCEMENT"{tuple_delimiter}"Tesla announced plans to build a new Gigafactory in Mexico in March 2023"{tuple_delimiter}8{tuple_delimiter}"March 2023"{tuple_delimiter}"2023-03"{tuple_delimiter}""){record_delimiter}
+("relationship"{tuple_delimiter}"GIGAFACTORY MEXICO ANNOUNCEMENT"{tuple_delimiter}"MONTERREY"{tuple_delimiter}"The Gigafactory is planned to be built in Monterrey, Mexico"{tuple_delimiter}7{tuple_delimiter}"March 2023"{tuple_delimiter}"2023-03"{tuple_delimiter}""){completion_delimiter}
+#############################
+-Real Data-
+######################
+Entity_types: {entity_types}
+Text: {input_text}
+######################
+Output:
+"""
 PROMPTS["DEFAULT_TUPLE_DELIMITER"] = "<|>"
 PROMPTS["DEFAULT_RECORD_DELIMITER"] = "##"
 PROMPTS["DEFAULT_COMPLETION_DELIMITER"] = "<|COMPLETE|>"

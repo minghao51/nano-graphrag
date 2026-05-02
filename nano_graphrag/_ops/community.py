@@ -106,7 +106,7 @@ async def _pack_single_community_describe(
         return ",".join('"{}"'.format(str(item).replace('"', '""')) for item in row)
 
     node_fields = ["id", "entity", "type", "description", "degree"]
-    edge_fields = ["id", "source", "target", "description", "rank"]
+    edge_fields = ["id", "source", "target", "description", "rank", "temporal"]
 
     node_degrees = await knowledge_graph_inst.node_degrees_batch(nodes_in_order)
     edge_degrees = await knowledge_graph_inst.edge_degrees_batch(edges_in_order)
@@ -124,21 +124,26 @@ async def _pack_single_community_describe(
     ]
 
     node_index_lookup = {name: idx for idx, name in enumerate(nodes_in_order)}
-    edges_list_data = [
-        [
-            i,
-            (nodes_data[node_index_lookup[edge[0]]] or {}).get("entity_name", edge[0])
-            if edge[0] in node_index_lookup
-            else edge[0],
-            (nodes_data[node_index_lookup[edge[1]]] or {}).get("entity_name", edge[1])
-            if edge[1] in node_index_lookup
-            else edge[1],
-            (data or {}).get("description", "UNKNOWN"),
-            edge_degrees[i],
-        ]
-        for i, (edge, data) in enumerate(zip(edges_in_order, edges_data))
-        if (edge[0], edge[1]) not in contain_edges
-    ]
+    edges_list_data = []
+    for i, (edge, data) in enumerate(zip(edges_in_order, edges_data)):
+        if (edge[0], edge[1]) in contain_edges:
+            continue
+        edge_data = data or {}
+        temporal = edge_data.get("temporal_context", "")
+        valid_from = edge_data.get("valid_from", "")
+        valid_to = edge_data.get("valid_to", "")
+        if valid_from or valid_to:
+            temporal = f"{valid_from or '?'} to {valid_to or 'now'}"
+        edges_list_data.append(
+            [
+                i,
+                (nodes_data[node_index_lookup.get(edge[0], -1)] or {}).get("entity_name", edge[0]),
+                (nodes_data[node_index_lookup.get(edge[1], -1)] or {}).get("entity_name", edge[1]),
+                edge_data.get("description", "UNKNOWN"),
+                edge_degrees[i],
+                temporal,
+            ]
+        )
 
     nodes_list_data.sort(key=lambda x: x[-1], reverse=True)
     edges_list_data.sort(key=lambda x: x[-1], reverse=True)

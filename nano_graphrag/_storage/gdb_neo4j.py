@@ -244,6 +244,12 @@ class Neo4jStorage(BaseGraphStorage):
             raise e
 
     async def get_edge(self, source_node_id: str, target_node_id: str) -> Union[dict, None]:
+        """Get edge data between two nodes.
+
+        When multiple edges exist between the same node pair (temporal multi-edges),
+        they are merged into a single dict with aggregated descriptions/weights and
+        first-found temporal fields. Use direct storage access for per-edge temporal detail.
+        """
         results = await self.get_edges_batch([(source_node_id, target_node_id)])
         return results[0] if results else None
 
@@ -262,7 +268,7 @@ class Neo4jStorage(BaseGraphStorage):
                     UNWIND $edges AS edge
                     MATCH (s:`{self.namespace}`)-[r]->(t:`{self.namespace}`)
                     WHERE s.id = edge.source_id AND t.id = edge.target_id
-                    RETURN edge.source_id AS source_id, edge.target_id AS target_id, properties(r) AS edge_data
+                    RETURN s.id AS source_id, t.id AS target_id, collect(properties(r)) AS edges_data
                     """,
                     edges=edges_params,
                 )
@@ -270,10 +276,45 @@ class Neo4jStorage(BaseGraphStorage):
                 async for record in result:
                     source_id = record["source_id"]
                     target_id = record["target_id"]
-                    edge_data = record["edge_data"]
+                    edges_data = record["edges_data"]
 
                     edge_pair = (source_id, target_id)
-                    result_dict[edge_pair] = edge_data
+                    if len(edges_data) == 1:
+                        result_dict[edge_pair] = edges_data[0]
+                    elif len(edges_data) > 1:
+                        from ..prompt import GRAPH_FIELD_SEP
+
+                        combined = {}
+                        all_descriptions = []
+                        total_weight = 0.0
+                        all_source_ids = []
+                        temporal_context = None
+                        valid_from = None
+                        valid_to = None
+                        for data in edges_data:
+                            if "description" in data:
+                                all_descriptions.append(data["description"])
+                            total_weight += data.get("weight", 0.0)
+                            if "source_id" in data:
+                                all_source_ids.append(data["source_id"])
+                            if not temporal_context and data.get("temporal_context"):
+                                temporal_context = data["temporal_context"]
+                            if not valid_from and data.get("valid_from"):
+                                valid_from = data["valid_from"]
+                            if not valid_to and data.get("valid_to"):
+                                valid_to = data["valid_to"]
+                        combined["description"] = GRAPH_FIELD_SEP.join(
+                            sorted(set(d for d in all_descriptions if d))
+                        )
+                        combined["weight"] = total_weight
+                        combined["source_id"] = GRAPH_FIELD_SEP.join(
+                            sorted(set(s for s in all_source_ids if s))
+                        )
+                        combined["temporal_context"] = temporal_context
+                        combined["valid_from"] = valid_from
+                        combined["valid_to"] = valid_to
+                        combined["order"] = 1
+                        result_dict[edge_pair] = combined
 
             return [result_dict[tuple(edge_pair)] for edge_pair in edge_pairs]
         except Exception as e:
@@ -354,9 +395,15 @@ class Neo4jStorage(BaseGraphStorage):
         for source_id, target_id, edge_data in edges_data:
             edge_data_copy = edge_data.copy()
             edge_data_copy.setdefault("weight", 0.0)
+            relationship_id = edge_data_copy.get("relationship_id", "")
 
             edges_params.append(
-                {"source_id": source_id, "target_id": target_id, "edge_data": edge_data_copy}
+                {
+                    "source_id": source_id,
+                    "target_id": target_id,
+                    "edge_data": edge_data_copy,
+                    "rel_id": relationship_id,
+                }
             )
 
         async with self.async_driver.session() as session:
@@ -368,7 +415,19 @@ class Neo4jStorage(BaseGraphStorage):
                 WITH edge, s
                 MATCH (t:`{self.namespace}`)
                 WHERE t.id = edge.target_id
-                MERGE (s)-[r:RELATED]->(t)
+                OPTIONAL MATCH (s)-[existing:RELATED {{relationship_id: edge.rel_id}}]->(t)
+                WITH edge, s, t, existing
+                WHERE existing IS NULL
+                CREATE (s)-[r:RELATED]->(t)
+                SET r += edge.edge_data
+                """,
+                edges=edges_params,
+            )
+            await session.run(
+                f"""
+                UNWIND $edges AS edge
+                MATCH (s:`{self.namespace}`)-[r:RELATED {{relationship_id: edge.rel_id}}]->(t:`{self.namespace}`)
+                WHERE s.id = edge.source_id AND t.id = edge.target_id
                 SET r += edge.edge_data
                 """,
                 edges=edges_params,

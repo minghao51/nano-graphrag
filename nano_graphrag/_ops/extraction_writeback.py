@@ -22,15 +22,19 @@ async def _process_entity_writeback(
         description = await _handle_entity_relation_summary(
             entity["entity_name"], description, global_config, tokenizer_wrapper
         )
+    node_data = {
+        "entity_name": entity["entity_name"],
+        "entity_type": entity["entity_type"],
+        "aliases": json.dumps(entity.get("aliases", [])),
+        "description": description,
+        "source_id": _join_unique(entity["source_chunk_ids"]),
+    }
+    event_date = entity.get("event_date")
+    if event_date:
+        node_data["event_date"] = event_date
     await knowledge_graph_inst.upsert_node(
         entity_id,
-        {
-            "entity_name": entity["entity_name"],
-            "entity_type": entity["entity_type"],
-            "aliases": json.dumps(entity.get("aliases", [])),
-            "description": description,
-            "source_id": _join_unique(entity["source_chunk_ids"]),
-        },
+        node_data,
     )
     if entity_registry is not None:
         entity_registry.register_entity(
@@ -57,16 +61,26 @@ async def _process_relationship_writeback(
         description = await _handle_entity_relation_summary(
             relationship_id, description, global_config, tokenizer_wrapper
         )
+    edge_data = {
+        "description": description,
+        "weight": relationship["weight"],
+        "source_id": _join_unique(relationship["source_chunk_ids"]),
+        "order": 1,
+        "relationship_id": relationship_id,
+    }
+    temporal_context = relationship.get("temporal_context")
+    valid_from = relationship.get("valid_from")
+    valid_to = relationship.get("valid_to")
+    if temporal_context:
+        edge_data["temporal_context"] = temporal_context
+    if valid_from:
+        edge_data["valid_from"] = valid_from
+    if valid_to:
+        edge_data["valid_to"] = valid_to
     await knowledge_graph_inst.upsert_edge(
         relationship["src_entity_id"],
         relationship["tgt_entity_id"],
-        {
-            "description": description,
-            "weight": relationship["weight"],
-            "source_id": _join_unique(relationship["source_chunk_ids"]),
-            "order": 1,
-            "relationship_id": relationship_id,
-        },
+        edge_data,
     )
 
 
@@ -306,15 +320,17 @@ async def _write_extraction_manifest(
         ]
     )
     if entity_vdb is not None:
-        await entity_vdb.upsert(
-            {
-                entity_id: {
-                    "content": entity["entity_name"] + " - " + _join_unique(entity["descriptions"]),
-                    "entity_name": entity["entity_name"],
-                }
-                for entity_id, entity in manifest["entities"].items()
+        entity_upsert_data = {}
+        for entity_id, entity in manifest["entities"].items():
+            content = entity["entity_name"] + " - " + _join_unique(entity["descriptions"])
+            event_date = entity.get("event_date")
+            if event_date:
+                content += f" ({event_date})"
+            entity_upsert_data[entity_id] = {
+                "content": content,
+                "entity_name": entity["entity_name"],
             }
-        )
+        await entity_vdb.upsert(entity_upsert_data)
     return knowledge_graph_inst
 
 

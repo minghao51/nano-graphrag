@@ -8,7 +8,7 @@ import re
 from dataclasses import dataclass
 from functools import wraps
 from hashlib import md5, sha256
-from typing import Any, Callable, Literal, Union
+from typing import Any, Callable, Literal, Optional, Union
 
 import numpy as np
 import tiktoken
@@ -253,10 +253,13 @@ def generate_stable_relationship_id(
     src_entity_id: str,
     tgt_entity_id: str,
     relation_type: str = "related",
+    temporal_context: Optional[str] = None,
 ):
     left, right = sorted([src_entity_id, tgt_entity_id])
-    normalized = f"{left}|{right}|{relation_type.strip().lower()}"
-    return compute_sha256_id(normalized, prefix="rel_")
+    parts = f"{left}|{right}|{relation_type.strip().lower()}"
+    if temporal_context:
+        parts += f"|{temporal_context.strip().lower()}"
+    return compute_sha256_id(parts, prefix="rel_")
 
 
 def pack_user_ass_to_openai_messages(

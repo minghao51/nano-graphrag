@@ -48,6 +48,7 @@ async def _parse_legacy_extraction_records(
                 entity["description"],
                 chunk_key,
                 aliases=entity.get("aliases"),
+                event_date=entity.get("event_date"),
             )
             entity_name_to_id[entity["entity_name"]] = entity_id
             continue
@@ -72,6 +73,9 @@ async def _parse_legacy_extraction_records(
             relationship["description"],
             relationship["weight"],
             chunk_key,
+            temporal_context=relationship.get("temporal_context"),
+            valid_from=relationship.get("valid_from"),
+            valid_to=relationship.get("valid_to"),
         )
     return entities, relationships
 
@@ -131,6 +135,9 @@ async def _handle_single_entity_extraction(
         for a in entity_aliases_raw.split(",")
         if a.strip() and a.strip().lower() != entity_name.lower()
     ]
+    event_date = clean_str(record_attributes[5]) if len(record_attributes) >= 6 else None
+    if event_date and not event_date.strip():
+        event_date = None
     entity_source_id = chunk_key
     return dict(
         entity_name=entity_name,
@@ -138,6 +145,7 @@ async def _handle_single_entity_extraction(
         description=entity_description,
         aliases=entity_aliases,
         source_id=entity_source_id,
+        event_date=event_date,
     )
 
 
@@ -152,12 +160,24 @@ async def _handle_single_relationship_extraction(
     edge_description = clean_str(record_attributes[3])
     edge_source_id = chunk_key
     weight = float(record_attributes[-1]) if is_float_regex(record_attributes[-1]) else 1.0
+    temporal_context = clean_str(record_attributes[5]) if len(record_attributes) >= 7 else None
+    valid_from = clean_str(record_attributes[6]) if len(record_attributes) >= 8 else None
+    valid_to = clean_str(record_attributes[7]) if len(record_attributes) >= 9 else None
+    if temporal_context and not temporal_context.strip():
+        temporal_context = None
+    if valid_from and not valid_from.strip():
+        valid_from = None
+    if valid_to and not valid_to.strip():
+        valid_to = None
     return dict(
         src_name=source,
         tgt_name=target,
         weight=weight,
         description=edge_description,
         source_id=edge_source_id,
+        temporal_context=temporal_context,
+        valid_from=valid_from,
+        valid_to=valid_to,
     )
 
 
@@ -222,6 +242,9 @@ async def _merge_edges_then_upsert(
     already_source_ids = []
     already_description = []
     already_order = []
+    already_temporal_context = None
+    already_valid_from = None
+    already_valid_to = None
     if await knowledge_graph_inst.has_edge(src_id, tgt_id):
         already_edge = await knowledge_graph_inst.get_edge(src_id, tgt_id)
         if already_edge is not None:
@@ -231,6 +254,9 @@ async def _merge_edges_then_upsert(
             )
             already_description.append(already_edge["description"])
             already_order.append(already_edge.get("order", 1))
+            already_temporal_context = already_edge.get("temporal_context")
+            already_valid_from = already_edge.get("valid_from")
+            already_valid_to = already_edge.get("valid_to")
 
     order = min([dp.get("order", 1) for dp in edges_data] + already_order)
     weight = sum(dp["weight"] for dp in edges_data) + sum(already_weights)
@@ -255,11 +281,30 @@ async def _merge_edges_then_upsert(
     description = await _handle_entity_relation_summary(
         f"{src_id}->{tgt_id}", description, global_config, tokenizer_wrapper
     )
-    await knowledge_graph_inst.upsert_edge(
-        src_id,
-        tgt_id,
-        edge_data=dict(weight=weight, description=description, source_id=source_id, order=order),
-    )
+    temporal_context = None
+    valid_from = None
+    valid_to = None
+    for dp in edges_data:
+        if not temporal_context and dp.get("temporal_context"):
+            temporal_context = dp["temporal_context"]
+        if not valid_from and dp.get("valid_from"):
+            valid_from = dp["valid_from"]
+        if not valid_to and dp.get("valid_to"):
+            valid_to = dp["valid_to"]
+    if not temporal_context:
+        temporal_context = already_temporal_context
+    if not valid_from:
+        valid_from = already_valid_from
+    if not valid_to:
+        valid_to = already_valid_to
+    edge_data = dict(weight=weight, description=description, source_id=source_id, order=order)
+    if temporal_context:
+        edge_data["temporal_context"] = temporal_context
+    if valid_from:
+        edge_data["valid_from"] = valid_from
+    if valid_to:
+        edge_data["valid_to"] = valid_to
+    await knowledge_graph_inst.upsert_edge(src_id, tgt_id, edge_data=edge_data)
 
 
 def _upsert_document_entity(
@@ -269,6 +314,7 @@ def _upsert_document_entity(
     description: str,
     chunk_key: str,
     aliases: Optional[list[str]] = None,
+    event_date: Optional[str] = None,
 ) -> str:
     entity_id = generate_stable_entity_id(entity_name, entity_type)
     entity_entry = entities.setdefault(
@@ -279,6 +325,7 @@ def _upsert_document_entity(
             "descriptions": [],
             "source_chunk_ids": [],
             "aliases": [],
+            "event_date": event_date,
         },
     )
     entity_entry["descriptions"].append(description)
@@ -286,6 +333,8 @@ def _upsert_document_entity(
     if aliases:
         existing = set(entity_entry.get("aliases", []))
         entity_entry["aliases"] = sorted(existing.union(a for a in aliases if a))
+    if event_date and not entity_entry.get("event_date"):
+        entity_entry["event_date"] = event_date
     return entity_id
 
 
@@ -297,8 +346,13 @@ def _upsert_document_relationship(
     weight: float,
     chunk_key: str,
     relation_type: str = "related",
+    temporal_context: Optional[str] = None,
+    valid_from: Optional[str] = None,
+    valid_to: Optional[str] = None,
 ) -> str:
-    relationship_id = generate_stable_relationship_id(src_entity_id, tgt_entity_id, relation_type)
+    relationship_id = generate_stable_relationship_id(
+        src_entity_id, tgt_entity_id, relation_type, temporal_context=temporal_context
+    )
     relationship_entry = relationships.setdefault(
         relationship_id,
         {
@@ -308,11 +362,20 @@ def _upsert_document_relationship(
             "descriptions": [],
             "weight": 0.0,
             "source_chunk_ids": [],
+            "temporal_context": temporal_context,
+            "valid_from": valid_from,
+            "valid_to": valid_to,
         },
     )
     relationship_entry["descriptions"].append(description)
     relationship_entry["weight"] += weight
     relationship_entry["source_chunk_ids"].append(chunk_key)
+    if temporal_context and not relationship_entry.get("temporal_context"):
+        relationship_entry["temporal_context"] = temporal_context
+    if valid_from and not relationship_entry.get("valid_from"):
+        relationship_entry["valid_from"] = valid_from
+    if valid_to and not relationship_entry.get("valid_to"):
+        relationship_entry["valid_to"] = valid_to
     return relationship_id
 
 
@@ -325,6 +388,7 @@ def _normalize_document_manifest(manifest: dict) -> dict:
             "aliases": sorted(set(entity.get("aliases", []))),
             "descriptions": sorted(set(entity.get("descriptions", []))),
             "source_chunk_ids": sorted(set(entity.get("source_chunk_ids", []))),
+            "event_date": entity.get("event_date"),
         }
 
     normalized_relationships = {}
@@ -336,6 +400,9 @@ def _normalize_document_manifest(manifest: dict) -> dict:
             "descriptions": sorted(set(relationship.get("descriptions", []))),
             "weight": relationship.get("weight", 0.0),
             "source_chunk_ids": sorted(set(relationship.get("source_chunk_ids", []))),
+            "temporal_context": relationship.get("temporal_context"),
+            "valid_from": relationship.get("valid_from"),
+            "valid_to": relationship.get("valid_to"),
         }
 
     return {
@@ -355,16 +422,20 @@ def _combine_entity_contributions(contributions: list[dict]) -> Optional[dict]:
     descriptions = []
     source_chunk_ids = []
     aliases = []
+    event_date = None
     for contribution in contributions:
         aliases.extend(contribution.get("aliases", []))
         descriptions.extend(contribution.get("descriptions", []))
         source_chunk_ids.extend(contribution.get("source_chunk_ids", []))
+        if not event_date and contribution.get("event_date"):
+            event_date = contribution["event_date"]
     return {
         "entity_name": entity_name,
         "entity_type": entity_type,
         "aliases": sorted(set(a for a in aliases if a and a != entity_name)),
         "description": _join_unique(descriptions),
         "source_id": _join_unique(source_chunk_ids),
+        "event_date": event_date,
     }
 
 
@@ -393,10 +464,19 @@ def _combine_relationship_contributions(contributions: list[dict]) -> Optional[d
     descriptions = []
     source_chunk_ids = []
     total_weight = 0.0
+    temporal_context = None
+    valid_from = None
+    valid_to = None
     for contribution in contributions:
         descriptions.extend(contribution.get("descriptions", []))
         source_chunk_ids.extend(contribution.get("source_chunk_ids", []))
         total_weight += float(contribution.get("weight", 0.0))
+        if not temporal_context and contribution.get("temporal_context"):
+            temporal_context = contribution["temporal_context"]
+        if not valid_from and contribution.get("valid_from"):
+            valid_from = contribution["valid_from"]
+        if not valid_to and contribution.get("valid_to"):
+            valid_to = contribution["valid_to"]
     return {
         "src_entity_id": first["src_entity_id"],
         "tgt_entity_id": first["tgt_entity_id"],
@@ -405,4 +485,7 @@ def _combine_relationship_contributions(contributions: list[dict]) -> Optional[d
         "weight": total_weight,
         "order": 1,
         "relation_type": first.get("relation_type", "related"),
+        "temporal_context": temporal_context,
+        "valid_from": valid_from,
+        "valid_to": valid_to,
     }

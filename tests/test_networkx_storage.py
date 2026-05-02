@@ -63,7 +63,9 @@ async def test_upsert_and_get_edge(networkx_storage):
     await networkx_storage.upsert_edge(source_id, target_id, edge_data)
 
     result = await networkx_storage.get_edge(source_id, target_id)
-    assert result == edge_data
+    assert result["weight"] == edge_data["weight"]
+    assert result["type"] == edge_data["type"]
+    assert "relationship_id" in result
 
     has_edge = await networkx_storage.has_edge(source_id, target_id)
     assert has_edge is True
@@ -227,7 +229,7 @@ async def test_persistence(setup_teardown):
     assert node1_data == {"attr": "value"}
 
     edge_data = await new_storage.get_edge("node1", "node2")
-    assert edge_data == {"weight": 1.0}
+    assert edge_data["weight"] == 1.0
 
 
 async def test_embed_nodes(networkx_storage):
