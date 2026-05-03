@@ -5,12 +5,17 @@
 # === Core ===
 working_dir: "./nano_graphrag_cache"
 
+# === Shared API credentials ===
+# Set via GRAPH_API_KEY env var (or GRAPH_LLM__API_KEY / GRAPH_EMBEDDING__API_KEY for per-service overrides)
+api_key: null
+api_base: null
+
 # === LLM Configuration ===
 llm:
   model: "openrouter/google/gemma-4-31b-it"
   cheap_model: "openrouter/google/gemma-4-31b-it"
-  # api_base: null        # Set via LLM_API_BASE env var
-  # api_key: null         # Set via LLM_API_KEY env var
+  # api_base: null        # Falls back to shared api_base
+  # api_key: null         # Falls back to shared api_key; override via GRAPH_LLM__API_KEY
   max_async: 32
   max_tokens: 32768
   timeout: 120
@@ -18,8 +23,8 @@ llm:
 # === Embedding Configuration ===
 embedding:
   model: "openrouter/qwen/qwen3-embedding-8b"
-  # api_base: null        # Set via EMBEDDING_API_BASE env var
-  # api_key: null         # Set via EMBEDDING_API_KEY env var
+  # api_base: null        # Falls back to shared api_base
+  # api_key: null         # Falls back to shared api_key; override via GRAPH_EMBEDDING__API_KEY
   dim: 4096
   max_async: 16
   batch_size: 32
@@ -30,7 +35,7 @@ extraction:
   batch_size: 5
   doc_max_async: 4
   doc_flush_batch_size: 50
-  quality: "balanced"       # "fast" | "balanced" | "thorough"
+  quality: "balanced"       # "fast" | "balanced"
   backend: "llm"            # "llm" | "gliner"
 
 # === Graph Clustering ===

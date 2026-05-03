@@ -38,7 +38,7 @@ from .graphrag_runtime import (
     _runtime_config,
 )
 
-_SECRET_KEYS = {"llm_api_key", "embedding_api_key"}
+_SECRET_KEYS = {"api_key", "llm_api_key", "embedding_api_key"}
 _CALLABLE_KEYS = {
     "embedding_func",
     "best_model_func",

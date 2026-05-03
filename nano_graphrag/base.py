@@ -244,6 +244,10 @@ class _ConfigFields:
     # === Core ===
     working_dir: str = "./nano_graphrag"
 
+    # === Shared API credentials (LLM + Embedding use same key by default) ===
+    api_key: Optional[str] = None
+    api_base: Optional[str] = None
+
     # === LLM (passed to LiteLLM) ===
     llm_model: str = DEFAULT_LLM_MODEL
     llm_cheap_model: str = DEFAULT_CHEAP_MODEL
@@ -314,6 +318,14 @@ class GraphRAGConfig(_ConfigFields):
     @classmethod
     def _from_settings(cls, settings: GraphRAGSettings) -> "GraphRAGConfig":
         flat = settings.to_flat_dict()
+        if not flat.get("llm_api_key"):
+            flat["llm_api_key"] = flat.get("api_key")
+        if not flat.get("embedding_api_key"):
+            flat["embedding_api_key"] = flat.get("api_key")
+        if not flat.get("llm_api_base"):
+            flat["llm_api_base"] = flat.get("api_base")
+        if not flat.get("embedding_api_base"):
+            flat["embedding_api_base"] = flat.get("api_base")
         return cls(**flat)
 
     @classmethod
