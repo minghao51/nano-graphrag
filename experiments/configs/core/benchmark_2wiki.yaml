@@ -1,0 +1,39 @@
+# 2WikiMultiHopQA Benchmark Configuration
+
+name: 2wiki_benchmark
+version: "1.0"
+description: "Multi-hop RAG evaluation on 2WikiMultiHopQA dataset"
+
+dataset:
+  name: 2wiki
+  path: ~/.cache/nano-bench/2wiki/dev.json
+  split: dev
+  max_samples: 50
+  auto_download: true
+
+graphrag:
+  working_dir: ./workdirs/2wiki
+  enable_llm_cache: true
+
+query:
+  modes:
+    - naive
+    - local
+    - multihop
+  param_overrides:
+    max_hops: 4
+    entities_per_hop: 10
+    context_token_budget: 8000
+    top_k: 60
+
+cache:
+  enabled: true
+  backend: disk
+
+metrics:
+  exact_match: true
+  token_f1: true
+
+output:
+  results_dir: ./results/2wiki
+  save_predictions: true

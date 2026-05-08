@@ -22,7 +22,7 @@
 
 ## Guiding Principles
 
-- **Core isolation.** The `nano_graphrag/` package stays untouched. All experiment scaffolding lives in a parallel `bench/` tree and imports from core via public APIs only.
+- **Core isolation.** The `src/nano_graphrag/` package stays untouched. All experiment scaffolding lives in a parallel `bench/` tree and imports from core via public APIs only.
 - **Reproducibility first.** Every run is fully reproducible: config pinned in YAML, LLM responses optionally cached, results stored with the config that produced them.
 - **One-command experiments.** `python -m bench.run --config experiments/multihop_baseline.yaml` should be the full surface area for running a benchmark.
 - **Incremental complexity.** Each phase delivers standalone value before the next phase begins. Phase 1 alone (benchmark harness) is useful without Phase 2 or 3.
@@ -34,7 +34,7 @@
 
 ```
 nano-graphrag/
-├── nano_graphrag/          # CORE — do not modify
+├── src/nano_graphrag/      # CORE — do not modify
 │   ├── _op.py
 │   ├── _llm.py
 │   ├── base.py

@@ -1,5 +1,4 @@
-name: test
-
+name: CI
 on:
   push:
     branches:
@@ -18,42 +17,70 @@ on:
       - '**/*.ipynb'
       - 'examples/**'
 
+permissions:
+  contents: read
+
 jobs:
-  test:
-    name: Tests on ${{ matrix.os }} for ${{ matrix.python-version }}
-    strategy:
-      matrix:
-        python-version: ["3.9"]
-        os: [ubuntu-latest]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+  lint:
+    name: Lint (pre-commit + ruff)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
+      - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - name: Set up Python
-        run: uv python install ${{ matrix.python-version }}
-      - name: Sync dependencies
-        run: uv sync --frozen --all-extras
+      - run: uv sync --frozen --all-extras
+      - uses: pre-commit/action@v3.0.1
+
+  typecheck:
+    name: Typecheck (mypy)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --frozen --all-extras
+      - run: uv run mypy src/nano_graphrag
+
+  test:
+    name: Tests on Python ${{ matrix.python-version }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.10", "3.11"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
+      - run: uv python install ${{ matrix.python-version }}
+      - run: uv sync --frozen --all-extras
       - name: Install dotenvx
         run: npm install -g @dotenvx/dotenvx
-      - name: Lint with ruff
-        run: uv run ruff check nano_graphrag/
-      - name: Build and Test
+      - name: Run tests with coverage
         env:
           NANO_GRAPHRAG_TEST_IGNORE_NEO4J: true
           DOTENV_PRIVATE_KEY: ${{ secrets.DOTENV_PRIVATE_KEY }}
         run: |
-          dotenvx run -- uv run pytest -o log_cli=true -o log_cli_level="INFO" --cov=nano_graphrag --cov-report=xml -v ./tests/
-      - name: Check codecov file
-        id: check_files
-        uses: andstor/file-existence-action@v1
+          dotenvx run -- uv run pytest -o log_cli=true -o log_cli_level="INFO" --cov-report=xml -v ./tests/
+      - uses: codecov/codecov-action@v5
         with:
-          files: './coverage.xml'
-      - name: Upload coverage from test to Codecov
-        uses: codecov/codecov-action@v2
-        with:
-          file: ./coverage.xml
+          files: ./coverage.xml
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  security:
+    name: Security (pip-audit)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --frozen --all-extras
+      - run: uv run pip-audit

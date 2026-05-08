@@ -1,0 +1,44 @@
+# Hybrid Retrieval Benchmark Configuration
+
+name: hybrid_benchmark
+version: "1.0"
+description: "Hybrid fusion retrieval evaluation combining local and global search"
+
+dataset:
+  name: multihop_rag
+  path: ~/.cache/nano-bench/multihop_rag/questions.json
+  corpus_path: ~/.cache/nano-bench/multihop_rag/corpus.json
+  split: validation
+  max_samples: 50
+  max_corpus_samples: 500
+  auto_download: true
+
+graphrag:
+  working_dir: ./workdirs/hybrid
+  enable_llm_cache: true
+  llm_model: openrouter/@preset/cheap-fast
+  embedding_model: openrouter/qwen/qwen3-embedding-8b
+
+query:
+  modes:
+    - hybrid
+  param_overrides:
+    # Hybrid retrieval parameters
+    fusion_strategy: "reciprocal_rank"  # Options: weighted_avg, reciprocal_rank, rrf
+    retriever_weights:
+      local: 0.6
+      global: 0.4
+    top_k: 60
+    context_token_budget: 8000
+
+cache:
+  enabled: true
+  backend: disk
+
+metrics:
+  exact_match: true
+  token_f1: true
+
+output:
+  results_dir: ./results/hybrid
+  save_predictions: true

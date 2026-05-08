@@ -13,7 +13,12 @@ from nano_graphrag._ops.extraction import (
     _get_manifest_neighbor_names,
     _resolve_manifest_entity_link,
 )
-from nano_graphrag._ops.extraction_common import _normalize_entity_name
+from nano_graphrag._ops.extraction_common import (
+    _build_extraction_system_prompt,
+    _build_temporal_instructions,
+    _merge_results_into_manifest,
+    _normalize_entity_name,
+)
 from nano_graphrag._ops.extraction_rebuild import (
     _append_doc_id,
     _entity_index_key,
@@ -533,3 +538,125 @@ class TestDisambiguateWithNeighborhoodEvidence:
         assert "Structural Evidence" in captured_prompt
         assert "iphone" in captured_prompt.lower()
         assert "IoU" in captured_prompt
+
+
+# --- extraction_common shared helper tests ---
+
+
+class TestMergeResultsIntoManifest:
+    def test_merges_single_result(self):
+        eid = generate_stable_entity_id("Alice", "PERSON")
+        results = [
+            (
+                {eid: {"entity_name": "Alice", "entity_type": "PERSON", "descriptions": ["desc"], "source_chunk_ids": ["c0"]}},
+                {},
+            )
+        ]
+        manifest = _merge_results_into_manifest(results, ["c0"])
+        assert eid in manifest["entities"]
+        assert manifest["entities"][eid]["entity_name"] == "Alice"
+
+    def test_merges_duplicate_entity_across_chunks(self):
+        eid = generate_stable_entity_id("Alice", "PERSON")
+        results = [
+            (
+                {eid: {"entity_name": "Alice", "entity_type": "PERSON", "descriptions": ["desc1"], "source_chunk_ids": ["c0"], "aliases": []}},
+                {},
+            ),
+            (
+                {eid: {"entity_name": "Alice", "entity_type": "PERSON", "descriptions": ["desc2"], "source_chunk_ids": ["c1"], "aliases": ["Ali"]}},
+                {},
+            ),
+        ]
+        manifest = _merge_results_into_manifest(results, ["c0", "c1"])
+        entity = manifest["entities"][eid]
+        assert entity["descriptions"] == ["desc1", "desc2"]
+        assert entity["source_chunk_ids"] == ["c0", "c1"]
+        assert "Ali" in entity["aliases"]
+
+    def test_merges_relationships_and_accumulates_weight(self):
+        results = [
+            (
+                {},
+                {"r1": {"src_entity_id": "e1", "tgt_entity_id": "e2", "relation_type": "related", "descriptions": ["d1"], "weight": 1.0, "source_chunk_ids": ["c0"]}},
+            ),
+            (
+                {},
+                {"r1": {"src_entity_id": "e1", "tgt_entity_id": "e2", "relation_type": "related", "descriptions": ["d2"], "weight": 2.0, "source_chunk_ids": ["c1"]}},
+            ),
+        ]
+        manifest = _merge_results_into_manifest(results, ["c0", "c1"])
+        assert manifest["relationships"]["r1"]["weight"] == 3.0
+        assert manifest["relationships"]["r1"]["descriptions"] == ["d1", "d2"]
+
+    def test_empty_results(self):
+        manifest = _merge_results_into_manifest([], [])
+        assert manifest["entities"] == {}
+        assert manifest["relationships"] == {}
+
+    def test_preserves_temporal_fields(self):
+        results = [
+            (
+                {},
+                {"r1": {"src_entity_id": "e1", "tgt_entity_id": "e2", "relation_type": "related", "descriptions": ["d1"], "weight": 1.0, "source_chunk_ids": ["c0"], "temporal_context": "since 2020", "valid_from": "2020", "valid_to": None}},
+            ),
+        ]
+        manifest = _merge_results_into_manifest(results, ["c0"])
+        rel = manifest["relationships"]["r1"]
+        assert rel["temporal_context"] == "since 2020"
+        assert rel["valid_from"] == "2020"
+
+    def test_chunk_ids_preserved(self):
+        manifest = _merge_results_into_manifest([], ["c0", "c1", "c2"])
+        assert manifest["chunk_ids"] == ["c0", "c1", "c2"]
+
+
+class TestBuildExtractionSystemPrompt:
+    def test_fast_mode_single_is_short(self):
+        config = {"entity_extraction_quality": "fast", "enable_temporal_extraction": False}
+        prompt = _build_extraction_system_prompt(["PERSON", "ORG"], config)
+        assert "Extract entities and relationships." in prompt
+        assert "JSON" in prompt
+        assert "assistant" not in prompt
+
+    def test_fast_mode_batched_has_chunks(self):
+        config = {"entity_extraction_quality": "fast", "enable_temporal_extraction": False}
+        prompt = _build_extraction_system_prompt(["PERSON"], config, batched=True)
+        assert "chunks" in prompt
+        assert "chunk_id" in prompt
+
+    def test_balanced_mode_has_assistant(self):
+        config = {"entity_extraction_quality": "balanced", "enable_temporal_extraction": False}
+        prompt = _build_extraction_system_prompt(["PERSON"], config)
+        assert "entity extraction assistant" in prompt
+
+    def test_balanced_batched_preserves_chunk_id(self):
+        config = {"entity_extraction_quality": "balanced", "enable_temporal_extraction": False}
+        prompt = _build_extraction_system_prompt(["PERSON"], config, batched=True)
+        assert "chunk_id" in prompt
+
+    def test_temporal_instructions_in_balanced(self):
+        config = {"entity_extraction_quality": "balanced", "enable_temporal_extraction": True}
+        prompt = _build_extraction_system_prompt(["PERSON"], config)
+        assert "event_date" in prompt
+        assert "temporal_context" in prompt
+
+    def test_no_temporal_when_disabled(self):
+        config = {"entity_extraction_quality": "balanced", "enable_temporal_extraction": False}
+        prompt = _build_extraction_system_prompt(["PERSON"], config)
+        assert "event_date" not in prompt
+
+
+class TestBuildTemporalInstructions:
+    def test_with_temporal_enabled(self):
+        config = {"enable_temporal_extraction": True}
+        instructions = _build_temporal_instructions(config)
+        assert "event_date" in instructions
+        assert "temporal_context" in instructions
+        assert "valid_from" in instructions
+
+    def test_without_temporal(self):
+        config = {"enable_temporal_extraction": False}
+        instructions = _build_temporal_instructions(config)
+        assert "aliases" in instructions
+        assert "event_date" not in instructions

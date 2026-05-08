@@ -17,6 +17,7 @@ from nano_graphrag._llm_litellm import (
 from nano_graphrag._schemas import EntityExtractionOutput
 from nano_graphrag import GraphRAG
 from nano_graphrag.base import GraphRAGConfig, DEFAULT_CHEAP_MODEL
+from nano_graphrag._config import GraphRAGSettings
 
 pytestmark = pytest.mark.unit
 
@@ -350,7 +351,7 @@ class TestGraphRAGConfig:
         config_data = {
             "llm_model": "gpt-4o",
             "llm_api_base": "http://localhost:11434",
-            "entity_extraction_quality": "thorough",
+            "entity_extraction_quality": "balanced",
         }
         config_file = tmp_path / "test_config.yaml"
         with open(config_file, "w") as f:
@@ -360,7 +361,7 @@ class TestGraphRAGConfig:
 
         assert config.llm_model == "gpt-4o"
         assert config.llm_api_base == "http://localhost:11434"
-        assert config.entity_extraction_quality == "thorough"
+        assert config.entity_extraction_quality == "balanced"
 
     def test_to_yaml(self, tmp_path):
         """Test saving config to YAML file."""
@@ -422,6 +423,60 @@ class TestGraphRAGConfig:
                 working_dir="./test_cache",
                 graph_cluster_algorithm="invalid_algo",
             )
+
+
+class TestSecretStrHandling:
+    """Test that SecretStr is used for API keys internally and properly unwrapped."""
+
+    def test_from_dict_unwraps_api_key(self):
+        settings = GraphRAGSettings.from_dict({"api_key": "sk-test-123"})
+        flat = settings.to_flat_dict()
+        assert flat["api_key"] == "sk-test-123"
+        assert isinstance(flat["api_key"], str)
+
+    def test_from_dict_nested_unwraps_llm_api_key(self):
+        settings = GraphRAGSettings.from_dict({"llm_api_key": "sk-llm-test"})
+        flat = settings.to_flat_dict()
+        assert flat["llm_api_key"] == "sk-llm-test"
+
+    def test_from_dict_nested_format_unwraps(self):
+        settings = GraphRAGSettings.from_dict(
+            {"llm": {"model": "test-model", "api_key": "sk-nested"}, "api_key": "sk-top"}
+        )
+        flat = settings.to_flat_dict()
+        assert flat["api_key"] == "sk-top"
+        assert flat["llm_api_key"] == "sk-nested"
+
+    def test_to_yaml_redacts_api_keys(self, tmp_path):
+        import yaml
+
+        settings = GraphRAGSettings.from_dict(
+            {"api_key": "sk-secret", "llm_api_key": "sk-llm-secret"}
+        )
+        path = str(tmp_path / "redacted.yaml")
+        settings.to_yaml(path)
+
+        with open(path) as f:
+            data = yaml.safe_load(f)
+
+        assert data["api_key"] is None
+        assert data["llm"]["api_key"] is None
+
+        with open(path) as f:
+            raw = f.read()
+        assert "sk-secret" not in raw
+        assert "sk-llm-secret" not in raw
+
+    def test_none_api_key_stays_none(self):
+        settings = GraphRAGSettings.from_dict({})
+        flat = settings.to_flat_dict()
+        assert flat["api_key"] is None
+        assert flat["llm_api_key"] is None
+
+    def test_graphrag_config_receives_plain_strings(self):
+        config = GraphRAGConfig.from_dict({"api_key": "sk-test"})
+        assert isinstance(config.api_key, str)
+        assert config.api_key == "sk-test"
 
 
 class TestGraphRAG:
@@ -555,7 +610,7 @@ class TestGraphRAGConfigValidation:
         """Test that all valid quality modes are accepted."""
         from nano_graphrag.base import GraphRAGConfig
 
-        for mode in ["fast", "balanced", "thorough"]:
+        for mode in ["fast", "balanced"]:
             config = GraphRAGConfig(entity_extraction_quality=mode)
             assert config.entity_extraction_quality == mode
 

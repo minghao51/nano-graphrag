@@ -6,7 +6,7 @@
 
 **Architecture:**
 - Incremental implementation: P0 (cache) → P1 (datasets, module structure, compare) → P2 (polish)
-- Keep `nano_graphrag/` core untouched; all changes in `_benchmark/` or new `bench/` module
+- Keep `src/nano_graphrag/` core untouched; all changes in `_benchmark/` or new `bench/` module
 - Maintain backward compatibility with existing experiment configs
 - Test-driven development: write failing test → implement → verify → commit
 
@@ -25,8 +25,8 @@
 **Why first:** Immediate cost savings, unlocks fast iteration, currently dead code.
 
 **Files:**
-- Modify: `nano_graphrag/_benchmark/cache.py`
-- Modify: `nano_graphrag/_benchmark/runner.py`
+- Modify: `bench/cache.py`
+- Modify: `bench/runner.py`
 - Create: `tests/benchmark/test_cache.py`
 
 ### Step 1.1: Add hit/miss tracking to cache
@@ -77,7 +77,7 @@ Expected: FAIL with `AttributeError: 'BenchmarkLLMCache' object has no attribute
 **Step 1.1.3: Implement hit/miss tracking in cache**
 
 ```python
-# nano_graphrag/_benchmark/cache.py
+# bench/cache.py
 
 @dataclass
 class BenchmarkLLMCache:
@@ -147,7 +147,7 @@ Expected: PASS
 **Step 1.1.5: Commit**
 
 ```bash
-git add nano_graphrag/_benchmark/cache.py tests/benchmark/test_cache.py
+git add bench/cache.py tests/benchmark/test_cache.py
 git commit -m "feat(benchmark): add cache hit/miss tracking and enable/disable flag"
 ```
 
@@ -205,7 +205,7 @@ Expected: FAIL with `AttributeError: 'BenchmarkLLMCache' object has no attribute
 **Step 1.2.3: Implement wrap function**
 
 ```python
-# nano_graphrag/_benchmark/cache.py (add to BenchmarkLLMCache class)
+# bench/cache.py (add to BenchmarkLLMCache class)
 
 def wrap(self, llm_func):
     """Wrap an LLM function with transparent caching.
@@ -248,7 +248,7 @@ Expected: PASS
 **Step 1.2.5: Commit**
 
 ```bash
-git add nano_graphrag/_benchmark/cache.py tests/benchmark/test_cache.py
+git add bench/cache.py tests/benchmark/test_cache.py
 git commit -m "feat(benchmark): add cache.wrap() method for LLM function decoration"
 ```
 
@@ -323,7 +323,7 @@ Expected: FAIL with `AttributeError: 'ExperimentRunner' object has no attribute 
 **Step 1.3.4: Implement cache integration in runner**
 
 ```python
-# nano_graphrag/_benchmark/runner.py
+# bench/runner.py
 
 from .cache import create_benchmark_cache
 
@@ -368,7 +368,7 @@ class ExperimentRunner:
 **Step 1.3.5: Update BenchmarkConfig to support cache config**
 
 ```python
-# nano_graphrag/_benchmark/runner.py (update BenchmarkConfig)
+# bench/runner.py (update BenchmarkConfig)
 
 @dataclass
 class BenchmarkConfig:
@@ -407,7 +407,7 @@ Expected: PASS
 **Step 1.3.7: Commit**
 
 ```bash
-git add nano_graphrag/_benchmark/runner.py tests/benchmark/test_runner.py tests/fixtures/
+git add bench/runner.py tests/benchmark/test_runner.py tests/fixtures/
 git commit -m "feat(benchmark): integrate cache into ExperimentRunner"
 ```
 
@@ -444,7 +444,7 @@ Expected: FAIL with `AttributeError: 'ExperimentResult' object has no attribute 
 **Step 1.4.3: Add cache_stats to ExperimentResult**
 
 ```python
-# nano_graphrag/_benchmark/runner.py
+# bench/runner.py
 
 @dataclass
 class ExperimentResult:
@@ -486,7 +486,7 @@ class ExperimentResult:
 **Step 1.4.4: Capture cache stats in runner**
 
 ```python
-# nano_graphrag/_benchmark/runner.py (update ExperimentRunner.run() method)
+# bench/runner.py (update ExperimentRunner.run() method)
 
 async def run(self) -> ExperimentResult:
     """Execute full experiment."""
@@ -538,7 +538,7 @@ Expected: PASS
 **Step 1.4.6: Commit**
 
 ```bash
-git add nano_graphrag/_benchmark/runner.py tests/benchmark/test_runner.py
+git add bench/runner.py tests/benchmark/test_runner.py
 git commit -m "feat(benchmark): include cache statistics in experiment results"
 ```
 
@@ -549,9 +549,9 @@ git commit -m "feat(benchmark): include cache statistics in experiment results"
 **Why second:** Unlocks context recall metric, improves type safety and DX.
 
 **Files:**
-- Modify: `nano_graphrag/_benchmark/datasets.py`
-- Modify: `nano_graphrag/_benchmark/metrics.py`
-- Modify: `nano_graphrag/_benchmark/runner.py`
+- Modify: `bench/datasets.py`
+- Modify: `bench/metrics.py`
+- Modify: `bench/runner.py`
 - Create: `tests/benchmark/test_datasets.py`
 
 ### Step 2.1: Add QAPair and Passage dataclasses
@@ -616,7 +616,7 @@ Expected: FAIL with `AssertionError` or `AttributeError` (currently returns dict
 **Step 2.1.3: Implement QAPair and Passage dataclasses**
 
 ```python
-# nano_graphrag/_benchmark/datasets.py
+# bench/datasets.py
 
 from dataclasses import dataclass, field
 from typing import Iterator, List, Protocol
@@ -660,7 +660,7 @@ class BenchmarkDataset(Protocol):
 **Step 2.1.4: Update MultiHopRAGDataset to use QAPair**
 
 ```python
-# nano_graphrag/_benchmark/datasets.py
+# bench/datasets.py
 
 @dataclass
 class MultiHopRAGDataset:
@@ -738,7 +738,7 @@ Expected: PASS
 **Step 2.1.7: Commit**
 
 ```bash
-git add nano_graphrag/_benchmark/datasets.py tests/benchmark/test_datasets.py
+git add bench/datasets.py tests/benchmark/test_datasets.py
 git commit -m "feat(benchmark): add QAPair and Passage dataclasses for type safety"
 ```
 
@@ -814,7 +814,7 @@ Expected: FAIL with `ImportError: cannot import name 'NativeContextRecallMetric'
 **Step 2.2.3: Implement NativeContextRecallMetric**
 
 ```python
-# nano_graphrag/_benchmark/metrics.py
+# bench/metrics.py
 
 @dataclass
 class NativeContextRecallMetric(Metric):
@@ -855,7 +855,7 @@ class NativeContextRecallMetric(Metric):
 **Step 2.2.4: Update Metric base class signature**
 
 ```python
-# nano_graphrag/_benchmark/metrics.py
+# bench/metrics.py
 
 class Metric(ABC):
     """Abstract base class for evaluation metrics."""
@@ -875,7 +875,7 @@ class Metric(ABC):
 **Step 2.2.5: Update existing metrics to handle QAPair**
 
 ```python
-# nano_graphrag/_benchmark/metrics.py
+# bench/metrics.py
 
 @dataclass
 class ExactMatchMetric(Metric):
@@ -912,7 +912,7 @@ Expected: PASS
 **Step 2.2.7: Commit**
 
 ```bash
-git add nano_graphrag/_benchmark/metrics.py tests/benchmark/test_metrics.py
+git add bench/metrics.py tests/benchmark/test_metrics.py
 git commit -m "feat(benchmark): add native context recall metric"
 ```
 
@@ -923,7 +923,7 @@ git commit -m "feat(benchmark): add native context recall metric"
 **Step 2.3.1: Update ExperimentRunner to use new dataset types**
 
 ```python
-# nano_graphrag/_benchmark/runner.py
+# bench/runner.py
 
 async def run(self) -> ExperimentResult:
     """Execute full experiment."""
@@ -968,7 +968,7 @@ async def run(self) -> ExperimentResult:
 **Step 2.3.2: Update predictions storage**
 
 ```python
-# nano_graphrag/_benchmark/runner.py
+# bench/runner.py
 
 # Store predictions
 all_predictions[mode] = [
@@ -984,7 +984,7 @@ all_predictions[mode] = [
 **Step 2.3.3: Commit**
 
 ```bash
-git add nano_graphrag/_benchmark/runner.py
+git add bench/runner.py
 git commit -m "refactor(benchmark): update runner to use typed QAPair and Passage"
 ```
 
@@ -995,7 +995,7 @@ git commit -m "refactor(benchmark): update runner to use typed QAPair and Passag
 **Why third:** Huge DX improvement, removes manual download friction.
 
 **Files:**
-- Modify: `nano_graphrag/_benchmark/datasets.py`
+- Modify: `bench/datasets.py`
 - Modify: `pyproject.toml`
 - Create: `tests/benchmark/test_download.py`
 
@@ -1073,7 +1073,7 @@ Expected: FAIL with `NotImplementedError`
 **Step 3.2.3: Implement download for MuSiQueDataset**
 
 ```python
-# nano_graphrag/_benchmark/datasets.py
+# bench/datasets.py
 
 @dataclass
 class MuSiQueDataset:
@@ -1141,7 +1141,7 @@ Expected: PASS (may take a minute to download)
 **Step 3.2.6: Commit**
 
 ```bash
-git add nano_graphrag/_benchmark/datasets.py tests/benchmark/test_download.py
+git add bench/datasets.py tests/benchmark/test_download.py
 git commit -m "feat(benchmark): add auto-download for MuSiQue dataset"
 ```
 
@@ -1152,7 +1152,7 @@ git commit -m "feat(benchmark): add auto-download for MuSiQue dataset"
 **Step 3.3.1: Update BenchmarkConfig**
 
 ```python
-# nano_graphrag/_benchmark/runner.py
+# bench/runner.py
 
 @dataclass
 class BenchmarkConfig:
@@ -1170,7 +1170,7 @@ class BenchmarkConfig:
 **Step 3.3.2: Update ExperimentRunner to auto-download**
 
 ```python
-# nano_graphrag/_benchmark/runner.py
+# bench/runner.py
 
 class ExperimentRunner:
     def _load_dataset(self) -> BenchmarkDataset:
@@ -1208,7 +1208,7 @@ class ExperimentRunner:
 **Step 3.3.3: Commit**
 
 ```bash
-git add nano_graphrag/_benchmark/runner.py
+git add bench/runner.py
 git commit -m "feat(benchmark): add auto_download flag to config"
 ```
 
@@ -1220,7 +1220,7 @@ git commit -m "feat(benchmark): add auto_download flag to config"
 
 **Files:**
 - Create: `bench/` directory structure
-- Move: `nano_graphrag/_benchmark/` → `bench/`
+- Move: `src/nano_graphrag/_benchmark/` → `bench/`
 - Modify: All imports across codebase
 
 ### Step 4.1: Create bench/ directory structure
@@ -1238,11 +1238,11 @@ touch bench/config.py bench/runner.py bench/cache.py bench/compare.py
 
 ```bash
 # Copy files first
-cp nano_graphrag/_benchmark/datasets.py bench/datasets/
-cp nano_graphrag/_benchmark/metrics.py bench/metrics/
-cp nano_graphrag/_benchmark/cache.py bench/cache.py
-cp nano_graphrag/_benchmark/runner.py bench/runner.py
-cp nano_graphrag/_benchmark/__init__.py bench/__init__.py
+cp src/nano_graphrag/_benchmark/datasets.py bench/datasets/
+cp src/nano_graphrag/_benchmark/metrics.py bench/metrics/
+cp src/nano_graphrag/_benchmark/cache.py bench/cache.py
+cp src/nano_graphrag/_benchmark/runner.py bench/runner.py
+cp src/nano_graphrag/_benchmark/__init__.py bench/__init__.py
 
 # Update imports in moved files
 # (Will be done in subsequent steps)
@@ -1411,7 +1411,7 @@ git commit -m "refactor(benchmark): update imports to use bench module"
 **Step 4.4.1: Add deprecation notice**
 
 ```python
-# nano_graphrag/_benchmark/__init__.py
+# bench/__init__.py
 
 import warnings
 
@@ -1431,7 +1431,7 @@ from bench import *
 **Step 4.4.2: Commit**
 
 ```bash
-git add nano_graphrag/_benchmark/__init__.py
+git add bench/__init__.py
 git commit -m "chore(benchmark): deprecate nano_graphrag._benchmark in favor of bench"
 ```
 

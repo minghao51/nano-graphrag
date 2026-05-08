@@ -7,7 +7,7 @@ graph_func = GraphRAG(
     cheap_model_id="us.anthropic.claude-3-haiku-20240307-v1:0",
 )
 
-with open("../tests/mock_data.txt") as f:
+with open("./tests/fixtures/mock_data.txt") as f:
     graph_func.insert(f.read())
 
 prompt = "What are the top themes in this story?"

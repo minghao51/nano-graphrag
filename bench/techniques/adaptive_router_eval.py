@@ -1,7 +1,7 @@
 """Adaptive router evaluation: routing accuracy + downstream F1 per route choice.
 
 Usage:
-    python -m bench.techniques.adaptive_router_eval --config bench/configs/musique_full.yaml
+    python -m bench.techniques.adaptive_router_eval --config experiments/configs/core/benchmark_musique.yaml
 """
 
 from __future__ import annotations

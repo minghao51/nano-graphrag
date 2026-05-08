@@ -6,7 +6,7 @@ To contribute:
 
 1. Fork and clone the repository.
 2. Make the smallest change that solves the problem cleanly.
-3. Add or update tests if you modify core behavior in `nano_graphrag/`.
+3. Add or update tests if you modify core behavior in `src/nano_graphrag/`.
 4. Update docs, examples, or docstrings when behavior changes.
 5. Run `uv run pytest` before opening the PR.
 6. Submit the pull request.

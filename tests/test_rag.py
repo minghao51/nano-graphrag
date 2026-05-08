@@ -235,7 +235,7 @@ def test_insert():
         enable_naive_rag=True,
         entity_extraction_func=fake_entity_extraction,
     )
-    with open("./tests/mock_data.txt", encoding="utf-8-sig") as f:
+    with open("./tests/fixtures/mock_data.txt", encoding="utf-8-sig") as f:
         rag.insert(f.read())
 
 
@@ -268,7 +268,7 @@ def test_subcommunity_insert():
         entity_extraction_func=fake_entity_extraction,
         addon_params={"force_to_use_sub_communities": True},
     )
-    with open("./tests/mock_data.txt", encoding="utf-8-sig") as f:
+    with open("./tests/fixtures/mock_data.txt", encoding="utf-8-sig") as f:
         FAKE_TEXT = f.read()
     rag.insert(FAKE_TEXT)
 

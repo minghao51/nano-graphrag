@@ -31,7 +31,7 @@ rag = GraphRAG(
     embedding_func=local_embedding,
 )
 
-with open("../tests/mock_data.txt", encoding="utf-8-sig") as f:
+with open("./tests/fixtures/mock_data.txt", encoding="utf-8-sig") as f:
     FAKE_TEXT = f.read()
 
 # rag.insert(FAKE_TEXT)

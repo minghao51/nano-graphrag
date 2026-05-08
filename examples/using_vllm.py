@@ -40,7 +40,7 @@ def remove_if_exist(file):
 def insert():
     from time import time
 
-    with open("./tests/mock_data.txt", encoding="utf-8-sig") as f:
+    with open("./tests/fixtures/mock_data.txt", encoding="utf-8-sig") as f:
         FAKE_TEXT = f.read()
 
     # Clean up previous data

@@ -6,10 +6,11 @@ This repo keeps current docs small and task-oriented. If you are trying to decid
 
 - Project overview and quick start: [`../README.md`](../README.md)
 - Contributor workflow: [`../CONTRIBUTING.md`](../CONTRIBUTING.md)
-- Benchmark workflow: [`../experiments/README.md`](../experiments/README.md)
+- Benchmark workflow: [`../experiments/docs/README.md`](../experiments/docs/README.md)
 
 ## Current Docs
 
+- Pipeline reference: [`pipeline.md`](./pipeline.md)
 - Architecture: [`architecture/architecture.md`](./architecture/architecture.md)
 - Guides: [`guides/faq.md`](./guides/faq.md), [`guides/neo4j.md`](./guides/neo4j.md)
 - Benchmark map: [`benchmarks/README.md`](./benchmarks/README.md)

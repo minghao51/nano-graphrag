@@ -83,7 +83,7 @@ def query():
 def insert():
     from time import time
 
-    with open("./tests/mock_data.txt", encoding="utf-8-sig") as f:
+    with open("./tests/fixtures/mock_data.txt", encoding="utf-8-sig") as f:
         FAKE_TEXT = f.read()
 
     remove_if_exist(f"{WORKING_DIR}/vdb_entities.json")

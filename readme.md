@@ -87,7 +87,7 @@ graph = GraphRAG(
 - Docs index: [`docs/README.md`](./docs/README.md)
 - Architecture: [`docs/architecture/architecture.md`](./docs/architecture/architecture.md)
 - Guides and troubleshooting: [`docs/guides/`](./docs/guides)
-- Benchmark workflow: [`experiments/README.md`](./experiments/README.md)
+- Benchmark workflow: [`experiments/docs/README.md`](./experiments/docs/README.md)
 - Benchmark docs map: [`docs/benchmarks/README.md`](./docs/benchmarks/README.md)
 - Contributor guide: [`CONTRIBUTING.md`](./CONTRIBUTING.md)
 
@@ -125,9 +125,8 @@ cp .env.example .env
 # Edit .env with your API keys
 dotenvx encrypt
 uv sync
-dotenvx run -- uv run python experiments/validate_setup.py
-dotenvx run -- ./experiments/run_all_benchmarks.sh --quick
-dotenvx run -- uv run python experiments/compare_results.py
+dotenvx run -- ./experiments/scripts/run_all_benchmarks.sh --quick
+dotenvx run -- uv run python experiments/scripts/compare_results.py
 ```
 
 ## Historical Material

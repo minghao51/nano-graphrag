@@ -1,0 +1,44 @@
+# HippoRAG PPR Benchmark Configuration
+
+name: hipporag_benchmark
+version: "1.0"
+description: "HippoRAG Personalized PageRank retrieval evaluation on MultiHop-RAG dataset"
+
+dataset:
+  name: multihop_rag
+  path: ~/.cache/nano-bench/multihop_rag/questions.json
+  corpus_path: ~/.cache/nano-bench/multihop_rag/corpus.json
+  split: validation
+  max_samples: 50
+  max_corpus_samples: 500
+  auto_download: true
+
+graphrag:
+  working_dir: ./workdirs/hipporag
+  enable_llm_cache: true
+  # Use OpenRouter for cost-effective testing (configured in .env)
+  llm_model: openrouter/@preset/cheap-fast
+  embedding_model: openrouter/qwen/qwen3-embedding-8b
+
+query:
+  modes:
+    - hipporag
+  param_overrides:
+    # HippoRAG-specific parameters
+    alpha: 0.85              # PageRank damping factor
+    top_k_seed: 5            # Number of seed entities
+    top_k_result: 20         # Number of final results
+    context_token_budget: 8000
+    top_k: 60
+
+cache:
+  enabled: true
+  backend: disk
+
+metrics:
+  exact_match: true
+  token_f1: true
+
+output:
+  results_dir: ./results/hipporag
+  save_predictions: true

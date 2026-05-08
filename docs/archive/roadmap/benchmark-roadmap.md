@@ -22,14 +22,14 @@ The goal here is zero friction to go from "I have a question" to "I have a numbe
 
 ### Implementation Details
 
-- **Package:** `nano_graphrag/_benchmark/` (~1100 lines across 5 files)
+- **Package:** `bench/` (~1100 lines across 5 files)
 - **Components:**
   - `datasets.py`: Dataset loaders with `BenchmarkDataset` protocol
   - `metrics.py`: EM, F1, and optional Ragas metrics with `MetricSuite`
   - `cache.py`: `BenchmarkLLMCache` wrapping existing `BaseKVStorage`
   - `runner.py`: `BenchmarkConfig`, `ExperimentRunner`, `ExperimentResult`
 - **CLI:** `examples/benchmarks/run_experiment.py` with YAML config support
-- **Documentation:** `nano_graphrag/_benchmark/README.md`
+- **Documentation:** `bench/README.md`
 
 ### Usage
 

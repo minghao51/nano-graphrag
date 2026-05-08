@@ -25,7 +25,7 @@
 ## 5. Project Structure
 
 ```
-nano_graphrag/          # Main package
+src/nano_graphrag/       # Main package (src layout)
   graphrag.py           # GraphRAG class — public API (insert, query, rebuild)
   base.py               # GraphRAGConfig dataclass, base storage ABCs, from_env()
   graphrag_insert.py    # _ainsert_documents — parallel extraction + incremental writes
@@ -56,14 +56,20 @@ nano_graphrag/          # Main package
 
 bench/                  # Benchmark framework
   __main__.py           # CLI: python -m bench
-  runner.py             # BenchmarkConfig, ExperimentRunner
+  run.py                # CLI entry point (argparse + ExperimentRunner)
+  runner.py             # BenchmarkConfig, ExperimentRunner, ABExperimentRunner
   datasets/             # Dataset loaders (MultiHopRAG, 2Wiki, HotpotQA, MuSiQue)
   metrics/              # TokenF1, ExactMatch, NativeContextRecall
   retrievers/           # Retriever implementations
   techniques/           # Advanced techniques (reranker, adaptive router, raptor)
 
 tests/                  # pytest-asyncio (auto mode), "integration" marker for live services
-experiments/            # YAML benchmark configs
+experiments/            # Benchmark configs, scripts, and docs
+  configs/
+    core/               # Dataset benchmark YAMLs (4 datasets × 2 providers)
+    techniques/         # Phase 4 technique YAMLs (adaptive, hipporag, hybrid, raptor)
+  scripts/              # Shell scripts + compare_results.py
+  docs/                 # README, OPENROUTER_SETUP, SELECTING_MODELS
 ```
 
 ## 6. Key Architecture
@@ -88,13 +94,13 @@ dotenvx run -- uv run pytest tests/test_rag.py -k "test_name"
 dotenvx run -- uv run pytest tests/ -m integration
 
 # Run benchmark
-dotenvx run -- uv run python -m bench --config experiments/benchmark_multihop_rag_openrouter.yaml
+dotenvx run -- uv run python -m bench --config experiments/configs/core/benchmark_multihop_rag_openrouter.yaml
 
 # Lint
-uv run ruff check nano_graphrag/
+uv run ruff check src/nano_graphrag/
 
 # Format
-uv run ruff format nano_graphrag/
+uv run ruff format src/nano_graphrag/
 
 # Clear stale caches (run after editing .py files)
 find . -name "__pycache__" -type d -exec rm -rf {} +

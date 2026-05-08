@@ -91,7 +91,7 @@ if __name__ == "__main__":
         vector_db_storage_cls=FAISSStorage,
     )
 
-    with open(r"tests/mock_data.txt", encoding='utf-8') as f:
+    with open(r"tests/fixtures/mock_data.txt", encoding='utf-8') as f:
         graph_func.insert(f.read()[:30000])
 
     # Perform global graphrag search
