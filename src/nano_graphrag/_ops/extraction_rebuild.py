@@ -88,8 +88,6 @@ async def _propagate_entity_remap_to_all_documents(
     Uses the contribution index to find affected documents instead of scanning
     all documents with all_keys().
     """
-    from .._utils import logger
-
     old_entity_ids = set(entity_id_remap.keys())
     new_entity_ids = set(entity_id_remap.values())
 
@@ -146,8 +144,9 @@ async def _propagate_entity_remap_to_all_documents(
             docs_to_update[doc_id] = updated_manifest
 
             logger.debug(
-                f"Propagated entity remap to document {doc_id}: "
-                f"{len(updated_relationships)} relationships updated"
+                "entity_remap_propagated",
+                doc_id=doc_id,
+                relationships_updated=len(updated_relationships),
             )
 
     if docs_to_update:
@@ -179,8 +178,9 @@ async def _propagate_entity_remap_to_all_documents(
                 await contribution_index.upsert({contrib_key: value})
 
         logger.info(
-            f"Entity remap propagated to {len(docs_to_update)} documents, "
-            f"{len(contrib_updates)} contribution index entries updated"
+            "entity_remap_propagated",
+            documents_updated=len(docs_to_update),
+            contrib_entries_updated=len(contrib_updates),
         )
 
 
@@ -421,7 +421,7 @@ async def rebuild_knowledge_graph_for_documents(
                 try:
                     await entity_vdb.delete([entity_id])
                 except Exception as e:
-                    logger.warning(f"Failed to delete entity {entity_id} from entity_vdb: {e}")
+                    logger.warning("entity_vdb_delete_failed", entity_id=entity_id, error=str(e))
             if entity_registry is not None:
                 entity_registry.remove_entity(entity_id)
             continue
@@ -431,7 +431,7 @@ async def rebuild_knowledge_graph_for_documents(
                 try:
                     await entity_vdb.delete([entity_id])
                 except Exception as e:
-                    logger.warning(f"Failed to delete entity {entity_id} from entity_vdb: {e}")
+                    logger.warning("entity_vdb_delete_failed", entity_id=entity_id, error=str(e))
             if entity_registry is not None:
                 entity_registry.remove_entity(entity_id)
             continue
@@ -478,8 +478,9 @@ async def rebuild_knowledge_graph_for_documents(
             await entity_vdb.upsert(entity_vdb_batch)
         except Exception as e:
             logger.warning(
-                f"Failed to batch upsert {len(entity_vdb_batch)} entities "
-                f"to entity_vdb: {e}. Entities in graph but not vector-searchable."
+                "entity_vdb_upsert_failed",
+                entity_count=len(entity_vdb_batch),
+                error=str(e),
             )
 
     relationship_ids_to_refresh = set(affected_relationship_ids).union(

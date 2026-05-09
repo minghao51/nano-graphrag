@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 import os
 import warnings
 from collections.abc import AsyncIterator
 from functools import partial
+
+import structlog
 
 from ._utils import EmbeddingFunc, TokenizerWrapper, limit_async_func_call, logger
 from .base import (
@@ -38,33 +41,44 @@ def _normalize_settings(self):
 
 
 def _configure_logging(self):
-    import logging
-
-    from ._utils import logger
-
+    stdlib_logger = logging.getLogger("nano-graphrag")
     numeric_level = getattr(logging, self.log_level.upper(), logging.INFO)
-    logger.setLevel(numeric_level)
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    stdlib_logger.setLevel(numeric_level)
 
-    if not any(getattr(h, "_nano_graphrag_console", False) for h in logger.handlers):
+    pre_chain = [
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.add_logger_name,
+        structlog.processors.TimeStamper(fmt="iso"),
+    ]
+
+    if not any(getattr(h, "_nano_graphrag_console", False) for h in stdlib_logger.handlers):
         console_handler = logging.StreamHandler()
         console_handler.setLevel(numeric_level)
-        console_handler.setFormatter(formatter)
+        console_handler.setFormatter(
+            structlog.stdlib.ProcessorFormatter(
+                processor=structlog.dev.ConsoleRenderer(),
+                foreign_pre_chain=pre_chain,
+            )
+        )
         console_handler._nano_graphrag_console = True
-        logger.addHandler(console_handler)
+        stdlib_logger.addHandler(console_handler)
 
     if self.log_file:
         if not any(
-            getattr(h, "_nano_graphrag_file", None) == self.log_file for h in logger.handlers
+            getattr(h, "_nano_graphrag_file", None) == self.log_file for h in stdlib_logger.handlers
         ):
             file_handler = logging.FileHandler(self.log_file)
             file_handler.setLevel(numeric_level)
-            file_handler.setFormatter(formatter)
+            file_handler.setFormatter(
+                structlog.stdlib.ProcessorFormatter(
+                    processor=structlog.processors.JSONRenderer(),
+                    foreign_pre_chain=pre_chain,
+                )
+            )
             file_handler._nano_graphrag_file = self.log_file
-            logger.addHandler(file_handler)
+            stdlib_logger.addHandler(file_handler)
 
-    params_str = ",\n  ".join(f"{k} = {v}" for k, v in self._to_safe_log_dict().items())
-    logger.debug(f"GraphRAG init with param:\n  {params_str}")
+    logger.debug("graphrag_init", params=self._to_safe_log_dict())
 
 
 def _build_tokenizer(self):
@@ -85,10 +99,9 @@ def _configure_runtime(self):
         litellm_embedding,
         supports_structured_output,
     )
-    from ._utils import logger
 
     if not os.path.exists(self.working_dir) and self.always_create_working_dir:
-        logger.info(f"Creating working directory {self.working_dir}")
+        logger.info("creating_working_directory", path=self.working_dir)
         os.makedirs(self.working_dir)
 
     self.llm_response_cache = (
@@ -127,8 +140,8 @@ def _configure_runtime(self):
     structured = self.structured_output and supports_structured_output(self.llm_model)
     if not structured:
         logger.info(
-            f"Model {self.llm_model} does not support structured output, "
-            "will use text mode with fallback parsing"
+            "model_no_structured_output",
+            model=self.llm_model,
         )
 
     self.best_model_func = limit_async_func_call(self.best_model_max_async)(
@@ -181,9 +194,10 @@ def _configure_runtime(self):
     )
 
     logger.info(
-        f"Using LiteLLM: model={self.llm_model}, "
-        f"api_base={self.llm_api_base}, "
-        f"structured_output={self.structured_output}"
+        "litellm_configured",
+        model=self.llm_model,
+        api_base=self.llm_api_base,
+        structured_output=self.structured_output,
     )
 
     self._use_structured_extraction = True
@@ -236,11 +250,13 @@ def _build_storages(self):
     if os.path.exists(entity_registry_path):
         self.entity_registry = EntityRegistry.load_from_file(entity_registry_path)
         logger.info(
-            f"Loaded EntityRegistry with {len(self.entity_registry)} entities from {entity_registry_path}"
+            "entity_registry_loaded",
+            entity_count=len(self.entity_registry),
+            path=entity_registry_path,
         )
     else:
         self.entity_registry = EntityRegistry()
-        logger.info("Initialized new EntityRegistry")
+        logger.info("entity_registry_initialized")
 
 
 def _runtime_config(self) -> dict:

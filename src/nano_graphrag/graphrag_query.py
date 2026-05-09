@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import time
+from uuid import uuid4
+
+import structlog
+
 from ._entity_grounded_query import EntityGroundedQuery
 from ._ops.query import (
     global_query,
@@ -9,6 +14,7 @@ from ._ops.query import (
     naive_query,
     naive_query_stream,
 )
+from ._utils import logger
 
 
 def _check_mode_permissions(mode: str, enable_local: bool, enable_naive_rag: bool):
@@ -21,8 +27,13 @@ def _check_mode_permissions(mode: str, enable_local: bool, enable_naive_rag: boo
 
 
 async def aquery(self, query, param):
+    structlog.contextvars.clear_contextvars()
+    structlog.contextvars.bind_contextvars(run_id=uuid4().hex[:8], mode=param.mode)
     _check_mode_permissions(param.mode, self.enable_local, self.enable_naive_rag)
     runtime = self._runtime_config()
+    logger.info("query_start", query=query[:100] if query else "")
+
+    start_time = time.monotonic()
 
     if param.mode == "local":
         response = await local_query(
@@ -72,12 +83,18 @@ async def aquery(self, query, param):
     else:
         raise ValueError(f"Unknown mode {param.mode}")
     await self._query_done()
+    elapsed = (time.monotonic() - start_time) * 1000
+    logger.info("query_complete", latency_ms=round(elapsed, 1), answer_chars=len(response))
     return response
 
 
 async def astream_query(self, query, param):
+    structlog.contextvars.clear_contextvars()
+    structlog.contextvars.bind_contextvars(run_id=uuid4().hex[:8], mode=param.mode)
     _check_mode_permissions(param.mode, self.enable_local, self.enable_naive_rag)
     runtime = self._runtime_config()
+    logger.info("query_start", query=query[:100] if query else "")
+    start_time = time.monotonic()
 
     if param.mode == "local":
         stream = local_query_stream(
@@ -143,6 +160,8 @@ async def astream_query(self, query, param):
         async for chunk in stream:
             yield chunk
     finally:
+        elapsed = (time.monotonic() - start_time) * 1000
+        logger.info("query_stream_complete", latency_ms=round(elapsed, 1))
         await self._query_done()
 
 

@@ -192,6 +192,9 @@ workdirs/
 benchmark_results/
 results/
 
+# Notebook cache (per-notebook working dirs)
+notebooks/_cache/
+
 # Claude Code and planning tool directories
 .claude/
 .planning/

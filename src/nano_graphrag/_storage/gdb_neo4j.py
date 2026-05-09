@@ -35,7 +35,7 @@ class Neo4jStorage(BaseGraphStorage):
         self.neo4j_url = self.global_config["addon_params"].get("neo4j_url", None)
         self.neo4j_auth = self.global_config["addon_params"].get("neo4j_auth", None)
         self.namespace = f"{make_path_idable(self.global_config['working_dir'])}__{self.namespace}"
-        logger.info(f"Using the label {self.namespace} for Neo4j as identifier")
+        logger.info("neo4j_label", namespace=self.namespace)
         if self.neo4j_url is None or self.neo4j_auth is None:
             raise ValueError("Missing neo4j_url or neo4j_auth in addon_params")
         self.async_driver = AsyncGraphDatabase.driver(
@@ -62,10 +62,10 @@ class Neo4jStorage(BaseGraphStorage):
                     await session.run(
                         f"CREATE CONSTRAINT FOR (n:`{self.namespace}`) REQUIRE n.id IS UNIQUE"
                     )
-                    logger.info(f"Add constraint for namespace: {self.namespace}")
+                    logger.info("neo4j_constraint_created", namespace=self.namespace)
 
             except Exception as e:
-                logger.error(f"Error accessing or setting up the database: {e!s}")
+                logger.error("neo4j_database_error", error=str(e))
                 raise
 
     async def _init_workspace(self):
@@ -74,7 +74,7 @@ class Neo4jStorage(BaseGraphStorage):
         await self.create_database()
 
     async def index_start_callback(self):
-        logger.info("Init Neo4j workspace")
+        logger.info("neo4j_init_workspace")
         await self._init_workspace()
 
         # create index for faster searching
@@ -95,9 +95,9 @@ class Neo4jStorage(BaseGraphStorage):
                 await session.run(
                     f"CREATE INDEX IF NOT EXISTS FOR (n:`{self.namespace}`) ON (n.source_id)"
                 )
-                logger.info("Neo4j indexes created successfully")
+                logger.info("neo4j_indexes_created")
         except Exception as e:
-            logger.error(f"Failed to create indexes: {e}")
+            logger.error("neo4j_index_creation_failed", error=str(e))
             raise e
 
     async def has_node(self, node_id: str) -> bool:
@@ -198,7 +198,7 @@ class Neo4jStorage(BaseGraphStorage):
 
             return [result_dict[tuple(edge_pair)] for edge_pair in edge_pairs]
         except Exception as e:
-            logger.error(f"Error in batch edge degree calculation: {e}")
+            logger.error("neo4j_edge_degree_error", error=str(e))
             return [0] * len(edge_pairs)
 
     async def get_node(self, node_id: str) -> dict | None:
@@ -242,7 +242,7 @@ class Neo4jStorage(BaseGraphStorage):
                         result_dict[node_id] = raw_node_data
             return [result_dict[node_id] for node_id in node_ids]
         except Exception as e:
-            logger.error(f"Error in batch node retrieval: {e}")
+            logger.error("neo4j_node_retrieval_error", error=str(e))
             raise e
 
     async def get_edge(self, source_node_id: str, target_node_id: str) -> dict | None:
@@ -322,7 +322,7 @@ class Neo4jStorage(BaseGraphStorage):
 
             return [result_dict[tuple(edge_pair)] for edge_pair in edge_pairs]
         except Exception as e:
-            logger.error(f"Error in batch edge retrieval: {e}")
+            logger.error("neo4j_edge_retrieval_error", error=str(e))
             return [None] * len(edge_pairs)
 
     async def get_node_edges(self, source_node_id: str) -> list[tuple[str, str]]:
@@ -356,7 +356,7 @@ class Neo4jStorage(BaseGraphStorage):
 
             return [result_dict[node_id] for node_id in node_ids]
         except Exception as e:
-            logger.error(f"Error in batch node edges retrieval: {e}")
+            logger.error("neo4j_node_edges_error", error=str(e))
             return [[] for _ in node_ids]
 
     async def upsert_node(self, node_id: str, node_data: dict[str, str]):
@@ -519,7 +519,9 @@ class Neo4jStorage(BaseGraphStorage):
                 community_count: int = result["communityCount"]
                 modularities = result["modularities"]
                 logger.info(
-                    f"Performed graph clustering with {community_count} communities and modularities {modularities}"
+                    "neo4j_clustering_complete",
+                    communities=community_count,
+                    modularities=modularities,
                 )
             finally:
                 # Drop the projected graph
@@ -606,8 +608,9 @@ class Neo4jStorage(BaseGraphStorage):
                 await session.run(f"MATCH (n:`{self.namespace}`) DELETE n")
 
                 logger.info(
-                    f"All nodes and edges in namespace '{self.namespace}' have been deleted."
+                    "neo4j_delete_complete",
+                    namespace=self.namespace,
                 )
             except Exception as e:
-                logger.error(f"Error deleting nodes and edges: {e!s}")
+                logger.error("neo4j_delete_error", error=str(e))
                 raise

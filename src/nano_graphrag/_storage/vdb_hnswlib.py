@@ -70,23 +70,29 @@ class HNSWVectorStorage(BaseVectorStorage):
                 self._metadata = {int(k): v for k, v in loaded["metadata"].items()}
                 self._current_elements = loaded["current_elements"]
             logger.info(
-                f"Loaded existing index for {self.namespace} with {self._current_elements} elements"
+                "hnsw_index_loaded",
+                namespace=self.namespace,
+                elements=self._current_elements,
             )
         else:
             self._index = self._create_fresh_index(self.max_elements)
             self._metadata = {}
             self._current_elements = 0
-            logger.info(f"Created new index for {self.namespace}")
+            logger.info("hnsw_index_created", namespace=self.namespace)
 
     async def upsert(self, data: dict[str, dict]) -> np.ndarray:
-        logger.info(f"Inserting {len(data)} vectors to {self.namespace}")
+        logger.info("hnsw_upsert", vectors=len(data), namespace=self.namespace)
         if not data:
-            logger.warning("You insert an empty data to vector DB")
+            logger.warning("hnsw_empty_upsert")
             return np.array([])
 
         if self._current_elements + len(data) > self.max_elements:
             new_max = max(self.max_elements * 2, self._current_elements + len(data))
-            logger.info(f"Resizing HNSW index from {self.max_elements} to {new_max}")
+            logger.info(
+                "hnsw_index_resize",
+                from_size=self.max_elements,
+                to_size=new_max,
+            )
             self._index.save_index(self._index_file_name)
             new_index = hnswlib.Index(space="cosine", dim=self.embedding_func.embedding_dim)
             new_index.load_index(self._index_file_name, max_elements=new_max)
@@ -143,7 +149,7 @@ class HNSWVectorStorage(BaseVectorStorage):
 
         if query_k >= self.ef_search:
             target_ef = query_k + 1
-            logger.warning(f"Setting ef_search to {target_ef} because k={query_k} requires ef > k")
+            logger.warning("hnsw_set_ef_search", ef_search=target_ef, k=query_k)
             self._index.set_ef(target_ef)
 
         embedding = await self.embedding_func([query])

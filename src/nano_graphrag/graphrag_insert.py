@@ -3,6 +3,9 @@ from __future__ import annotations
 import asyncio
 import os
 from hashlib import sha256
+from uuid import uuid4
+
+import structlog
 
 from ._ops import (
     extract_document_entity_relationships,
@@ -66,9 +69,9 @@ async def _legacy_custom_ainsert(self, documents: dict[str, str]):
         _add_doc_keys = await self.full_docs.filter_keys(list(new_docs.keys()))
         new_docs = {k: v for k, v in new_docs.items() if k in _add_doc_keys}
         if not new_docs:
-            logger.warning("All docs are already in the storage")
+            logger.warning("all_docs_already_in_storage")
             return
-        logger.info(f"[New Docs] inserting {len(new_docs)} docs")
+        logger.info("inserting_new_docs", count=len(new_docs))
 
         inserting_chunks = get_chunks(
             new_docs=new_docs,
@@ -81,13 +84,13 @@ async def _legacy_custom_ainsert(self, documents: dict[str, str]):
         _add_chunk_keys = await self.text_chunks.filter_keys(list(inserting_chunks.keys()))
         inserting_chunks = {k: v for k, v in inserting_chunks.items() if k in _add_chunk_keys}
         if not inserting_chunks:
-            logger.warning("All chunks are already in the storage")
+            logger.warning("all_chunks_already_in_storage")
             return
-        logger.info(f"[New Chunks] inserting {len(inserting_chunks)} chunks")
+        logger.info("inserting_new_chunks", count=len(inserting_chunks))
         if self.enable_naive_rag:
             await self.chunks_vdb.upsert(inserting_chunks)
 
-        logger.info("[Entity Extraction]...")
+        logger.info("entity_extraction_start")
         maybe_new_kg = await self.entity_extraction_func(
             inserting_chunks,
             knowledge_graph_inst=self.chunk_entity_relation_graph,
@@ -96,11 +99,11 @@ async def _legacy_custom_ainsert(self, documents: dict[str, str]):
             global_config=self._runtime_config(),
         )
         if maybe_new_kg is None:
-            logger.warning("No new entities found")
+            logger.warning("no_new_entities_found")
             return
         self.chunk_entity_relation_graph = maybe_new_kg
 
-        logger.info("[Community Report]...")
+        logger.info("community_report_start")
         await self.community_reports.drop()
         await self.chunk_entity_relation_graph.clustering(
             self.graph_cluster_algorithm, affected_node_ids=None
@@ -146,14 +149,18 @@ async def _rollback_insert_storages(
     if rollback_tasks:
         await asyncio.gather(*rollback_tasks)
         logger.info(
-            f"Rolled back insert: {len(inserted_chunk_ids)} chunks, "
-            f"{len(inserted_doc_ids)} docs, {len(inserted_entity_ids)} entities"
+            "insert_rolled_back",
+            chunks=len(inserted_chunk_ids),
+            docs=len(inserted_doc_ids),
+            entities=len(inserted_entity_ids),
         )
 
 
 async def _ainsert_documents(
     self, documents: dict[str, str], allow_legacy_custom: bool, force_rebuild: bool = False
 ):
+    structlog.contextvars.clear_contextvars()
+    structlog.contextvars.bind_contextvars(run_id=uuid4().hex[:8])
     if not _is_builtin_extractor(self.entity_extraction_func):
         if allow_legacy_custom:
             return await self._legacy_custom_ainsert(documents)
@@ -172,7 +179,7 @@ async def _ainsert_documents(
             if content.strip()
         }
         if not normalized_docs:
-            logger.warning("No valid docs to insert")
+            logger.warning("no_valid_docs")
             return
 
         existing_docs = await self.full_docs.get_by_ids(list(normalized_docs.keys()))
@@ -209,11 +216,13 @@ async def _ainsert_documents(
                         docs_to_process[doc_id] = normalized_docs[doc_id]
                         changed_doc_ids.append(doc_id)
         if not docs_to_process:
-            logger.warning("All docs are unchanged")
+            logger.warning("all_docs_unchanged")
             return
 
         logger.info(
-            f"[Delta Detection] processing {len(docs_to_process)} docs ({len(changed_doc_ids)} changed)"
+            "delta_detection",
+            total_docs=len(docs_to_process),
+            changed_docs=len(changed_doc_ids),
         )
 
         old_manifests = await self.document_index.get_by_ids(changed_doc_ids)
@@ -286,15 +295,19 @@ async def _ainsert_documents(
                         normalized_docs,
                     )
                     logger.info(
-                        f"[Extraction] {_completed_count}/{len(docs_to_process)} docs "
-                        f"committed ({_completed_count * 100 // len(docs_to_process)}%)"
+                        "extraction_progress",
+                        committed=_completed_count,
+                        total=len(docs_to_process),
+                        pct=_completed_count * 100 // len(docs_to_process),
                     )
             return doc_id, manifest
 
         doc_items = list(docs_to_process.items())
         logger.info(
-            f"[Extraction] processing {len(doc_items)} docs "
-            f"(concurrency={max_doc_concurrency}, flush_every={flush_batch_size})"
+            "extraction_start",
+            total_docs=len(doc_items),
+            concurrency=max_doc_concurrency,
+            flush_every=flush_batch_size,
         )
         results = await asyncio.gather(
             *[_extract_doc_limited(doc_id, doc) for doc_id, doc in doc_items]
@@ -339,7 +352,7 @@ async def _ainsert_documents(
             for entity_id in manifest.get("entities", {}).keys()
         }
 
-        logger.info("[Graph Rebuild] refreshing affected entities and relationships")
+        logger.info("graph_rebuild_start")
         snapshot_path = None
         if self.chunk_entity_relation_graph is not None:
             snapshot_path = await self.chunk_entity_relation_graph._snapshot_graph()
@@ -365,7 +378,7 @@ async def _ainsert_documents(
             has_graph_data = bool(affected_entity_ids) or docs_with_entities > 0
             if has_graph_data:
                 if self.enable_community_reports:
-                    logger.info("[Community Report]...")
+                    logger.info("community_report_start")
                     await self.chunk_entity_relation_graph.clustering(
                         self.graph_cluster_algorithm,
                         affected_node_ids=affected_entity_ids,
@@ -381,14 +394,14 @@ async def _ainsert_documents(
                         only_community_ids=affected_community_ids,
                     )
                 else:
-                    logger.info("[Skipping Community Report] - enable_community_reports=False")
+                    logger.info("community_report_skipped", reason="enable_community_reports=False")
                     await self.chunk_entity_relation_graph.clustering(
                         self.graph_cluster_algorithm,
                         affected_node_ids=affected_entity_ids,
                     )
             elif docs_with_entities == 0:
                 await self.community_reports.drop()
-                logger.warning("No entities found in processed documents")
+                logger.warning("no_entities_found_in_documents")
 
             # Integrity check: verify graph has expected nodes for new manifests
             manifest_entity_count = sum(
@@ -412,8 +425,9 @@ async def _ainsert_documents(
                     )
                 elif found < manifest_entity_count:
                     logger.info(
-                        f"Integrity check: {found}/{manifest_entity_count} "
-                        f"manifest entities found in graph."
+                        "integrity_check",
+                        found=found,
+                        total=manifest_entity_count,
                     )
             # Clean up snapshot on success
             if snapshot_path and os.path.exists(snapshot_path):
@@ -428,8 +442,8 @@ async def _ainsert_documents(
             if new_doc_ids:
                 await self.document_index.delete(new_doc_ids)
                 logger.warning(
-                    f"Rebuild failed, rolled back {len(new_doc_ids)} document manifests. "
-                    f"These documents will be re-extracted on the next insert run."
+                    "rebuild_failed_rollback",
+                    doc_count=len(new_doc_ids),
                 )
             raise e
     finally:
@@ -468,7 +482,7 @@ async def _rebuild_graph_from_manifests(self):
     try:
         all_doc_keys = await self.document_index.all_keys()
         if not all_doc_keys:
-            logger.warning("No documents found in document_index, nothing to rebuild")
+            logger.warning("no_documents_for_rebuild")
             return
         all_manifests = await self.document_index.get_by_ids(all_doc_keys)
         manifest_dict = {
@@ -477,10 +491,10 @@ async def _rebuild_graph_from_manifests(self):
             if manifest is not None
         }
         if not manifest_dict:
-            logger.warning("No valid manifests found, nothing to rebuild")
+            logger.warning("no_valid_manifests_for_rebuild")
             return
 
-        logger.info(f"[Graph Rebuild] rebuilding from {len(manifest_dict)} manifests")
+        logger.info("graph_rebuild_from_manifests", manifest_count=len(manifest_dict))
         snapshot_path = None
         if self.chunk_entity_relation_graph is not None:
             snapshot_path = await self.chunk_entity_relation_graph._snapshot_graph()
@@ -496,7 +510,7 @@ async def _rebuild_graph_from_manifests(self):
                 manifest_dict,
             )
             if self.enable_community_reports:
-                logger.info("[Community Report] regenerating after rebuild...")
+                logger.info("community_report_rebuild")
                 await self.chunk_entity_relation_graph.clustering(
                     self.graph_cluster_algorithm,
                     affected_node_ids=None,

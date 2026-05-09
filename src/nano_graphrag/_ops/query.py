@@ -150,7 +150,7 @@ async def _find_most_related_text_unit_from_entities(
                 "relation_counts": relation_counts,
             }
     if any(v is None for v in all_text_units_lookup.values()):
-        logger.warning("Text chunks are missing, maybe the storage is damaged")
+        logger.warning("text_chunks_missing")
     all_text_units = [{"id": k, **v} for k, v in all_text_units_lookup.items() if v is not None]
     all_text_units = sorted(all_text_units, key=lambda x: (x["order"], -int(x["relation_counts"])))  # type: ignore[call-overload]
     all_text_units = truncate_list_by_token_size(
@@ -227,7 +227,7 @@ async def _build_local_query_context(
         return None
     node_datas_raw = await knowledge_graph_inst.get_nodes_batch([r["id"] for r in results])
     if not all(n is not None for n in node_datas_raw):
-        logger.warning("Some nodes are missing, maybe the storage is damaged")
+        logger.warning("some_nodes_missing")
     node_degrees = await knowledge_graph_inst.node_degrees_batch([r["id"] for r in results])
     node_datas: list[dict[Any, Any]] = [
         {**n, "id": k["id"], "entity_name": n.get("entity_name", k["entity_name"]), "rank": d}
@@ -244,7 +244,11 @@ async def _build_local_query_context(
         node_datas, query_param, knowledge_graph_inst, tokenizer_wrapper
     )
     logger.info(
-        f"Using {len(node_datas)} entites, {len(use_communities)} communities, {len(use_relations)} relations, {len(use_text_units)} text units"
+        "local_query_context",
+        entities=len(node_datas),
+        communities=len(use_communities),
+        relations=len(use_relations),
+        text_units=len(use_text_units),
     )
     entites_section_list: list[list[Any]] = [["id", "entity", "type", "description", "rank"]]
     for i, n in enumerate(node_datas):
@@ -415,7 +419,7 @@ async def _map_global_communities(
         data = use_string_json_convert_func(response)
         return data.get("points", [])
 
-    logger.info(f"Grouping to {len(community_groups)} groups for global search")
+    logger.info("global_search_groups", groups=len(community_groups))
     return await asyncio.gather(*[_process(c) for c in community_groups])
 
 
@@ -453,7 +457,7 @@ async def _build_global_query_context(
         key=lambda x: (x["occurrence"], x["report_json"].get("rating", 0)),
         reverse=True,
     )
-    logger.info(f"Retrieved {len(community_datas)} communities")
+    logger.info("global_retrieved_communities", count=len(community_datas))
 
     map_communities_points = await _map_global_communities(
         query, community_datas, query_param, global_config, tokenizer_wrapper
@@ -567,7 +571,7 @@ async def _build_naive_query_context(
         max_token_size=query_param.naive_max_token_for_text_unit,
         tokenizer_wrapper=tokenizer_wrapper,
     )
-    logger.info(f"Truncate {len(chunks)} to {len(maybe_trun_chunks)} chunks")
+    logger.info("truncate_chunks", before=len(chunks), after=len(maybe_trun_chunks))
     return "--New Chunk--\n".join([c["content"] for c in maybe_trun_chunks])
 
 

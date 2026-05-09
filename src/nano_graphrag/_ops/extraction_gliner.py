@@ -62,9 +62,9 @@ async def _get_gliner_model():
             raise ImportError(
                 "GLiNER2 is not installed. Install with: uv pip install gliner2"
             ) from None
-        logger.info(f"Loading GLiNER2 model: {GLiNER_MODEL_NAME}")
+        logger.info("loading_gliner_model", model=GLiNER_MODEL_NAME)
         GLiNER_MODEL = GLiNER2.from_pretrained(GLiNER_MODEL_NAME)
-        logger.info("GLiNER2 model loaded successfully")
+        logger.info("gliner_model_loaded")
     return GLiNER_MODEL
 
 
@@ -97,7 +97,7 @@ async def extract_document_entity_relationships_gliner(
             try:
                 results = model.extract(content, schema)
             except Exception as e:
-                logger.warning(f"GLiNER2 extraction failed for chunk: {e}")
+                logger.warning("gliner_extraction_failed", error=str(e))
                 progress.update(0, 0)
                 return {}, {}
 
@@ -153,7 +153,10 @@ async def extract_document_entity_relationships_gliner(
                         }
 
             logger.info(
-                f"Processed chunk {chunk_key[:8]}...: {len(chunk_entities)} entities, {len(chunk_relationships)} relations"
+                "gliner_chunk_complete",
+                chunk_key=chunk_key[:8],
+                entities=len(chunk_entities),
+                relations=len(chunk_relationships),
             )
             progress.update(len(chunk_entities), len(chunk_relationships))
             return chunk_entities, chunk_relationships
@@ -179,7 +182,7 @@ async def extract_entities_gliner(
         global_config,
     )
     if not manifest["entities"]:
-        logger.warning("GLiNER2 didn't extract any entities")
+        logger.warning("gliner_no_entities")
         return None
     return await _write_extraction_manifest(
         manifest, knowledge_graph_inst, entity_vdb, tokenizer_wrapper, global_config, chunks

@@ -202,7 +202,7 @@ Return JSON format with all entities:
         return result
 
     except Exception as e:
-        logger.debug(f"Failed to extract aliases for batch: {e}")
+        logger.debug("alias_extraction_failed", error=str(e))
         return {entity[0]: [] for entity in entities}
 
 
@@ -268,7 +268,7 @@ async def _write_extraction_manifest(
         for batch_result in batch_results:
             if isinstance(batch_result, BaseException):
                 failed_batches += 1
-                logger.warning(f"Alias batch extraction failed: {batch_result}")
+                logger.warning("alias_batch_failed", error=str(batch_result))
                 continue
             entity_names, result_dict = batch_result
             for idx, entity_name in enumerate(entity_names, 1):
@@ -282,7 +282,10 @@ async def _write_extraction_manifest(
         if failed_batches > 0:
             failure_rate = failed_batches / total_batches
             logger.warning(
-                f"Alias extraction completed with {failed_batches}/{total_batches} batch failures ({failure_rate:.1%})"
+                "alias_extraction_failures",
+                failed=failed_batches,
+                total=total_batches,
+                rate=round(failure_rate, 3),
             )
             if failure_rate > 0.5:
                 raise RuntimeError(
@@ -381,7 +384,7 @@ async def extract_entities(
         using_amazon_bedrock,
     )
     if not manifest["entities"]:
-        logger.warning("Didn't extract any entities, maybe your LLM is not working")
+        logger.warning("no_entities_extracted")
         return None
     return await _write_extraction_manifest(
         manifest, knowledge_graph_inst, entity_vdb, tokenizer_wrapper, global_config, chunks

@@ -97,7 +97,7 @@ async def _pack_single_community_describe(
     )
 
     if need_to_use_sub_communities or force_to_use_sub_communities:
-        logger.debug(f"Community {community['title']} using sub-communities")
+        logger.debug("using_sub_communities", community=community["title"])
         result = _pack_single_community_by_sub_communities(
             community, remaining_budget, already_reports or {}, tokenizer_wrapper
         )
@@ -256,11 +256,11 @@ async def generate_community_report(
         data = use_string_json_convert_func(response)
         already_processed += 1
         if already_processed % 10 == 0:
-            logger.info(f"Processed {already_processed} community reports")
+            logger.info("community_report_progress", processed=already_processed)
         return data
 
     levels = sorted({c["level"] for c in community_values}, reverse=True)
-    logger.info(f"Generating by levels: {levels}")
+    logger.info("community_levels", levels=sorted(levels))
     community_datas: dict[str, CommunitySchema] = {}
     existing_report_keys = await community_report_kv.all_keys()
     existing_reports = await community_report_kv.get_by_ids(existing_report_keys)

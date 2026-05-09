@@ -59,7 +59,7 @@ class SQLiteKVStorage(BaseKVStorage):
         self._conn.commit()
         self._migrate_legacy_json_store()
         count = self._conn.execute("SELECT COUNT(*) FROM kv_store").fetchone()[0]
-        logger.info(f"Loaded SQLite KV {self.namespace} with {count} entries")
+        logger.info("sqlite_kv_loaded", namespace=self.namespace, entries=count)
 
     def _migrate_legacy_json_store(self):
         if not os.path.exists(self._legacy_file):
@@ -77,7 +77,9 @@ class SQLiteKVStorage(BaseKVStorage):
         )
         self._conn.commit()
         logger.info(
-            f"Migrated {len(legacy_data)} entries from legacy JSON KV store for {self.namespace}"
+            "sqlite_kv_migrated",
+            entries=len(legacy_data),
+            namespace=self.namespace,
         )
 
     async def all_keys(self) -> list[str]:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
@@ -83,8 +84,9 @@ def detect_provider(model: str) -> str:
 
     # Unknown provider, log warning and default to openai
     logger.warning(
-        f"Cannot detect provider for model '{model}', defaulting to 'openai'. "
-        f"This may cause issues if the model is not an OpenAI model."
+        "provider_detection_failed",
+        model=model,
+        fallback="openai",
     )
     return "openai"
 
@@ -254,6 +256,7 @@ async def litellm_completion(
         )
         cached_result = await hashing_kv.get_by_id(args_hash)
         if cached_result is not None:
+            logger.info("llm_cache_hit", model=model, args_hash=args_hash)
             if cached_result.get("is_structured") and response_format is not None:
                 return response_format.model_validate_json(cached_result["return"])
             return cached_result["return"]
@@ -284,11 +287,15 @@ async def litellm_completion(
             messages = ensure_json_keyword_in_prompt(messages)
             litellm_kwargs["response_format"] = {"type": "json_object"}
         elif use_native_structured_output:
-            # Use provider-native strict schema mode when available.
-            litellm_kwargs["response_format"] = build_json_schema_response_format(response_format)
-            provider_requirements = build_provider_requirements(model)
-            if provider_requirements is not None:
-                litellm_kwargs["provider"] = provider_requirements
+            if isinstance(response_format, dict):
+                litellm_kwargs["response_format"] = response_format
+            else:
+                litellm_kwargs["response_format"] = build_json_schema_response_format(
+                    response_format
+                )
+                provider_requirements = build_provider_requirements(model)
+                if provider_requirements is not None:
+                    litellm_kwargs["provider"] = provider_requirements
         else:
             # Legacy route: Add schema to system prompt
             _add_schema_instruction_to_messages(response_format, messages, bool(system_prompt))
@@ -296,64 +303,97 @@ async def litellm_completion(
     async def _call_llm():
         try:
             response = await litellm.acompletion(**litellm_kwargs)
-            return response.choices[0].message.content
+            return response
         except UNSUPPORTED_STRUCTURED_OUTPUT_ERRORS as e:
             if "response_format" not in litellm_kwargs:
                 raise
             if not should_fallback_without_structured_output(e):
                 raise
             logger.warning(
-                f"Structured output not supported by model '{model}', "
-                f"falling back to prompt-based schema. Error: {e}"
+                "structured_output_fallback",
+                model=model,
+                error=str(e),
             )
             litellm_kwargs.pop("response_format", None)
             response = await litellm.acompletion(**litellm_kwargs)
-            return response.choices[0].message.content
+            return response
 
+    start_time = time.monotonic()
     try:
-        result = await asyncio.wait_for(_call_llm(), timeout=timeout)
+        response = await asyncio.wait_for(_call_llm(), timeout=timeout)
     except asyncio.TimeoutError:
-        logger.error(f"LiteLLM call timed out after {timeout}s")
+        elapsed_ms = (time.monotonic() - start_time) * 1000
+        logger.error(
+            "llm_call_timeout", model=model, timeout_s=timeout, latency_ms=round(elapsed_ms, 1)
+        )
         raise
     except Exception as e:
-        logger.error(f"LiteLLM call failed: {e}")
+        elapsed_ms = (time.monotonic() - start_time) * 1000
+        logger.error(
+            "llm_call_failed",
+            model=model,
+            error=str(e),
+            error_type=type(e).__name__,
+            latency_ms=round(elapsed_ms, 1),
+        )
         raise
 
-    # Parse if using structured output
-    if response_format is not None and isinstance(result, str):
+    elapsed_ms = (time.monotonic() - start_time) * 1000
+    result = response.choices[0].message.content
+
+    usage = getattr(response, "usage", None)
+    prompt_tokens = getattr(usage, "prompt_tokens", 0) if usage else 0
+    completion_tokens = getattr(usage, "completion_tokens", 0) if usage else 0
+    total_tokens = getattr(usage, "total_tokens", 0) if usage else 0
+    try:
+        cost = litellm.completion_cost(completion_response=response)
+    except Exception:
+        cost = 0.0
+
+    logger.info(
+        "llm_call_complete",
+        model=model,
+        latency_ms=round(elapsed_ms, 1),
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        total_tokens=total_tokens,
+        cost_usd=round(cost, 6),
+    )
+
+    if (
+        response_format is not None
+        and isinstance(response_format, type)
+        and issubclass(response_format, BaseModel)
+    ):
+        if isinstance(result, str):
+            try:
+                result = response_format.model_validate_json(result)
+            except Exception as e:
+                logger.warning("structured_output_parse_failed", model=model, error=str(e))
+                if use_native_structured_output:
+                    logger.info("structured_output_fallback_to_text", model=model)
+                    return await litellm_completion(
+                        model,
+                        prompt,
+                        system_prompt,
+                        history_messages,
+                        response_format=response_format,
+                        use_native_structured_output=False,
+                        hashing_kv=hashing_kv,
+                        api_base=api_base,
+                        api_key=api_key,
+                        timeout=timeout,
+                        **kwargs,
+                    )
+                return result
+    elif response_format is not None and isinstance(result, str):
         try:
             parsed = json.loads(result)
-            if hasattr(response_format, "model_validate_json"):
-                result = response_format.model_validate_json(result)
-            elif callable(response_format):
-                result = response_format(**parsed)
-            else:
-                result = parsed
+            if isinstance(parsed, dict):
+                result = json.dumps(parsed)
         except Exception as e:
-            logger.warning(f"Failed to parse structured output from model '{model}': {e}")
-            if use_native_structured_output:
-                # Fallback to text mode
-                logger.info(
-                    f"Falling back to text parsing mode for model '{model}' "
-                    f"(schema will be added to prompt)"
-                )
-                return await litellm_completion(
-                    model,
-                    prompt,
-                    system_prompt,
-                    history_messages,
-                    response_format=response_format,
-                    use_native_structured_output=False,
-                    hashing_kv=hashing_kv,
-                    api_base=api_base,
-                    api_key=api_key,
-                    timeout=timeout,
-                    **kwargs,
-                )
-            # Return string as-is if parsing fails
-            logger.warning(
-                f"Could not parse as structured output from model '{model}', returning raw string"
-            )
+            logger.warning("json_parse_failed", model=model, error=str(e))
+            return result
 
     if hashing_kv is not None:
         cached_payload = result.model_dump_json() if isinstance(result, BaseModel) else result
@@ -363,6 +403,10 @@ async def litellm_completion(
                     "return": cached_payload,
                     "model": model,
                     "is_structured": isinstance(result, BaseModel),
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": total_tokens,
+                    "cost_usd": round(cost, 6),
                 }
             }
         )
@@ -403,7 +447,11 @@ async def litellm_completion_stream(
     try:
         response = await asyncio.wait_for(litellm.acompletion(**litellm_kwargs), timeout=timeout)
     except Exception as e:
-        logger.warning(f"Streaming LiteLLM call failed, falling back to buffered completion: {e}")
+        logger.warning(
+            "streaming_fallback_to_buffered",
+            model=model,
+            error=str(e),
+        )
         result = await litellm_completion(
             model=model,
             prompt=prompt,
@@ -458,7 +506,26 @@ async def litellm_embedding(
         kwargs["api_base"] = api_base
     if api_key:
         kwargs["api_key"] = api_key
+    start_time = time.monotonic()
     response = await litellm.aembedding(**kwargs)
+    elapsed_ms = (time.monotonic() - start_time) * 1000
+
+    usage = getattr(response, "usage", None)
+    prompt_tokens = getattr(usage, "prompt_tokens", 0) if usage else 0
+    total_tokens = getattr(usage, "total_tokens", 0) if usage else 0
+    try:
+        cost = litellm.completion_cost(completion_response=response)
+    except Exception:
+        cost = 0.0
+    logger.info(
+        "embedding_call_complete",
+        model=model,
+        num_texts=len(texts),
+        latency_ms=round(elapsed_ms, 1),
+        prompt_tokens=prompt_tokens,
+        total_tokens=total_tokens,
+        cost_usd=round(cost, 6),
+    )
     return np.array([dp["embedding"] for dp in response.data])
 
 

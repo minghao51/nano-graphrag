@@ -198,7 +198,7 @@ class EntityGroundedQuery:
                 continue
 
             # Get entity description from graph node data
-            node_data = nodes_data.get(entity_id)
+            node_data = nodes_data[i] if i < len(nodes_data) else None
             description = node_data.get("description", "") if node_data else ""
 
             # Get relationships from edges

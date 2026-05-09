@@ -8,6 +8,7 @@ from typing import Any
 import networkx as nx
 import numpy as np
 
+from .._utils import logger
 from ..base import BaseGraphStorage
 from .gdb_networkx_clustering import (
     LeidenClusteringBackend,
@@ -33,10 +34,11 @@ class NetworkXStorage(BaseGraphStorage):
         )
         preloaded_graph = load_nx_graph(self._graphml_xml_file)
         if preloaded_graph is not None:
-            from .._utils import logger
-
             logger.info(
-                f"Loaded graph from {self._graphml_xml_file} with {preloaded_graph.number_of_nodes()} nodes, {preloaded_graph.number_of_edges()} edges"
+                "graph_loaded",
+                path=self._graphml_xml_file,
+                nodes=preloaded_graph.number_of_nodes(),
+                edges=preloaded_graph.number_of_edges(),
             )
         self._graph = preloaded_graph or nx.MultiGraph()
         self._clustering_algorithms = {
@@ -72,7 +74,7 @@ class NetworkXStorage(BaseGraphStorage):
                 snapshot_dir, f"graph_{self.namespace}_snapshot_{int(time.time() * 1000)}.graphml"
             )
             write_nx_graph(self._graph, snapshot_path)
-            logger.debug(f"Graph snapshot created at {snapshot_path}")
+            logger.debug("graph_snapshot_created", path=snapshot_path)
             return snapshot_path
 
     async def _restore_graph(self, snapshot_path: str) -> None:
@@ -81,18 +83,16 @@ class NetworkXStorage(BaseGraphStorage):
         Args:
             snapshot_path: Path to the snapshot file to restore from.
         """
-        from .._utils import logger
-
         async with self._graph_lock:
             if not os.path.exists(snapshot_path):
-                logger.warning(f"Snapshot file not found: {snapshot_path}")
+                logger.warning("graph_snapshot_not_found", path=snapshot_path)
                 return
             restored_graph = load_nx_graph(snapshot_path)
             if restored_graph is not None:
                 self._graph = restored_graph
-                logger.info(f"Graph restored from snapshot: {snapshot_path}")
+                logger.info("graph_restored", path=snapshot_path)
             else:
-                logger.error(f"Failed to load graph from snapshot: {snapshot_path}")
+                logger.error("graph_restore_failed", path=snapshot_path)
 
     async def has_node(self, node_id: str) -> bool:
         async with self._graph_lock:

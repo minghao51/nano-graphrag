@@ -122,7 +122,7 @@ async def _handle_entity_relation_summary(
         "description_list": use_description.split(GRAPH_FIELD_SEP),
     }
     use_prompt = prompt_template.format(**context_base)
-    logger.debug(f"Trigger summary: {entity_or_relation_name}")
+    logger.debug("trigger_summary", entity_name=entity_or_relation_name)
     summary = await use_llm_func(use_prompt, max_tokens=summary_max_tokens)
     return summary
 
@@ -613,16 +613,24 @@ class _ExtractionProgress:
         self.processed = 0
         self.entities = 0
         self.relations = 0
+        self._start = None
 
     def update(self, num_entities: int, num_relations: int):
+        if self._start is None:
+            self._start = __import__("time").time()
         self.processed += 1
         self.entities += num_entities
         self.relations += num_relations
         if self.processed % 10 == 0 or self.processed >= self.total:
+            elapsed = __import__("time").time() - self._start if self._start else 0
             logger.info(
-                f"Processed {self.processed}/{self.total} chunks "
-                f"({self.processed * 100 // self.total}%), "
-                f"{self.entities} entities, {self.relations} relations"
+                "extraction_chunk_progress",
+                processed=self.processed,
+                total=self.total,
+                pct=self.processed * 100 // self.total,
+                entities=self.entities,
+                relations=self.relations,
+                elapsed_s=round(elapsed, 1),
             )
 
 

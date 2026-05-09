@@ -17,12 +17,15 @@ repos:
     rev: v5.0.0
     hooks:
       - id: trailing-whitespace
+        exclude: ^(notebooks/_freeze/|docs/notebooks/html/)
       - id: end-of-file-fixer
+        exclude: ^(notebooks/_freeze/|docs/notebooks/html/)
       - id: check-yaml
       - id: check-toml
       - id: check-json
       - id: check-added-large-files
         args: ['--maxkb=1000']
+        exclude: ^docs/notebooks/html/
       - id: check-merge-conflict
       - id: check-case-conflict
       - id: detect-private-key
@@ -41,7 +44,19 @@ repos:
     hooks:
       - id: ruff
         args: [--fix, --exit-non-zero-on-fix]
+        exclude: ^notebooks/
       - id: ruff-format
+        exclude: ^notebooks/
+
+  # Quarto notebook rendering
+  - repo: local
+    hooks:
+      - id: quarto-render
+        name: Render changed .qmd notebooks
+        entry: make notebooks-staged
+        language: system
+        files: '^notebooks/.*\.qmd$'
+        pass_filenames: false
 
   # Conventional commits
   - repo: https://github.com/compilerla/conventional-pre-commit

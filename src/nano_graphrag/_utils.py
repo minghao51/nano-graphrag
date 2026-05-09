@@ -13,6 +13,7 @@ from hashlib import md5, sha256
 from typing import Any, Callable, Literal
 
 import numpy as np
+import structlog
 import tiktoken
 from pydantic import BaseModel
 
@@ -21,7 +22,26 @@ try:
 except ImportError:
     AutoTokenizer = None  # type: ignore[assignment,misc]
 
-logger = logging.getLogger("nano-graphrag")
+structlog.configure(
+    processors=[
+        structlog.contextvars.merge_contextvars,
+        structlog.stdlib.filter_by_level,
+        structlog.stdlib.add_logger_name,
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.PositionalArgumentsFormatter(),
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.StackInfoRenderer(),
+        structlog.processors.format_exc_info,
+        structlog.processors.UnicodeDecoder(),
+        structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
+    ],
+    context_class=dict,
+    logger_factory=structlog.stdlib.LoggerFactory(),
+    wrapper_class=structlog.stdlib.BoundLogger,
+    cache_logger_on_first_use=True,
+)
+
+logger = structlog.get_logger("nano-graphrag")
 logging.getLogger("neo4j").setLevel(logging.ERROR)
 
 
@@ -54,12 +74,14 @@ def extract_first_complete_json(s: str):
                         return json.loads(first_json_str.replace("\n", ""))
                     except json.JSONDecodeError as e:
                         logger.error(
-                            f"JSON decoding failed: {e}. Attempted string: {first_json_str[:50]}..."
+                            "json_decode_failed",
+                            error=str(e),
+                            sample=first_json_str[:50],
                         )
                         return None
                     finally:
                         first_json_start = None
-    logger.warning("No complete JSON object found in the input string.")
+    logger.warning("no_complete_json_found")
     return None
 
 
@@ -106,7 +128,7 @@ def extract_values_from_json(json_string, keys=None, allow_no_quotes=False):
             extracted_values[key] = parse_value(value)
 
     if not extracted_values:
-        logger.warning("No values could be extracted from the string.")
+        logger.warning("no_values_extracted")
 
     return extracted_values
 
@@ -121,13 +143,13 @@ def convert_response_to_json(response: str | BaseModel) -> dict:
     prediction_json = extract_first_complete_json(response)
 
     if prediction_json is None:
-        logger.info("Attempting to extract values from a non-standard JSON string...")
+        logger.info("attempting_non_standard_json_extraction")
         prediction_json = extract_values_from_json(response, allow_no_quotes=True)
 
     if not prediction_json:
-        logger.error("Unable to extract meaningful data from the response.")
+        logger.error("unable_to_extract_json_data")
     else:
-        logger.info("JSON data successfully extracted.")
+        logger.info("json_data_extracted_successfully")
 
     return prediction_json
 
@@ -150,7 +172,9 @@ class TokenizerWrapper:
     def _lazy_load_tokenizer(self):
         if self._tokenizer is not None:
             return
-        logger.info(f"Loading tokenizer: type='{self.tokenizer_type}', name='{self.model_name}'")
+        logger.info(
+            "tokenizer_loading", tokenizer_type=self.tokenizer_type, model_name=self.model_name
+        )
         if self.tokenizer_type == "tiktoken":
             self._tokenizer = tiktoken.encoding_for_model(self.model_name)
         elif self.tokenizer_type == "huggingface":

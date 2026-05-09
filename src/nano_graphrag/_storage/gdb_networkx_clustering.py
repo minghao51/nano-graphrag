@@ -137,7 +137,7 @@ class LeidenClusteringBackend:
             storage._last_affected_community_ids = set()
             storage._last_clustering_was_incremental = False
             storage._graph.graph["community_update_counter"] = 0
-            logger.info("Full recluster complete, incremental update counter reset")
+            logger.info("full_recluster_complete")
             return
         if storage._graph.number_of_edges() == 0:
             self._assign_singleton_clusters(storage)
@@ -169,8 +169,9 @@ class LeidenClusteringBackend:
             if incremental_count >= max_incremental:
                 should_try_incremental = False
                 logger.info(
-                    f"Incremental update counter ({incremental_count}) reached threshold "
-                    f"({max_incremental}), forcing full recluster"
+                    "incremental_threshold_reached",
+                    count=incremental_count,
+                    max_incremental=max_incremental,
                 )
 
         if should_try_incremental:
@@ -211,8 +212,10 @@ class LeidenClusteringBackend:
                 drop_threshold = 0.1
                 if modularity < baseline_modularity - drop_threshold:
                     logger.warning(
-                        f"Incremental clustering modularity ({modularity:.4f}) is significantly "
-                        f"lower than baseline ({baseline_modularity:.4f}). Consider triggering full recluster."
+                        "incremental_modularity_drop",
+                        modularity=round(modularity, 4),
+                        baseline=round(baseline_modularity, 4),
+                        drop=round(baseline_modularity - modularity, 4),
                     )
 
             cluster_prefix = self._next_incremental_cluster_prefix(storage)
@@ -228,7 +231,9 @@ class LeidenClusteringBackend:
             storage._last_affected_community_ids = old_community_ids.union(new_level0_ids.values())
             storage._last_clustering_was_incremental = True
             logger.info(
-                f"Incremental Leiden updated {len(frontier_nodes)} frontier nodes across {len(storage._last_affected_community_ids)} communities"
+                "incremental_leiden",
+                frontier_nodes=len(frontier_nodes),
+                communities=len(storage._last_affected_community_ids),
             )
             return
 
@@ -256,7 +261,10 @@ class LeidenClusteringBackend:
                     node_communities[nx_node_id].append({"level": level, "cluster": cluster_id})
 
         node_communities = dict(node_communities)
-        logger.info(f"Each level has communities: { {k: len(v) for k, v in levels.items()} }")
+        logger.info(
+            "cluster_levels",
+            levels={k: len(v) for k, v in levels.items()},
+        )
         self._cluster_data_to_subgraphs(storage, node_communities)
         storage._last_affected_community_ids = {
             str(cluster["cluster"])
@@ -272,7 +280,9 @@ class LeidenClusteringBackend:
             n_iterations=8,
         )
         storage._last_full_modularity = level0_partition.modularity
-        logger.debug(f"Full clustering baseline modularity: {storage._last_full_modularity:.4f}")
+        logger.debug(
+            "full_clustering_modularity", modularity=round(storage._last_full_modularity, 4)
+        )
 
 
 class LouvainClusteringBackend:
@@ -310,7 +320,7 @@ class LouvainClusteringBackend:
             nx_node_id = ig_graph.vs[node_idx]["_nx_name"]
             node_communities[nx_node_id] = [{"level": 0, "cluster": str(cluster_id)}]
 
-        logger.info(f"Louvain found {partition.__len__()} communities")
+        logger.info("louvain_communities", count=partition.__len__())
         self._cluster_data_to_subgraphs(storage, node_communities)
         storage._last_affected_community_ids = {str(c) for c in partition.membership}
         storage._last_clustering_was_incremental = False

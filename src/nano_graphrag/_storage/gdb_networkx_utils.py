@@ -16,7 +16,9 @@ def load_nx_graph(file_name) -> nx.MultiGraph | None:
 
 def write_nx_graph(graph: nx.Graph, file_name):
     logger.info(
-        f"Writing graph with {graph.number_of_nodes()} nodes, {graph.number_of_edges()} edges"
+        "graph_write",
+        nodes=graph.number_of_nodes(),
+        edges=graph.number_of_edges(),
     )
     tmp_file = f"{file_name}.tmp"
     nx.write_graphml(graph, tmp_file)

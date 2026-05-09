@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import logging
 from typing import Any, Callable, Literal
 
-logger = logging.getLogger("nano-graphrag")
+from ._utils import logger
 
 
 class SeparatorSplitter:
@@ -21,9 +20,8 @@ class SeparatorSplitter:
         self._separators = [separator for separator in (separators or []) if separator]
         if original_count > 0 and not self._separators:
             logger.warning(
-                "All %d separators were empty/zero-length and filtered out. "
-                "Chunking will produce a single chunk for the entire input.",
-                original_count,
+                "separators_filtered",
+                original_count=original_count,
             )
         self._keep_separator = keep_separator
         self._chunk_size = chunk_size

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from .._utils import generate_stable_relationship_id
+from .._utils import generate_stable_relationship_id, logger
 from ..base import BaseGraphStorage
 from .extraction_common import (
     _combine_entity_contributions,
@@ -94,9 +94,7 @@ async def extract_document_entity_relationships(
         )
     )
     if not manifest["entities"]:
-        from .._utils import logger
-
-        logger.warning("Didn't extract any entities, maybe your LLM is not working")
+        logger.warning("extraction_no_entities_found")
         return manifest
 
     entity_count = len(manifest["entities"])
@@ -108,15 +106,11 @@ async def extract_document_entity_relationships(
     )
 
     if entity_count < expected_min_entities:
-        from .._utils import logger
-
         logger.warning(
-            f"Low entity count detected: {entity_count} entities from {chunk_count} chunks "
-            f"(expected at least {expected_min_entities}). "
-            f"This may indicate poor extraction quality. Consider: "
-            f"1) Using entity_extraction_quality='balanced' "
-            f"2) Using a higher quality LLM model "
-            f"3) Checking if your documents contain sufficient named entities"
+            "low_entity_count",
+            entity_count=entity_count,
+            chunk_count=chunk_count,
+            expected_min=expected_min_entities,
         )
     manifest = await _enrich_manifest_aliases(manifest, chunks, global_config)
     return await _apply_entity_linking(manifest, global_config)

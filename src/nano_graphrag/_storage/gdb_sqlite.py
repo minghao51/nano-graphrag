@@ -48,7 +48,7 @@ class SQLiteGraphStorage(BaseGraphStorage):
         }
         self._last_affected_community_ids = set()
         self._last_clustering_was_incremental = False
-        logger.info(f"Loaded SQLite graph store {self.namespace} from {self._db_file}")
+        logger.info("sqlite_graph_loaded", namespace=self.namespace, path=self._db_file)
 
     def _ensure_schema(self):
         self._conn.execute(
@@ -88,7 +88,7 @@ class SQLiteGraphStorage(BaseGraphStorage):
         column_names = [row[1] for row in rows]
         if "edge_key" in column_names:
             return
-        logger.info("Migrating SQLite edges table to multigraph schema (adding edge_key)")
+        logger.info("sqlite_graph_migration_start")
         self._conn.execute("ALTER TABLE edges RENAME TO edges_old")
         self._conn.execute(
             """
@@ -112,7 +112,7 @@ class SQLiteGraphStorage(BaseGraphStorage):
                 (source_id, target_id, edge_key, raw_data),
             )
         self._conn.execute("DROP TABLE edges_old")
-        logger.info(f"Migrated {len(old_rows)} edges to multigraph schema")
+        logger.info("sqlite_graph_migration_complete", edges_migrated=len(old_rows))
 
     def _set_meta(self, key: str, value: Any):
         self._conn.execute(
@@ -173,12 +173,12 @@ class SQLiteGraphStorage(BaseGraphStorage):
             self._conn.backup(snapshot_conn)
         finally:
             snapshot_conn.close()
-        logger.debug(f"SQLite graph snapshot created at {snapshot_path}")
+        logger.debug("sqlite_graph_snapshot_created", path=snapshot_path)
         return snapshot_path
 
     async def _restore_graph(self, snapshot_path: str) -> None:
         if not os.path.exists(snapshot_path):
-            logger.warning(f"Snapshot file not found: {snapshot_path}")
+            logger.warning("sqlite_graph_snapshot_not_found", path=snapshot_path)
             return
         snapshot_conn = sqlite3.connect(snapshot_path)
         try:
@@ -188,7 +188,7 @@ class SQLiteGraphStorage(BaseGraphStorage):
             self._conn.execute("PRAGMA synchronous=NORMAL")
             snapshot_conn.backup(self._conn)
             self._conn.commit()
-            logger.info(f"SQLite graph restored from snapshot: {snapshot_path}")
+            logger.info("sqlite_graph_restored", path=snapshot_path)
         finally:
             snapshot_conn.close()
 
