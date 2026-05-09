@@ -35,7 +35,7 @@ jobs:
           enable-cache: true
 
       - name: Sync dependencies
-        run: uv sync --only-group dev --no-install-project
+        run: uv sync --extra docs --only-group dev --no-install-project
 
       - name: Render notebooks (reads _freeze/, no execution)
         run: uv run quarto render notebooks/
