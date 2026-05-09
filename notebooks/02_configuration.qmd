@@ -1,0 +1,334 @@
+---
+title: "Configuration"
+description: "All config paths: direct kwargs, environment variables, YAML files, and dictionaries — nested vs flat format."
+date: today
+format:
+  html:
+    self-contained: true
+    embed-resources: true
+    code-fold: true
+    code-tools: true
+---
+
+## Introduction
+
+nano-graphrag offers four ways to configure the system, each suited to different workflows:
+
+| Method | Best for | Example |
+|--------|----------|---------|
+| **Direct kwargs** | Scripts, notebooks, quick experiments | `GraphRAG(llm_model="ollama/llama3.2")` |
+| **Environment variables** | Docker, CI/CD, 12-factor apps | `GRAPH_API_KEY=... LLM_MODEL=...` |
+| **YAML file** | Reproducible configs, team sharing | `GraphRAGConfig.from_yaml("settings.yaml")` |
+| **Dictionary** | Programmatic construction, testing | `GraphRAGConfig.from_dict({...})` |
+
+This notebook demonstrates each method and shows they produce equivalent configurations.
+
+## Setup
+
+```{python}
+#| label: setup
+import os
+import logging
+import tempfile
+from pathlib import Path
+
+logging.basicConfig(level=logging.WARNING)
+logging.getLogger("nano-graphrag").setLevel(logging.INFO)
+
+WORKING_DIR = Path("./_cache/02_configuration")
+WORKING_DIR.mkdir(parents=True, exist_ok=True)
+```
+
+```{python}
+#| label: imports
+from nano_graphrag import GraphRAG, QueryParam
+from nano_graphrag.base import GraphRAGConfig
+from nano_graphrag._config import GraphRAGSettings
+```
+
+## Method 1: Direct Constructor Keyword Arguments
+
+The simplest approach — pass configuration directly to the `GraphRAG` constructor. Every setting has a sensible default, so you only need to override what differs.
+
+```{python}
+#| label: method-kwargs
+rag_kwargs = GraphRAG(
+    working_dir=str(WORKING_DIR / "kwargs"),
+    enable_llm_cache=True,
+    chunk_token_size=1200,
+    chunk_overlap_token_size=100,
+)
+print("Created via kwargs:")
+print(f"  working_dir:    {rag_kwargs.working_dir}")
+print(f"  llm_model:      {rag_kwargs.llm_model}")
+print(f"  embedding_dim:  {rag_kwargs.embedding_dim}")
+print(f"  chunk_size:     {rag_kwargs.chunk_token_size}")
+```
+
+### Available Parameters
+
+The key configuration categories are:
+
+```{python}
+#| label: param-overview
+from dataclasses import fields as dataclass_fields
+
+config_fields = dataclass_fields(GraphRAGConfig)
+categories = {
+    "Core": ["working_dir"],
+    "API": ["api_key", "api_base", "llm_api_key", "llm_api_base", "embedding_api_key", "embedding_api_base"],
+    "LLM": ["llm_model", "llm_cheap_model", "llm_max_async", "llm_max_tokens", "llm_timeout"],
+    "Embedding": ["embedding_model", "embedding_dim", "embedding_max_async", "embedding_batch_size"],
+    "Extraction": ["extraction_max_async", "extraction_batch_size", "entity_extraction_quality", "extraction_backend"],
+    "Features": ["enable_local", "enable_naive_rag", "enable_llm_cache", "enable_community_reports", "enable_entity_linking", "enable_temporal_extraction"],
+}
+
+field_names = {f.name for f in config_fields}
+for cat, names in categories.items():
+    valid = [n for n in names if n in field_names]
+    print(f"\n{cat}:")
+    for n in valid:
+        f = next(f for f in config_fields if f.name == n)
+        default = f.default if f.default is not f.default_factory else "(factory)"
+        print(f"  {n:45s} = {default}")
+```
+
+## Method 2: Environment Variables
+
+nano-graphrag reads from environment variables prefixed with `GRAPH_` (shared) or `LLM_`/`EMBEDDING_` (specific). This is ideal for Docker deployments and CI/CD.
+
+```{python}
+#| label: method-env
+config_env = GraphRAGConfig.from_env()
+print("Created via from_env():")
+print(f"  llm_model:      {config_env.llm_model}")
+print(f"  llm_cheap_model:{config_env.llm_cheap_model}")
+print(f"  embedding_model:{config_env.embedding_model}")
+print(f"  working_dir:    {config_env.working_dir}")
+print(f"  enable_local:   {config_env.enable_local}")
+```
+
+### Environment Variable Reference
+
+The mapping between config fields and env vars:
+
+```{python}
+#| label: env-var-table
+from nano_graphrag._config import FLAT_FIELD_TO_ENV_VAR
+
+print(f"{'Config Field':45s} {'Environment Variable'}")
+print("-" * 80)
+for field, env in sorted(FLAT_FIELD_TO_ENV_VAR.items(), key=lambda x: x[1]):
+    print(f"{field:45s} {env}")
+```
+
+### Creating a GraphRAG from Env Config
+
+```{python}
+#| label: from-env-to-graphrag
+config = GraphRAGConfig.from_env()
+rag_env = GraphRAG.from_config(config)
+print(f"GraphRAG from env config: {rag_env.llm_model}")
+```
+
+## Method 3: YAML File
+
+YAML configs support two formats: **nested** (structured by section) and **flat** (all keys at the top level). Both are accepted.
+
+### Nested Format (Recommended)
+
+```{python}
+#| label: yaml-nested
+nested_yaml = """
+working_dir: ./nano_graphrag
+llm:
+  model: openrouter/google/gemma-4-31b-it
+  cheap_model: openrouter/google/gemma-4-31b-it
+  max_async: 16
+embedding:
+  model: openrouter/qwen/qwen3-embedding-8b
+  dim: 4096
+extraction:
+  batch_size: 5
+  quality: balanced
+features:
+  local_search: true
+  naive_rag: false
+  llm_cache: true
+"""
+
+nested_path = WORKING_DIR / "nested_settings.yaml"
+nested_path.write_text(nested_yaml)
+
+config_nested = GraphRAGConfig.from_yaml(str(nested_path))
+print("Nested YAML config:")
+print(f"  llm_model:      {config_nested.llm_model}")
+print(f"  embedding_dim:  {config_nested.embedding_dim}")
+print(f"  extraction_batch_size: {config_nested.extraction_batch_size}")
+print(f"  enable_local:   {config_nested.enable_local}")
+```
+
+### Flat Format (Legacy Compatible)
+
+```{python}
+#| label: yaml-flat
+flat_yaml = """
+working_dir: ./nano_graphrag
+llm_model: openrouter/google/gemma-4-31b-it
+llm_cheap_model: openrouter/google/gemma-4-31b-it
+embedding_model: openrouter/qwen/qwen3-embedding-8b
+embedding_dim: 4096
+extraction_batch_size: 5
+enable_local: true
+enable_naive_rag: false
+"""
+
+flat_path = WORKING_DIR / "flat_settings.yaml"
+flat_path.write_text(flat_yaml)
+
+config_flat = GraphRAGConfig.from_yaml(str(flat_path))
+print("Flat YAML config:")
+print(f"  llm_model:      {config_flat.llm_model}")
+print(f"  embedding_dim:  {config_flat.embedding_dim}")
+print(f"  enable_local:   {config_flat.enable_local}")
+```
+
+## Method 4: Dictionary
+
+Useful for programmatic construction or when loading config from databases APIs.
+
+```{python}
+#| label: method-dict
+config_dict_flat = {
+    "working_dir": str(WORKING_DIR / "dict"),
+    "llm_model": "openrouter/google/gemma-4-31b-it",
+    "embedding_dim": 4096,
+    "enable_llm_cache": True,
+}
+
+config_from_dict = GraphRAGConfig.from_dict(config_dict_flat)
+print("Dict config (flat):")
+print(f"  llm_model:      {config_from_dict.llm_model}")
+print(f"  embedding_dim:  {config_from_dict.embedding_dim}")
+```
+
+### Nested Dict
+
+```{python}
+#| label: method-dict-nested
+config_dict_nested = {
+    "working_dir": str(WORKING_DIR / "dict_nested"),
+    "llm": {
+        "model": "openrouter/google/gemma-4-31b-it",
+        "max_async": 16,
+    },
+    "embedding": {
+        "model": "openrouter/qwen/qwen3-embedding-8b",
+        "dim": 4096,
+    },
+    "features": {
+        "local_search": True,
+        "llm_cache": True,
+    },
+}
+
+config_from_nested = GraphRAGConfig.from_dict(config_dict_nested)
+print("Dict config (nested):")
+print(f"  llm_model:      {config_from_nested.llm_model}")
+print(f"  embedding_dim:  {config_from_nested.embedding_dim}")
+```
+
+## Merging Configs
+
+Use `.merge()` to override specific settings on an existing config:
+
+```{python}
+#| label: merge-config
+base_config = GraphRAGConfig.from_env()
+overridden = base_config.merge({
+    "working_dir": str(WORKING_DIR / "merged"),
+    "extraction_batch_size": 10,
+})
+print("Merged config:")
+print(f"  working_dir:            {overridden.working_dir}")
+print(f"  extraction_batch_size:  {overridden.extraction_batch_size}")
+print(f"  llm_model (inherited):  {overridden.llm_model}")
+```
+
+## Safe Logging
+
+Use `_to_safe_log_dict()` to serialize configuration for logging without leaking API keys:
+
+```{python}
+#| label: safe-logging
+rag_safe = GraphRAG(
+    working_dir=str(WORKING_DIR / "safe_log"),
+    enable_llm_cache=True,
+)
+safe = rag_safe._to_safe_log_dict()
+print("Safe log dict (secrets redacted, callables summarized):")
+for k, v in sorted(safe.items()):
+    if v is not None and v != False and v != 0 and v != "":
+        print(f"  {k:40s} = {v}")
+```
+
+## Exporting Config
+
+Save a config back to YAML (secrets are redacted):
+
+```{python}
+#| label: export-yaml
+export_path = WORKING_DIR / "exported_settings.yaml"
+export_config = GraphRAGConfig.from_env()
+export_config.to_yaml(str(export_path))
+print(f"Exported to: {export_path}")
+print(f"Content (secrets redacted):\n")
+print(export_path.read_text()[:500])
+```
+
+## Verify with a Live Insert
+
+Let's verify one config path works end-to-end with a small insert:
+
+```{python}
+#| label: live-verify
+#| cache: true
+
+config = GraphRAGConfig.from_env().merge({
+    "working_dir": str(WORKING_DIR / "live_verify"),
+    "enable_llm_cache": True,
+})
+rag = GraphRAG.from_config(config)
+
+small_text = """
+Albert Einstein developed the theory of relativity, one of the two pillars of modern physics.
+He received the Nobel Prize in Physics in 1921 for his explanation of the photoelectric effect.
+Einstein emigrated to the United States in 1933 and took a position at the Institute for Advanced Study in Princeton.
+"""
+
+await rag.ainsert(small_text)
+print("Insert successful!")
+
+result = await rag.aquery("What did Einstein do?", param=QueryParam(mode="global"))
+print(f"\nQuery result:\n{result}")
+```
+
+## Summary
+
+| Method | Function | Format | Best for |
+|--------|----------|--------|----------|
+| Kwargs | `GraphRAG(...)` | Flat | Quick scripts, overrides |
+| Env vars | `GraphRAGConfig.from_env()` | Flat | Docker, CI/CD |
+| YAML | `GraphRAGConfig.from_yaml()` | Nested or Flat | Teams, reproducibility |
+| Dict | `GraphRAGConfig.from_dict()` | Nested or Flat | Programs, tests |
+
+Key takeaways:
+
+- All four methods produce equivalent `GraphRAG` instances via `GraphRAG.from_config()`
+- Nested format is recommended for YAML/dict (clearer structure)
+- Flat format is available for backward compatibility
+- Use `.merge()` for partial overrides
+- Use `_to_safe_log_dict()` for logging (secrets redacted)
+- Use `.to_yaml()` for exporting (secrets redacted)
+
+Next up: [Query Modes](03-query-modes.md) — deep dive into global, local, naive, entity-grounded, and streaming.

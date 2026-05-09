@@ -1,0 +1,60 @@
+site_name: nano-graphrag
+site_url: https://minghao51.github.io/nano-graphrag/
+repo_url: https://github.com/minghao51/nano-graphrag
+repo_name: minghao51/nano-graphrag
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - search.suggest
+    - search.highlight
+nav:
+  - Home: index.md
+  - Notebooks:
+      - Overview: notebooks/index.md
+      - Quick Start: notebooks/quick-start.md
+      - Configuration: notebooks/configuration.md
+      - Query Modes: notebooks/query-modes.md
+      - Storage Backends: notebooks/storage-backends.md
+      - Extraction Pipeline: notebooks/extraction-pipeline.md
+      - Advanced Features: notebooks/advanced-features.md
+  - Architecture:
+      - System Design: architecture/architecture.md
+      - Pipeline: pipeline.md
+  - Guides:
+      - FAQ: guides/faq.md
+      - Neo4j Setup: guides/neo4j.md
+  - Benchmarks:
+      - Overview: benchmarks/README.md
+markdown_extensions:
+  - admonition
+  - md_in_html
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - attr_list
+  - toc:
+      permalink: true
+plugins:
+  - search
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/minghao51/nano-graphrag

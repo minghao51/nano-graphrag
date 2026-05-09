@@ -1,0 +1,14 @@
+project:
+  type: default
+  output-dir: ../docs/notebooks/html
+  render:
+    - "*.qmd"
+execute:
+  freeze: auto
+format:
+  html:
+    self-contained: true
+    embed-resources: true
+    code-fold: true
+    code-tools: true
+    theme: cosmo

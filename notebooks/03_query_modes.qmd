@@ -1,0 +1,331 @@
+---
+title: "Query Modes"
+description: "Deep dive into global, local, naive, entity-grounded, and streaming query modes — when to use each and how to tune them."
+date: today
+format:
+  html:
+    self-contained: true
+    embed-resources: true
+    code-fold: true
+    code-tools: true
+---
+
+## Introduction
+
+nano-graphrag supports four query modes, each optimized for different types of questions:
+
+| Mode | Strategy | Best for |
+|------|----------|----------|
+| **Global** | Aggregates community reports | Broad thematic questions ("What are the main themes?") |
+| **Local** | Entity-level retrieval + neighborhood | Specific entity questions ("What is Scrooge's relationship with Bob?") |
+| **Naive** | Plain vector similarity on chunks | Simple RAG baseline (no graph) |
+| **Entity-Grounded** | Validated entity-based answers | Precise, factual answers grounded in entities |
+
+This notebook demonstrates each mode, compares results, and shows streaming.
+
+## Setup
+
+```{python}
+#| label: setup
+import logging
+import time
+from pathlib import Path
+
+logging.basicConfig(level=logging.WARNING)
+logging.getLogger("nano-graphrag").setLevel(logging.INFO)
+
+WORKING_DIR = Path("./_cache/03_query_modes")
+WORKING_DIR.mkdir(parents=True, exist_ok=True)
+```
+
+```{python}
+#| label: imports
+from nano_graphrag import GraphRAG, QueryParam
+from nano_graphrag.base import ResponseType
+```
+
+## Build the Index
+
+We index *A Christmas Carol* with both local search and naive RAG enabled so we can demonstrate all four query modes.
+
+```{python}
+#| label: build-index
+#| cache: true
+rag = GraphRAG(
+    working_dir=str(WORKING_DIR),
+    enable_llm_cache=True,
+    enable_local=True,
+    enable_naive_rag=True,
+)
+
+with open("../tests/fixtures/mock_data.txt", encoding="utf-8-sig") as f:
+    lines = f.readlines()
+
+text = "".join(lines[:400])
+print(f"Loaded {len(text):,} characters ({len(text.splitlines())} lines)")
+
+start = time.time()
+await rag.ainsert(text)
+elapsed = time.time() - start
+print(f"Indexing complete in {elapsed:.1f}s")
+```
+
+## QueryParam Reference
+
+`QueryParam` controls query behavior. Here are the key fields:
+
+```{python}
+#| label: queryparam-ref
+param = QueryParam()
+fields_desc = {
+    "mode": "Query mode: 'global', 'local', 'naive', 'entity_grounded'",
+    "only_need_context": "Return context only (no LLM generation)",
+    "response_type": "Format: 'Concise Answer', 'Bullet Points', etc.",
+    "level": "Community hierarchy level (higher = coarser)",
+    "top_k": "Number of entities/chunks to retrieve",
+    "local_max_token_for_text_unit": "Token budget for text chunks (local)",
+    "local_max_token_for_local_context": "Token budget for entity context (local)",
+    "local_max_token_for_community_report": "Token budget for community report (local)",
+    "global_max_consider_community": "Max communities to consider (global)",
+    "global_max_token_for_community_report": "Token budget (global)",
+}
+
+from dataclasses import fields as dc_fields
+print(f"{'Field':50s} {'Default':>10s}  Description")
+print("-" * 100)
+for f in dc_fields(QueryParam):
+    desc = fields_desc.get(f.name, "")
+    default = f.default if f.default is not f.default_factory else "(factory)"
+    if desc:
+        print(f"{f.name:50s} {str(default):>10s}  {desc}")
+```
+
+## Global Query
+
+Global mode works by:
+
+1. Mapping the query to relevant communities using LLM
+2. Aggregating intermediate answers from community reports
+3. Producing a final synthesized response
+
+Best for **broad, thematic questions**.
+
+```{python}
+#| label: query-global
+result_global = await rag.aquery(
+    "What are the main themes of A Christmas Carol?",
+    param=QueryParam(mode="global"),
+)
+print(result_global)
+```
+
+## Local Query
+
+Local mode works by:
+
+1. Embedding the query and finding top-k similar entities
+2. Gathering local context: entity neighborhood, associated text chunks, community report
+3. Generating an answer from the gathered context
+
+Best for **entity-specific questions**.
+
+```{python}
+#| label: query-local
+result_local = await rag.aquery(
+    "What is the relationship between Scrooge and Bob Cratchit?",
+    param=QueryParam(mode="local"),
+)
+print(result_local)
+```
+
+### Tuning Local Search
+
+```{python}
+#| label: local-tuning
+result_local_detailed = await rag.aquery(
+    "Describe Tiny Tim's condition and its significance.",
+    param=QueryParam(
+        mode="local",
+        top_k=30,
+        local_max_token_for_text_unit=6000,
+        local_max_token_for_local_context=8000,
+        local_max_token_for_community_report=4000,
+    ),
+)
+print(result_local_detailed)
+```
+
+## Naive Query
+
+Naive mode is a plain vector-RAG baseline — no graph, no communities. It:
+
+1. Embeds the query
+2. Retrieves top-k text chunks by similarity
+3. Generates an answer from the chunks
+
+Requires `enable_naive_rag=True` during GraphRAG initialization.
+
+```{python}
+#| label: query-naive
+result_naive = await rag.aquery(
+    "Who is Ebenezer Scrooge?",
+    param=QueryParam(mode="naive"),
+)
+print(result_naive)
+```
+
+## Entity-Grounded Query
+
+Entity-grounded mode is a two-stage approach:
+
+1. **Entity Retrieval**: Finds relevant entities, resolving to canonical names
+2. **Answer Generation**: Generates a concise answer using only retrieved entities
+3. **Validation**: Ensures the answer references the retrieved entities
+
+Best for **precise, factual answers** where you want grounding in specific entities.
+
+```{python}
+#| label: query-entity-grounded
+result_entity = await rag.aquery(
+    "What did the Ghost of Christmas Present show Scrooge?",
+    param=QueryParam(
+        mode="entity_grounded",
+        top_k=20,
+    ),
+)
+print(result_entity)
+```
+
+## Streaming Queries
+
+All modes support streaming via `astream_query()`, which yields response tokens as they are generated.
+
+```{python}
+#| label: query-stream
+async def stream_query(query_text, mode="global"):
+    chunks = []
+    async for chunk in rag.astream_query(
+        query_text,
+        param=QueryParam(mode=mode),
+    ):
+        chunks.append(chunk)
+        print(chunk, end="", flush=True)
+    print()
+    return "".join(chunks)
+
+result_stream = await stream_query(
+    "How does Scrooge change throughout the story?",
+    mode="global",
+)
+```
+
+### Stream in Local Mode
+
+```{python}
+#| label: query-stream-local
+result_stream_local = await stream_query(
+    "What role does Jacob Marley play?",
+    mode="local",
+)
+```
+
+## Response Types
+
+`ResponseType` provides presets for controlling answer format:
+
+```{python}
+#| label: response-types
+for preset_name in ["CONCISE", "SHORT", "SINGLE_PARAGRAPH", "MULTIPLE_PARAGRAPHS", "BULLET_POINTS"]:
+    value = getattr(ResponseType, preset_name)
+    print(f"  ResponseType.{preset_name:25s} = \"{value}\"")
+```
+
+### Bullet Points Response
+
+```{python}
+#| label: query-bullets
+result_bullets = await rag.aquery(
+    "What are the key events in A Christmas Carol?",
+    param=QueryParam(
+        mode="global",
+        response_type=ResponseType.BULLET_POINTS,
+    ),
+)
+print(result_bullets)
+```
+
+### Concise Answer
+
+```{python}
+#| label: query-concise
+result_concise = await rag.aquery(
+    "Who wrote A Christmas Carol?",
+    param=QueryParam(
+        mode="local",
+        response_type=ResponseType.CONCISE,
+    ),
+)
+print(result_concise)
+```
+
+## Context-Only Mode
+
+Set `only_need_context=True` to retrieve context without generating an LLM answer — useful for debugging or building custom answer pipelines.
+
+```{python}
+#| label: context-only
+context = await rag.aquery(
+    "Scrooge",
+    param=QueryParam(
+        mode="local",
+        only_need_context=True,
+    ),
+)
+print(f"Context length: {len(context)} chars")
+print(context[:1000])
+```
+
+## Comparison
+
+Let's run the same question through all four modes and compare:
+
+```{python}
+#| label: comparison
+question = "How does Ebenezer Scrooge's character transform?"
+
+results = {}
+for mode in ["global", "local", "naive", "entity_grounded"]:
+    try:
+        result = await rag.aquery(question, param=QueryParam(mode=mode))
+        results[mode] = result
+    except Exception as e:
+        results[mode] = f"(error: {e})"
+
+for mode, answer in results.items():
+    preview = answer[:200].replace("\n", " ")
+    print(f"\n{'='*60}")
+    print(f"Mode: {mode}")
+    print(f"{'='*60}")
+    print(f"{preview}...")
+    print(f"  [full answer: {len(answer)} chars]")
+```
+
+## Summary
+
+| Mode | Enabled by | Retrieval | Answer Generation |
+|------|-----------|-----------|-------------------|
+| **Global** | Default | Community report mapping | Aggregated synthesis |
+| **Local** | `enable_local=True` | Entity embedding + neighborhood | Context-grounded |
+| **Naive** | `enable_naive_rag=True` | Chunk vector similarity | Context-grounded |
+| **Entity-Grounded** | `enable_local=True` | Entity ID retrieval + validation | Entity-constrained |
+
+**When to use which:**
+
+- **Global**: "What are the main themes?" — broad, thematic questions
+- **Local**: "What is X's relationship with Y?" — entity-specific questions
+- **Naive**: Baseline comparison, or when graph quality is low
+- **Entity-Grounded**: When you need precise, validated answers with entity IDs
+
+**Streaming**: Available for all modes via `astream_query()` — useful for real-time UIs.
+
+**Response types**: Use `ResponseType` presets to control answer format without custom prompts.

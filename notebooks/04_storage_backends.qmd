@@ -1,0 +1,366 @@
+---
+title: "Storage Backends"
+description: "Swap graph, vector, and KV storage backends — NetworkX vs SQLite vs Neo4j for graphs, HNSWLib vs NanoVectorDB for vectors."
+date: today
+format:
+  html:
+    self-contained: true
+    embed-resources: true
+    code-fold: true
+    code-tools: true
+---
+
+## Introduction
+
+nano-graphrag uses three types of storage, each with a pluggable backend:
+
+| Storage Type | Purpose | Default Backend | Alternatives |
+|---|---|---|---|
+| **Graph** | Entity/relationship knowledge graph | `NetworkXStorage` (GraphML files) | `SQLiteGraphStorage`, `Neo4jStorage` |
+| **Vector** | Entity/chunk similarity search | `HNSWVectorStorage` (hnswlib) | `NanoVectorDBStorage` |
+| **KV** | Documents, chunks, community reports | `JsonKVStorage` (JSON files) | — |
+
+Backends are configured by passing the storage class to the `GraphRAG` constructor. All backends implement the same async interface, so you can swap them without changing any application logic.
+
+This notebook demonstrates:
+
+1. **Default setup** (NetworkX + HNSWLib)
+2. **SQLite graph backend** — persistent, WAL-mode SQLite database
+3. **NanoVectorDB** — lightweight pure-Python vector store
+4. **Neo4j** — configuration for production graph databases (requires a running Neo4j server)
+5. **Backend comparison** — when to use each
+
+## Setup
+
+```{python}
+#| label: setup
+import logging
+import os
+import time
+from pathlib import Path
+
+logging.basicConfig(level=logging.WARNING)
+logging.getLogger("nano-graphrag").setLevel(logging.INFO)
+
+TEXT_SNIPPET = (
+    "Alice works at Wonderland Labs as a quantum researcher. "
+    "Bob is the CTO of Wonderland Labs and oversees the AI division. "
+    "Carol founded DataForge, a startup building graph databases. "
+    "Dave joined DataForge as lead engineer after leaving CloudCorp. "
+    "Eve is a security consultant who audits both Wonderland Labs and DataForge."
+)
+```
+
+```{python}
+#| label: imports
+from nano_graphrag import GraphRAG, QueryParam
+from nano_graphrag._storage import (
+    HNSWVectorStorage,
+    NetworkXStorage,
+    SQLiteGraphStorage,
+)
+```
+
+## 1. Default: NetworkX + HNSWLib
+
+The default backend stores the graph as a GraphML XML file and vectors in an hnswlib index. This is ideal for development and small-to-medium datasets.
+
+```{python}
+#| label: default-setup
+WORKING_DIR_DEFAULT = Path("./_cache/04_storage_backends/default")
+WORKING_DIR_DEFAULT.mkdir(parents=True, exist_ok=True)
+
+rag_default = GraphRAG(
+    working_dir=str(WORKING_DIR_DEFAULT),
+)
+print(f"Graph backend:  {rag_default.graph_storage_cls.__name__}")
+print(f"Vector backend: {rag_default.vector_db_storage_cls.__name__}")
+print(f"KV backend:     {rag_default.key_string_value_json_storage_cls.__name__}")
+```
+
+```{python}
+#| label: default-insert
+#| cache: true
+start = time.time()
+await rag_default.ainsert(TEXT_SNIPPET)
+elapsed = time.time() - start
+print(f"Insert complete in {elapsed:.1f}s")
+```
+
+```{python}
+#| label: default-query
+result = await rag_default.aquery("Who works at Wonderland Labs?", QueryParam())
+print(result)
+```
+
+```{python}
+#| label: default-inspect-files
+print("Files created by default backend:")
+for f in sorted(WORKING_DIR_DEFAULT.iterdir()):
+    size = f.stat().st_size
+    if size > 1024:
+        print(f"  {f.name:50s} {size / 1024:.1f} KB")
+    else:
+        print(f"  {f.name:50s} {size} B")
+```
+
+The key files are:
+
+- `graph_chunk_entity_relation.graphml` — the knowledge graph (XML)
+- `entities_vdb_hnsw.index` + `entities_vdb_hnsw_metadata.mpk` — HNSWLib vector index
+- `kv_store_*.json` — JSON key-value stores
+
+## 2. SQLite Graph Backend
+
+`SQLiteGraphStorage` stores the graph in a SQLite database with WAL (Write-Ahead Logging) mode. It supports the same Leiden clustering algorithm via an in-memory NetworkX projection.
+
+**Advantages over NetworkX:**
+
+- **Atomic writes** — SQLite transactions prevent data corruption on crash
+- **Better concurrency** — WAL mode allows concurrent reads during writes
+- **Scalability** — handles larger graphs without loading everything into memory
+- **Portable** — single `.db` file, easy to backup and transfer
+
+```{python}
+#| label: sqlite-setup
+WORKING_DIR_SQLITE = Path("./_cache/04_storage_backends/sqlite")
+WORKING_DIR_SQLITE.mkdir(parents=True, exist_ok=True)
+
+rag_sqlite = GraphRAG(
+    working_dir=str(WORKING_DIR_SQLITE),
+    graph_storage_cls=SQLiteGraphStorage,
+)
+print(f"Graph backend:  {rag_sqlite.graph_storage_cls.__name__}")
+```
+
+```{python}
+#| label: sqlite-insert
+#| cache: true
+start = time.time()
+await rag_sqlite.ainsert(TEXT_SNIPPET)
+elapsed = time.time() - start
+print(f"Insert complete in {elapsed:.1f}s")
+```
+
+```{python}
+#| label: sqlite-query
+result = await rag_sqlite.aquery("Who founded DataForge?", QueryParam())
+print(result)
+```
+
+```{python}
+#| label: sqlite-inspect
+print("Files created by SQLite backend:")
+for f in sorted(WORKING_DIR_SQLITE.iterdir()):
+    size = f.stat().st_size
+    if size > 1024:
+        print(f"  {f.name:50s} {size / 1024:.1f} KB")
+    else:
+        print(f"  {f.name:50s} {size} B")
+```
+
+Note the `graph_chunk_entity_relation.db` file instead of `.graphml`. The SQLite backend also stores community data within the database, so no separate community schema files are needed.
+
+```{python}
+#| label: sqlite-inspect-db
+import sqlite3
+
+db_path = WORKING_DIR_SQLITE / "graph_chunk_entity_relation.db"
+if db_path.exists():
+    conn = sqlite3.connect(str(db_path))
+    node_count = conn.execute("SELECT COUNT(*) FROM nodes").fetchone()[0]
+    edge_count = conn.execute("SELECT COUNT(*) FROM edges").fetchone()[0]
+    print(f"SQLite graph database:")
+    print(f"  Nodes (entities): {node_count}")
+    print(f"  Edges (relations): {edge_count}")
+    conn.close()
+```
+
+## 3. NanoVectorDB Backend
+
+`NanoVectorDBStorage` is a lightweight pure-Python vector database that stores vectors in a JSON file. It's a good alternative when you don't want the hnswlib C dependency.
+
+**Advantages over HNSWLib:**
+
+- **Pure Python** — no native C extensions, works everywhere (including WASM)
+- **Simple** — single JSON file, easy to inspect and debug
+- **Portable** — no platform-specific binaries
+
+**Trade-offs:**
+
+- Slower search on large datasets (brute-force cosine similarity)
+- Higher memory usage for large vector collections
+
+```{python}
+#| label: check-nanovectordb
+try:
+    from nano_graphrag._storage import NanoVectorDBStorage
+    HAS_NANOVEC = True
+    print("NanoVectorDB available")
+except Exception:
+    HAS_NANOVEC = False
+    print("NanoVectorDB not installed (pip install nano-vectordb)")
+```
+
+```{python}
+#| label: nanovecdb-setup
+#| error: true
+if HAS_NANOVEC:
+    WORKING_DIR_NANOVEC = Path("./_cache/04_storage_backends/nanovecdb")
+    WORKING_DIR_NANOVEC.mkdir(parents=True, exist_ok=True)
+
+    rag_nanovec = GraphRAG(
+        working_dir=str(WORKING_DIR_NANOVEC),
+        vector_db_storage_cls=NanoVectorDBStorage,
+    )
+    print(f"Vector backend: {rag_nanovec.vector_db_storage_cls.__name__}")
+
+    start = time.time()
+    await rag_nanovec.ainsert(TEXT_SNIPPET)
+    elapsed = time.time() - start
+    print(f"Insert complete in {elapsed:.1f}s")
+```
+
+```{python}
+#| label: nanovecdb-query
+#| error: true
+if HAS_NANOVEC:
+    result = await rag_nanovec.aquery("What does Eve do?", QueryParam())
+    print(result)
+```
+
+```{python}
+#| label: nanovecdb-inspect
+#| error: true
+if HAS_NANOVEC:
+    print("NanoVectorDB files:")
+    for f in sorted(WORKING_DIR_NANOVEC.iterdir()):
+        size = f.stat().st_size
+        if size > 1024:
+            print(f"  {f.name:50s} {size / 1024:.1f} KB")
+        else:
+            print(f"  {f.name:50s} {size} B")
+```
+
+With NanoVectorDB, you'll see `vdb_entities.json` and `vdb_chunks.json` instead of the `.hnsw.index` / `.hnsw_metadata.mpk` files.
+
+## 4. Neo4j Backend (Configuration Only)
+
+`Neo4jStorage` connects to an external Neo4j graph database. This is the recommended backend for **production deployments** with large-scale graphs.
+
+**Requirements:**
+
+- A running Neo4j server (5.x or later recommended)
+- `neo4j` Python package (`pip install neo4j`)
+
+```{python}
+#| label: neo4j-config-demo
+#| error: true
+from nano_graphrag._storage import Neo4jStorage
+
+print("Neo4jStorage available:", Neo4jStorage is not None)
+```
+
+```{python}
+#| label: neo4j-example
+#| error: true
+# This cell demonstrates the configuration but does NOT run —
+# it requires a running Neo4j server with valid credentials.
+
+neo4j_config = {
+    "working_dir": "./_cache/04_storage_backends/neo4j",
+    "graph_storage_cls": Neo4jStorage,
+    "addon_params": {
+        "neo4j_url": "bolt://localhost:7687",
+        "neo4j_auth": ("neo4j", "your-password"),
+    },
+}
+
+print("Neo4j GraphRAG configuration:")
+for k, v in neo4j_config.items():
+    if k == "addon_params":
+        safe = {k2: v2 if k2 != "neo4j_auth" else ("neo4j", "***") for k2, v2 in v.items()}
+        print(f"  {k}: {safe}")
+    else:
+        print(f"  {k}: {v}")
+
+rag_neo4j = GraphRAG(**neo4j_config)
+print(f"\nGraph backend: {rag_neo4j.graph_storage_cls.__name__}")
+```
+
+**Neo4j advantages for production:**
+
+- **Distributed** — supports cluster deployments and high availability
+- **Cypher queries** — direct graph queries via Cypher for debugging and analytics
+- **Scalability** — handles millions of nodes and edges efficiently
+- **Persistence** — enterprise-grade durability and backup
+
+## 5. Combining Backends
+
+You can mix and match backends independently. For example, use SQLite for the graph but NanoVectorDB for vectors:
+
+```{python}
+#| label: mixed-backends
+#| error: true
+if HAS_NANOVEC:
+    WORKING_DIR_MIXED = Path("./_cache/04_storage_backends/mixed")
+    WORKING_DIR_MIXED.mkdir(parents=True, exist_ok=True)
+
+    rag_mixed = GraphRAG(
+        working_dir=str(WORKING_DIR_MIXED),
+        graph_storage_cls=SQLiteGraphStorage,
+        vector_db_storage_cls=NanoVectorDBStorage,
+    )
+    print(f"Graph backend:  {rag_mixed.graph_storage_cls.__name__}")
+    print(f"Vector backend: {rag_mixed.vector_db_storage_cls.__name__}")
+
+    start = time.time()
+    await rag_mixed.ainsert(TEXT_SNIPPET)
+    elapsed = time.time() - start
+    print(f"Insert complete in {elapsed:.1f}s")
+
+    result = await rag_mixed.aquery("Who are the key people and what do they do?", QueryParam())
+    print(f"\nQuery result:\n{result}")
+```
+
+## 6. Backend Comparison
+
+```{python}
+#| label: comparison-table
+comparison = [
+    ("NetworkXStorage", "GraphML XML", "In-memory", "Dev / small graphs", "None"),
+    ("SQLiteGraphStorage", "SQLite DB", "Disk (WAL)", "Medium / crash-safe", "None"),
+    ("Neo4jStorage", "Neo4j server", "External server", "Production / large", "neo4j"),
+    ("HNSWVectorStorage", "hnswlib index", "In-memory + disk", "Default / fast ANN", "hnswlib"),
+    ("NanoVectorDBStorage", "JSON file", "In-memory + disk", "Pure Python / portable", "nano-vectordb"),
+]
+
+print(f"{'Backend':<25s} {'Storage Format':<18s} {'Execution':<18s} {'Best For':<25s} {'Extra Deps'}")
+print("-" * 115)
+for name, fmt, exec_type, best_for, deps in comparison:
+    print(f"{name:<25s} {fmt:<18s} {exec_type:<18s} {best_for:<25s} {deps}")
+```
+
+**When to choose which graph backend:**
+
+- **NetworkX** — Start here. Best for prototyping, notebooks, and datasets under ~100K edges.
+- **SQLite** — Step up when you need crash safety, atomic writes, or have graphs with 100K+ edges.
+- **Neo4j** — Production deployments with multi-user access, complex graph queries, or very large graphs.
+
+**When to choose which vector backend:**
+
+- **HNSWLib** — Default. Fast approximate nearest neighbor search. Best for most use cases.
+- **NanoVectorDB** — When you need pure Python (no C extensions), e.g., WASM environments or restricted deployment targets.
+
+## Summary
+
+In this notebook we:
+
+- **Default**: Used NetworkX + HNSWLib (zero-config storage)
+- **SQLite graph**: Swapped to `SQLiteGraphStorage` for atomic, crash-safe graph persistence
+- **NanoVectorDB**: Swapped to `NanoVectorDBStorage` for a pure-Python vector backend
+- **Neo4j**: Showed configuration for production-grade graph database (requires server)
+- **Mixed**: Demonstrated combining SQLite graph + NanoVectorDB in a single instance
+- **Compared** all backends by storage format, execution model, and ideal use case
+
+Next up: [Extraction Pipeline](05-extraction-pipeline.md) — structured vs legacy extraction, GLiNER, and quality modes.

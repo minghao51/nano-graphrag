@@ -1,0 +1,173 @@
+---
+title: "Quick Start"
+description: "Minimal end-to-end: insert documents, build a knowledge graph, and query in global & local modes."
+date: today
+format:
+  html:
+    self-contained: true
+    embed-resources: true
+    code-fold: true
+    code-tools: true
+---
+
+## Introduction
+
+**nano-graphrag** is a lightweight GraphRAG implementation that extracts entities and relationships from text, builds a knowledge graph, generates community reports, and supports multiple query modes.
+
+This notebook walks through the minimal workflow:
+
+1. **Insert** text into the graph (entity extraction + community detection)
+2. **Query** using global and local search modes
+3. **Inspect** the resulting knowledge graph
+
+We use the default storage backends (NetworkX graph, HNSWLib vector DB, JSON KV store) and the default OpenRouter LLM models.
+
+## Setup
+
+```{python}
+#| label: setup
+import logging
+import time
+from pathlib import Path
+
+logging.basicConfig(level=logging.WARNING)
+logging.getLogger("nano-graphrag").setLevel(logging.INFO)
+
+WORKING_DIR = Path("./_cache/01_quick_start")
+WORKING_DIR.mkdir(parents=True, exist_ok=True)
+```
+
+```{python}
+#| label: imports
+from nano_graphrag import GraphRAG, QueryParam
+```
+
+## Load Data
+
+We use the bundled *A Christmas Carol* text from Project Gutenberg. To keep indexing time manageable for this tutorial, we use the first two staves (~130 lines), which introduce the main characters and their relationships.
+
+```{python}
+#| label: load-data
+with open("../tests/fixtures/mock_data.txt", encoding="utf-8-sig") as f:
+    lines = f.readlines()
+
+text = "".join(lines[:400])
+print(f"Loaded {len(text):,} characters ({len(text.splitlines())} lines)")
+```
+
+## Initialize GraphRAG
+
+The default configuration uses environment variables for API credentials (`GRAPH_API_KEY`, `LLM_MODEL`, etc.) set via `dotenvx`. All defaults are tuned for OpenRouter models.
+
+```{python}
+#| label: init-graphrag
+rag = GraphRAG(
+    working_dir=str(WORKING_DIR),
+    enable_llm_cache=True,
+)
+print(f"Working dir: {WORKING_DIR}")
+print(f"LLM model: {rag.llm_model}")
+print(f"Embedding model: {rag.embedding_model}")
+```
+
+## Insert Documents
+
+This is the main indexing step. nano-graphrag will:
+
+1. **Chunk** the text by token size (default: 1200 tokens, 100 overlap)
+2. **Extract entities & relationships** from each chunk via LLM
+3. **Build the knowledge graph** (incremental merges)
+4. **Detect communities** via Leiden clustering
+5. **Generate community reports** via LLM
+
+This step makes real API calls and may take a few minutes depending on the model and text size.
+
+```{python}
+#| label: insert
+#| cache: true
+start = time.time()
+await rag.ainsert(text)
+elapsed = time.time() - start
+print(f"\nIndexing complete in {elapsed:.1f}s")
+```
+
+## Query: Global Mode
+
+Global search aggregates across **community reports** to answer broad, thematic questions. It is the default query mode.
+
+```{python}
+#| label: query-global
+result_global = await rag.aquery(
+    "What are the main themes in A Christmas Carol?",
+    param=QueryParam(mode="global"),
+)
+print(result_global)
+```
+
+## Query: Local Mode
+
+Local search starts from **entity-level retrieval**: it finds the most relevant entities to the query, then gathers their local context (neighborhood, community report, text chunks).
+
+```{python}
+#| label: query-local
+result_local = await rag.aquery(
+    "What is the relationship between Scrooge and Bob Cratchit?",
+    param=QueryParam(mode="local"),
+)
+print(result_local)
+```
+
+## Inspect the Knowledge Graph
+
+Let's look at some statistics about the built graph.
+
+```{python}
+#| label: inspect-graph
+import networkx as nx
+
+graphml_path = WORKING_DIR / "graph_chunk_entity_relation.graphml"
+if graphml_path.exists():
+    G = nx.read_graphml(str(graphml_path))
+    print(f"Nodes (entities):  {G.number_of_nodes()}")
+    print(f"Edges (relations): {G.number_of_edges()}")
+    print(f"Density:           {nx.density(G):.4f}")
+
+    top_by_degree = sorted(G.degree(), key=lambda x: x[1], reverse=True)[:10]
+    print(f"\nTop 10 entities by degree:")
+    for node_id, deg in top_by_degree:
+        data = G.nodes[node_id]
+        name = data.get("entity_name", node_id)
+        etype = data.get("entity_type", "?")
+        print(f"  {name:40s} ({etype:10s}) degree={deg}")
+else:
+    print("GraphML file not found (insert may not have completed)")
+```
+
+```{python}
+#| label: inspect-communities
+import json
+
+reports_path = WORKING_DIR / "kv_store_community_reports.json"
+if reports_path.exists():
+    with open(reports_path) as f:
+        reports = json.load(f)
+    print(f"Community reports: {len(reports)}")
+    for i, (key, val) in enumerate(list(reports.items())[:3]):
+        title = val.get("title", "N/A")
+        rating = val.get("report_json", {}).get("rating", "N/A")
+        level = val.get("level", "N/A")
+        print(f"  [{i+1}] \"{title}\" (level={level}, rating={rating})")
+else:
+    print("Community reports not found")
+```
+
+## Summary
+
+In this notebook we:
+
+- **Loaded** a full-length novel text
+- **Inserted** it into a knowledge graph via `await rag.ainsert()`
+- **Queried** in global mode (broad themes) and local mode (specific entity relationships)
+- **Inspected** the graph: entities, relationships, and community reports
+
+Next up: [Configuration](02-configuration.md) — explore all the ways to configure nano-graphrag.
