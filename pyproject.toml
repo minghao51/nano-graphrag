@@ -36,6 +36,7 @@ docs = [
     "mkdocs-material>=9.0.0",
     "mkdocstrings[python]>=0.25.0",
     "mike>=2.0.0",
+    "matplotlib>=3.5.0",
 ]
 opinion = [
     "neo4j",

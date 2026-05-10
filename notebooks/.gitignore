@@ -1,2 +1,7 @@
 /.quarto/
+/_cache/
+/_freeze/
+/**/*.quarto_ipynb
+*.png
+
 **/*.quarto_ipynb
