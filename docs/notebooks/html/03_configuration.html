@@ -6,10 +6,10 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
-<meta name="dcterms.date" content="2026-05-09">
-<meta name="description" content="Incremental insertion, entity linking, temporal extraction, community reports, and graph rebuild — production features for real-world usage.">
+<meta name="dcterms.date" content="2026-05-10">
+<meta name="description" content="Learn the three main config paths (kwargs, YAML, env vars) and see a practical Ollama example.">
 
-<title>Advanced Features</title>
+<title>Configuration</title>
 <style>
 
 code{white-space: pre-wrap;}
@@ -2209,12 +2209,12 @@ vertical-align: -.125em;
 
 <header id="title-block-header" class="quarto-title-block default">
 <div class="quarto-title">
-<div class="quarto-title-block"><div><h1 class="title">Advanced Features</h1><button type="button" class="btn code-tools-button dropdown-toggle" id="quarto-code-tools-menu" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi"></i> Code</button><ul class="dropdown-menu dropdown-menu-end" aria-labelelledby="quarto-code-tools-menu"><li><a id="quarto-show-all-code" class="dropdown-item" href="javascript:void(0)" role="button">Show All Code</a></li><li><a id="quarto-hide-all-code" class="dropdown-item" href="javascript:void(0)" role="button">Hide All Code</a></li><li><hr class="dropdown-divider"></li><li><a id="quarto-view-source" class="dropdown-item" href="javascript:void(0)" role="button">View Source</a></li></ul></div></div>
+<div class="quarto-title-block"><div><h1 class="title">Configuration</h1><button type="button" class="btn code-tools-button dropdown-toggle" id="quarto-code-tools-menu" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi"></i> Code</button><ul class="dropdown-menu dropdown-menu-end" aria-labelelledby="quarto-code-tools-menu"><li><a id="quarto-show-all-code" class="dropdown-item" href="javascript:void(0)" role="button">Show All Code</a></li><li><a id="quarto-hide-all-code" class="dropdown-item" href="javascript:void(0)" role="button">Hide All Code</a></li><li><hr class="dropdown-divider"></li><li><a id="quarto-view-source" class="dropdown-item" href="javascript:void(0)" role="button">View Source</a></li></ul></div></div>
 </div>
 
 <div>
   <div class="description">
-    Incremental insertion, entity linking, temporal extraction, community reports, and graph rebuild — production features for real-world usage.
+    Learn the three main config paths (kwargs, YAML, env vars) and see a practical Ollama example.
   </div>
 </div>
 
@@ -2225,7 +2225,7 @@ vertical-align: -.125em;
     <div>
     <div class="quarto-title-meta-heading">Published</div>
     <div class="quarto-title-meta-contents">
-      <p class="date">May 9, 2026</p>
+      <p class="date">May 10, 2026</p>
     </div>
   </div>
   
@@ -2237,680 +2237,273 @@ vertical-align: -.125em;
 </header>
 
 
-<section id="introduction" class="level2">
-<h2 class="anchored" data-anchor-id="introduction">Introduction</h2>
-<p>nano-graphrag includes several advanced features for production use cases:</p>
-<ul>
-<li><strong>Incremental insertion</strong> — add new documents without reprocessing existing ones</li>
-<li><strong>Entity linking</strong> — merge duplicate entities across documents using LLM disambiguation</li>
-<li><strong>Temporal extraction</strong> — extract time-bound relationships (valid_from / valid_to)</li>
-<li><strong>Community reports</strong> — configure how community summaries are generated</li>
-<li><strong>Graph rebuild</strong> — reconstruct the knowledge graph from stored manifests</li>
-</ul>
-<p>This notebook demonstrates each feature with configuration examples.</p>
-</section>
+<p>nano-graphrag offers three ways to configure your instance: direct keyword arguments, YAML files for team sharing, and environment variables for Docker/CI. This notebook demonstrates each approach and shows how to switch to local Ollama models.</p>
 <section id="setup" class="level2">
 <h2 class="anchored" data-anchor-id="setup">Setup</h2>
 <div id="setup" class="cell" data-execution_count="1">
 <details class="code-fold">
 <summary>Code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> logging</span>
-<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> time</span>
-<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> pathlib <span class="im">import</span> Path</span>
-<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>logging.basicConfig(level<span class="op">=</span>logging.WARNING)</span>
-<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>logging.getLogger(<span class="st">&quot;nano-graphrag&quot;</span>).setLevel(logging.INFO)</span>
-<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>TEXT_PART1 <span class="op">=</span> (</span>
-<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    <span class="st">&quot;Alice is a quantum physicist at MIT. She published groundbreaking research on &quot;</span></span>
-<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    <span class="st">&quot;quantum entanglement in 2023. Her colleague Bob is a computer scientist working &quot;</span></span>
-<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    <span class="st">&quot;on quantum algorithms.&quot;</span></span>
-<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>TEXT_PART2 <span class="op">=</span> (</span>
-<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>    <span class="st">&quot;Alice Chen, the physicist from MIT, collaborated with Carol on a new paper about &quot;</span></span>
-<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>    <span class="st">&quot;quantum error correction. Bob Smith also contributed to the project. Dave is their &quot;</span></span>
-<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>    <span class="st">&quot;department head at MIT.&quot;</span></span>
-<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-</details>
-</div>
-<div id="imports" class="cell" data-execution_count="2">
-<details class="code-fold">
-<summary>Code</summary>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> nano_graphrag <span class="im">import</span> GraphRAG, QueryParam</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> pathlib <span class="im">import</span> Path</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>logging.basicConfig(level<span class="op">=</span>logging.WARNING)</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>logging.getLogger(<span class="st">&quot;nano-graphrag&quot;</span>).setLevel(logging.WARNING)</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>WORKING_DIR <span class="op">=</span> Path(<span class="st">&quot;./_cache/03_configuration&quot;</span>)</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>WORKING_DIR.mkdir(parents<span class="op">=</span><span class="va">True</span>, exist_ok<span class="op">=</span><span class="va">True</span>)</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> nano_graphrag <span class="im">import</span> GraphRAG</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> nano_graphrag.base <span class="im">import</span> GraphRAGConfig</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 </div>
 </section>
-<section id="incremental-document-insertion" class="level2">
-<h2 class="anchored" data-anchor-id="incremental-document-insertion">1. Incremental Document Insertion</h2>
-<p><code>ainsert_documents()</code> accepts a dictionary of <code>{doc_id: text}</code> pairs. When you call it again with new documents, only the new ones are processed — existing documents (matched by content hash) are skipped.</p>
-<p>This is the recommended API for production workflows where documents arrive over time.</p>
-<div id="incremental-init" class="cell" data-execution_count="3">
+<section id="method-1-direct-keyword-arguments" class="level2">
+<h2 class="anchored" data-anchor-id="method-1-direct-keyword-arguments">Method 1: Direct Keyword Arguments</h2>
+<p>Simplest approach — best for scripts and notebooks.</p>
+<div id="method-kwargs" class="cell" data-execution_count="2">
 <details class="code-fold">
 <summary>Code</summary>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>WORKING_DIR_INC <span class="op">=</span> Path(<span class="st">&quot;./_cache/06_advanced_features/incremental&quot;</span>)</span>
-<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>WORKING_DIR_INC.mkdir(parents<span class="op">=</span><span class="va">True</span>, exist_ok<span class="op">=</span><span class="va">True</span>)</span>
-<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>rag_inc <span class="op">=</span> GraphRAG(</span>
-<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>    working_dir<span class="op">=</span><span class="bu">str</span>(WORKING_DIR_INC),</span>
-<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>rag <span class="op">=</span> GraphRAG(</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>    working_dir<span class="op">=</span><span class="bu">str</span>(WORKING_DIR <span class="op">/</span> <span class="st">&quot;kwargs&quot;</span>),</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    enable_llm_cache<span class="op">=</span><span class="va">True</span>,</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    chunk_token_size<span class="op">=</span><span class="dv">1200</span>,</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    chunk_overlap_token_size<span class="op">=</span><span class="dv">100</span>,</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;LLM model:      </span><span class="sc">{}</span><span class="st">&quot;</span>.<span class="bu">format</span>(rag.llm_model))</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;Embedding dim:  </span><span class="sc">{}</span><span class="st">&quot;</span>.<span class="bu">format</span>(rag.embedding_dim))</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;Chunk size:     </span><span class="sc">{}</span><span class="st">&quot;</span>.<span class="bu">format</span>(rag.chunk_token_size))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 <div class="cell-output cell-output-stderr">
 <div class="ansi-escaped-output">
-<pre>2026-05-09T15:09:09.444623Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">tokenizer_loading             </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">model_name</span>=<span class="ansi-magenta-fg">gpt-4o</span> <span class="ansi-cyan-fg">tokenizer_type</span>=<span class="ansi-magenta-fg">tiktoken</span>
+<pre>2026-05-10T11:37:40.065186Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">tokenizer_loading             </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">model_name</span>=<span class="ansi-magenta-fg">gpt-4o</span> <span class="ansi-cyan-fg">tokenizer_type</span>=<span class="ansi-magenta-fg">tiktoken</span>
 
-INFO:nano-graphrag:{&#39;tokenizer_type&#39;: &#39;tiktoken&#39;, &#39;model_name&#39;: &#39;gpt-4o&#39;, &#39;event&#39;: &#39;tokenizer_loading&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.444623Z&#39;}
+INFO:nano-graphrag:{&#39;tokenizer_type&#39;: &#39;tiktoken&#39;, &#39;model_name&#39;: &#39;gpt-4o&#39;, &#39;event&#39;: &#39;tokenizer_loading&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-10T11:37:40.065186Z&#39;}
 
-2026-05-09T15:09:09.582642Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">8</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">llm_response_cache</span>
+2026-05-10T11:37:40.179993Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">creating_working_directory    </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">path</span>=<span class="ansi-magenta-fg">_cache/03_configuration/kwargs</span>
 
-INFO:nano-graphrag:{&#39;namespace&#39;: &#39;llm_response_cache&#39;, &#39;entries&#39;: 8, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.582642Z&#39;}
+INFO:nano-graphrag:{&#39;path&#39;: &#39;_cache/03_configuration/kwargs&#39;, &#39;event&#39;: &#39;creating_working_directory&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-10T11:37:40.179993Z&#39;}
 
-2026-05-09T15:09:09.583718Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">litellm_configured            </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">api_base</span>=<span class="ansi-magenta-fg">None</span> <span class="ansi-cyan-fg">model</span>=<span class="ansi-magenta-fg">openrouter/google/gemma-4-31b-it</span> <span class="ansi-cyan-fg">structured_output</span>=<span class="ansi-magenta-fg">True</span>
+2026-05-10T11:37:40.182500Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">0</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">llm_response_cache</span>
 
-INFO:nano-graphrag:{&#39;model&#39;: &#39;openrouter/google/gemma-4-31b-it&#39;, &#39;api_base&#39;: None, &#39;structured_output&#39;: True, &#39;event&#39;: &#39;litellm_configured&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.583718Z&#39;}
+INFO:nano-graphrag:{&#39;namespace&#39;: &#39;llm_response_cache&#39;, &#39;entries&#39;: 0, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-10T11:37:40.182500Z&#39;}
 
-2026-05-09T15:09:09.585037Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">2</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">full_docs</span>
+2026-05-10T11:37:40.183049Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">litellm_configured            </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">api_base</span>=<span class="ansi-magenta-fg">None</span> <span class="ansi-cyan-fg">model</span>=<span class="ansi-magenta-fg">openrouter/google/gemma-4-31b-it</span> <span class="ansi-cyan-fg">structured_output</span>=<span class="ansi-magenta-fg">True</span>
 
-INFO:nano-graphrag:{&#39;namespace&#39;: &#39;full_docs&#39;, &#39;entries&#39;: 2, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.585037Z&#39;}
+INFO:nano-graphrag:{&#39;model&#39;: &#39;openrouter/google/gemma-4-31b-it&#39;, &#39;api_base&#39;: None, &#39;structured_output&#39;: True, &#39;event&#39;: &#39;litellm_configured&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-10T11:37:40.183049Z&#39;}
 
-2026-05-09T15:09:09.586052Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">2</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">text_chunks</span>
+2026-05-10T11:37:40.185250Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">0</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">full_docs</span>
 
-INFO:nano-graphrag:{&#39;namespace&#39;: &#39;text_chunks&#39;, &#39;entries&#39;: 2, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.586052Z&#39;}
+INFO:nano-graphrag:{&#39;namespace&#39;: &#39;full_docs&#39;, &#39;entries&#39;: 0, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-10T11:37:40.185250Z&#39;}
 
-2026-05-09T15:09:09.587088Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">5</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">community_reports</span>
+2026-05-10T11:37:40.187650Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">0</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">text_chunks</span>
 
-INFO:nano-graphrag:{&#39;namespace&#39;: &#39;community_reports&#39;, &#39;entries&#39;: 5, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.587088Z&#39;}
+INFO:nano-graphrag:{&#39;namespace&#39;: &#39;text_chunks&#39;, &#39;entries&#39;: 0, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-10T11:37:40.187650Z&#39;}
 
-2026-05-09T15:09:09.587951Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">2</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">document_index</span>
+2026-05-10T11:37:40.192155Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">0</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">community_reports</span>
 
-INFO:nano-graphrag:{&#39;namespace&#39;: &#39;document_index&#39;, &#39;entries&#39;: 2, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.587951Z&#39;}
+INFO:nano-graphrag:{&#39;namespace&#39;: &#39;community_reports&#39;, &#39;entries&#39;: 0, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-10T11:37:40.192155Z&#39;}
 
-2026-05-09T15:09:09.588811Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">9</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">graph_contribution_index</span>
+2026-05-10T11:37:40.195618Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">0</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">document_index</span>
 
-INFO:nano-graphrag:{&#39;namespace&#39;: &#39;graph_contribution_index&#39;, &#39;entries&#39;: 9, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.588811Z&#39;}
+INFO:nano-graphrag:{&#39;namespace&#39;: &#39;document_index&#39;, &#39;entries&#39;: 0, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-10T11:37:40.195618Z&#39;}
 
-2026-05-09T15:09:09.589618Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">graph_loaded                  </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">edges</span>=<span class="ansi-magenta-fg">2</span> <span class="ansi-cyan-fg">nodes</span>=<span class="ansi-magenta-fg">3</span> <span class="ansi-cyan-fg">path</span>=<span class="ansi-magenta-fg">_cache/06_advanced_features/incremental/graph_chunk_entity_relation.graphml</span>
+2026-05-10T11:37:40.198609Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">0</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">graph_contribution_index</span>
 
-INFO:nano-graphrag:{&#39;path&#39;: &#39;_cache/06_advanced_features/incremental/graph_chunk_entity_relation.graphml&#39;, &#39;nodes&#39;: 3, &#39;edges&#39;: 2, &#39;event&#39;: &#39;graph_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.589618Z&#39;}
+INFO:nano-graphrag:{&#39;namespace&#39;: &#39;graph_contribution_index&#39;, &#39;entries&#39;: 0, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-10T11:37:40.198609Z&#39;}
 
-2026-05-09T15:09:09.595175Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">hnsw_index_loaded             </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">elements</span>=<span class="ansi-magenta-fg">3</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">entities</span>
+2026-05-10T11:37:40.205252Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">hnsw_index_created            </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">entities</span>
 
-INFO:nano-graphrag:{&#39;namespace&#39;: &#39;entities&#39;, &#39;elements&#39;: 3, &#39;event&#39;: &#39;hnsw_index_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.595175Z&#39;}
+INFO:nano-graphrag:{&#39;namespace&#39;: &#39;entities&#39;, &#39;event&#39;: &#39;hnsw_index_created&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-10T11:37:40.205252Z&#39;}
 
-2026-05-09T15:09:09.596363Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">entity_registry_loaded        </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entity_count</span>=<span class="ansi-magenta-fg">3</span> <span class="ansi-cyan-fg">path</span>=<span class="ansi-magenta-fg">_cache/06_advanced_features/incremental/entity_registry.json</span>
+2026-05-10T11:37:40.207398Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">entity_registry_initialized   </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>]
 
-INFO:nano-graphrag:{&#39;entity_count&#39;: 3, &#39;path&#39;: &#39;_cache/06_advanced_features/incremental/entity_registry.json&#39;, &#39;event&#39;: &#39;entity_registry_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.596363Z&#39;}
-</pre>
-</div>
-</div>
-</div>
-<div id="incremental-insert-1" class="cell" data-cache="true" data-execution_count="4">
-<details class="code-fold">
-<summary>Code</summary>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>start <span class="op">=</span> time.time()</span>
-<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="cf">await</span> rag_inc.ainsert_documents({<span class="st">&quot;doc-1&quot;</span>: TEXT_PART1})</span>
-<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>elapsed <span class="op">=</span> time.time() <span class="op">-</span> start</span>
-<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f&quot;First insert (1 doc): </span><span class="sc">{</span>elapsed<span class="sc">:.1f}</span><span class="ss">s&quot;</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-</details>
-<div class="cell-output cell-output-stderr">
-<div class="ansi-escaped-output">
-<pre>2026-05-09T15:09:09.600575Z [<span class="ansi-yellow-fg ansi-bold">warning  </span>] <span class="ansi-bold">all_docs_unchanged            </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">run_id</span>=<span class="ansi-magenta-fg">54dca461</span>
-
-WARNING:nano-graphrag:{&#39;event&#39;: &#39;all_docs_unchanged&#39;, &#39;run_id&#39;: &#39;54dca461&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;warning&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.600575Z&#39;}
-
-2026-05-09T15:09:09.601763Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">graph_write                   </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">edges</span>=<span class="ansi-magenta-fg">2</span> <span class="ansi-cyan-fg">nodes</span>=<span class="ansi-magenta-fg">3</span> <span class="ansi-cyan-fg">run_id</span>=<span class="ansi-magenta-fg">54dca461</span>
-
-INFO:nano-graphrag:{&#39;nodes&#39;: 3, &#39;edges&#39;: 2, &#39;event&#39;: &#39;graph_write&#39;, &#39;run_id&#39;: &#39;54dca461&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.601763Z&#39;}
+INFO:nano-graphrag:{&#39;event&#39;: &#39;entity_registry_initialized&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-10T11:37:40.207398Z&#39;}
 </pre>
 </div>
 </div>
 <div class="cell-output cell-output-stdout">
-<pre><code>First insert (1 doc): 0.0s</code></pre>
+<pre><code>LLM model:      openrouter/google/gemma-4-31b-it
+Embedding dim:  4096
+Chunk size:     1200</code></pre>
 </div>
 </div>
-<div id="incremental-insert-2" class="cell" data-cache="true" data-execution_count="5">
+</section>
+<section id="method-2-yaml-file" class="level2">
+<h2 class="anchored" data-anchor-id="method-2-yaml-file">Method 2: YAML File</h2>
+<p>Best for team sharing and reproducibility.</p>
+<div id="method-yaml" class="cell" data-execution_count="3">
 <details class="code-fold">
 <summary>Code</summary>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>start <span class="op">=</span> time.time()</span>
-<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="cf">await</span> rag_inc.ainsert_documents({<span class="st">&quot;doc-2&quot;</span>: TEXT_PART2})</span>
-<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>elapsed <span class="op">=</span> time.time() <span class="op">-</span> start</span>
-<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f&quot;Second insert (1 new doc): </span><span class="sc">{</span>elapsed<span class="sc">:.1f}</span><span class="ss">s&quot;</span>)</span>
-<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;(doc-1 is skipped — already indexed)&quot;</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>yaml_content <span class="op">=</span> <span class="st">&quot;&quot;&quot;</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="st">working_dir: ./_cache/03_configuration/yaml</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="st">llm:</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="st">  model: openrouter/google/gemma-4-31b-it</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a><span class="st">  max_async: 16</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a><span class="st">embedding:</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a><span class="st">  model: openrouter/qwen/qwen3-embedding-8b</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a><span class="st">  dim: 4096</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a><span class="st">features:</span></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a><span class="st">  local_search: true</span></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a><span class="st">  llm_cache: true</span></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a><span class="st">&quot;&quot;&quot;</span></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>yaml_path <span class="op">=</span> WORKING_DIR <span class="op">/</span> <span class="st">&quot;settings.yaml&quot;</span></span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>yaml_path.write_text(yaml_content)</span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a>config <span class="op">=</span> GraphRAGConfig.from_yaml(<span class="bu">str</span>(yaml_path))</span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a>rag <span class="op">=</span> GraphRAG.from_config(config)</span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;LLM model:      </span><span class="sc">{}</span><span class="st">&quot;</span>.<span class="bu">format</span>(rag.llm_model))</span>
+<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;Embedding dim:  </span><span class="sc">{}</span><span class="st">&quot;</span>.<span class="bu">format</span>(rag.embedding_dim))</span>
+<span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;Local search:   </span><span class="sc">{}</span><span class="st">&quot;</span>.<span class="bu">format</span>(rag.enable_local))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 <div class="cell-output cell-output-stderr">
 <div class="ansi-escaped-output">
-<pre>2026-05-09T15:09:09.607096Z [<span class="ansi-yellow-fg ansi-bold">warning  </span>] <span class="ansi-bold">all_docs_unchanged            </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">run_id</span>=<span class="ansi-magenta-fg">9f1c1399</span>
+<pre>2026-05-10T11:37:40.219141Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">tokenizer_loading             </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">model_name</span>=<span class="ansi-magenta-fg">gpt-4o</span> <span class="ansi-cyan-fg">tokenizer_type</span>=<span class="ansi-magenta-fg">tiktoken</span>
 
-WARNING:nano-graphrag:{&#39;event&#39;: &#39;all_docs_unchanged&#39;, &#39;run_id&#39;: &#39;9f1c1399&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;warning&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.607096Z&#39;}
+INFO:nano-graphrag:{&#39;tokenizer_type&#39;: &#39;tiktoken&#39;, &#39;model_name&#39;: &#39;gpt-4o&#39;, &#39;event&#39;: &#39;tokenizer_loading&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-10T11:37:40.219141Z&#39;}
 
-2026-05-09T15:09:09.608508Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">graph_write                   </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">edges</span>=<span class="ansi-magenta-fg">2</span> <span class="ansi-cyan-fg">nodes</span>=<span class="ansi-magenta-fg">3</span> <span class="ansi-cyan-fg">run_id</span>=<span class="ansi-magenta-fg">9f1c1399</span>
+2026-05-10T11:37:40.220081Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">creating_working_directory    </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">path</span>=<span class="ansi-magenta-fg">./_cache/03_configuration/yaml</span>
 
-INFO:nano-graphrag:{&#39;nodes&#39;: 3, &#39;edges&#39;: 2, &#39;event&#39;: &#39;graph_write&#39;, &#39;run_id&#39;: &#39;9f1c1399&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.608508Z&#39;}
+INFO:nano-graphrag:{&#39;path&#39;: &#39;./_cache/03_configuration/yaml&#39;, &#39;event&#39;: &#39;creating_working_directory&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-10T11:37:40.220081Z&#39;}
+
+2026-05-10T11:37:40.222701Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">0</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">llm_response_cache</span>
+
+INFO:nano-graphrag:{&#39;namespace&#39;: &#39;llm_response_cache&#39;, &#39;entries&#39;: 0, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-10T11:37:40.222701Z&#39;}
+
+2026-05-10T11:37:40.223639Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">litellm_configured            </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">api_base</span>=<span class="ansi-magenta-fg">None</span> <span class="ansi-cyan-fg">model</span>=<span class="ansi-magenta-fg">openrouter/google/gemma-4-31b-it</span> <span class="ansi-cyan-fg">structured_output</span>=<span class="ansi-magenta-fg">True</span>
+
+INFO:nano-graphrag:{&#39;model&#39;: &#39;openrouter/google/gemma-4-31b-it&#39;, &#39;api_base&#39;: None, &#39;structured_output&#39;: True, &#39;event&#39;: &#39;litellm_configured&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-10T11:37:40.223639Z&#39;}
+
+2026-05-10T11:37:40.226589Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">0</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">full_docs</span>
+
+INFO:nano-graphrag:{&#39;namespace&#39;: &#39;full_docs&#39;, &#39;entries&#39;: 0, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-10T11:37:40.226589Z&#39;}
+
+2026-05-10T11:37:40.229213Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">0</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">text_chunks</span>
+
+INFO:nano-graphrag:{&#39;namespace&#39;: &#39;text_chunks&#39;, &#39;entries&#39;: 0, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-10T11:37:40.229213Z&#39;}
+
+2026-05-10T11:37:40.232096Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">0</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">community_reports</span>
+
+INFO:nano-graphrag:{&#39;namespace&#39;: &#39;community_reports&#39;, &#39;entries&#39;: 0, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-10T11:37:40.232096Z&#39;}
+
+2026-05-10T11:37:40.234566Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">0</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">document_index</span>
+
+INFO:nano-graphrag:{&#39;namespace&#39;: &#39;document_index&#39;, &#39;entries&#39;: 0, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-10T11:37:40.234566Z&#39;}
+
+2026-05-10T11:37:40.236898Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">0</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">graph_contribution_index</span>
+
+INFO:nano-graphrag:{&#39;namespace&#39;: &#39;graph_contribution_index&#39;, &#39;entries&#39;: 0, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-10T11:37:40.236898Z&#39;}
+
+2026-05-10T11:37:40.242982Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">hnsw_index_created            </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">entities</span>
+
+INFO:nano-graphrag:{&#39;namespace&#39;: &#39;entities&#39;, &#39;event&#39;: &#39;hnsw_index_created&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-10T11:37:40.242982Z&#39;}
+
+2026-05-10T11:37:40.243811Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">entity_registry_initialized   </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>]
+
+INFO:nano-graphrag:{&#39;event&#39;: &#39;entity_registry_initialized&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-10T11:37:40.243811Z&#39;}
 </pre>
 </div>
 </div>
 <div class="cell-output cell-output-stdout">
-<pre><code>Second insert (1 new doc): 0.0s
-(doc-1 is skipped — already indexed)</code></pre>
-</div>
-</div>
-<p>The incremental system uses a <strong>content hash</strong> to detect duplicates. If you insert the same text again, it’s a no-op. The <code>document_index</code> KV store tracks which documents have been processed and their extraction manifests.</p>
-<p>You can also use <code>force_rebuild=True</code> to reprocess all documents:</p>
-<div id="force-rebuild-note" class="cell" data-execution_count="6">
-<details class="code-fold">
-<summary>Code</summary>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;Force rebuild example (not executed to save API calls):&quot;</span>)</span>
-<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>()</span>
-<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  await rag_inc.ainsert_documents(&quot;</span>)</span>
-<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;      {&#39;doc-3&#39;: &#39;New document text&#39;},&quot;</span>)</span>
-<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;      force_rebuild=True,  # Reprocesses ALL docs&quot;</span>)</span>
-<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  )&quot;</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-</details>
-<div class="cell-output cell-output-stdout">
-<pre><code>Force rebuild example (not executed to save API calls):
-
-  await rag_inc.ainsert_documents(
-      {&#39;doc-3&#39;: &#39;New document text&#39;},
-      force_rebuild=True,  # Reprocesses ALL docs
-  )</code></pre>
+<pre><code>LLM model:      openrouter/google/gemma-4-31b-it
+Embedding dim:  4096
+Local search:   True</code></pre>
 </div>
 </div>
 </section>
-<section id="entity-linking" class="level2">
-<h2 class="anchored" data-anchor-id="entity-linking">2. Entity Linking</h2>
-<p>When <code>enable_entity_linking=True</code>, nano-graphrag uses a multi-step process to merge entities that refer to the same real-world thing:</p>
-<ol type="1">
-<li><strong>Exact match</strong> — same name after normalization</li>
-<li><strong>Fuzzy match</strong> — similarity above <code>entity_linking_similarity_threshold</code> (default: 0.92)</li>
-<li><strong>Neighborhood evidence</strong> — overlapping graph neighbors (IoU above <code>entity_linking_iou_threshold</code>, default: 0.3)</li>
-<li><strong>LLM disambiguation</strong> — the LLM decides if ambiguous candidates are the same entity</li>
-</ol>
-<div id="entity-linking-config" class="cell" data-execution_count="7">
+<section id="method-3-environment-variables" class="level2">
+<h2 class="anchored" data-anchor-id="method-3-environment-variables">Method 3: Environment Variables</h2>
+<p>Best for Docker, CI/CD. Set via dotenvx: <code>GRAPH_API_KEY</code>, <code>LLM_MODEL</code>, <code>EMBEDDING_MODEL</code>, etc.</p>
+<div id="method-env" class="cell" data-execution_count="4">
 <details class="code-fold">
 <summary>Code</summary>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>WORKING_DIR_EL <span class="op">=</span> Path(<span class="st">&quot;./_cache/06_advanced_features/entity_linking&quot;</span>)</span>
-<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>WORKING_DIR_EL.mkdir(parents<span class="op">=</span><span class="va">True</span>, exist_ok<span class="op">=</span><span class="va">True</span>)</span>
-<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>rag_el <span class="op">=</span> GraphRAG(</span>
-<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>    working_dir<span class="op">=</span><span class="bu">str</span>(WORKING_DIR_EL),</span>
-<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>    enable_entity_linking<span class="op">=</span><span class="va">True</span>,</span>
-<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>    entity_linking_similarity_threshold<span class="op">=</span><span class="fl">0.85</span>,</span>
-<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a>    entity_linking_max_candidates<span class="op">=</span><span class="dv">3</span>,</span>
-<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a>    entity_linking_iou_threshold<span class="op">=</span><span class="fl">0.3</span>,</span>
-<span id="cb10-10"><a href="#cb10-10" aria-hidden="true" tabindex="-1"></a>    entity_linking_min_common_neighbors<span class="op">=</span><span class="dv">2</span>,</span>
-<span id="cb10-11"><a href="#cb10-11" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb10-12"><a href="#cb10-12" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f&quot;Entity linking enabled: </span><span class="sc">{</span>rag_el<span class="sc">.</span>enable_entity_linking<span class="sc">}</span><span class="ss">&quot;</span>)</span>
-<span id="cb10-13"><a href="#cb10-13" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f&quot;Similarity threshold:   </span><span class="sc">{</span>rag_el<span class="sc">.</span>entity_linking_similarity_threshold<span class="sc">}</span><span class="ss">&quot;</span>)</span>
-<span id="cb10-14"><a href="#cb10-14" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f&quot;Max candidates:         </span><span class="sc">{</span>rag_el<span class="sc">.</span>entity_linking_max_candidates<span class="sc">}</span><span class="ss">&quot;</span>)</span>
-<span id="cb10-15"><a href="#cb10-15" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f&quot;IoU threshold:          </span><span class="sc">{</span>rag_el<span class="sc">.</span>entity_linking_iou_threshold<span class="sc">}</span><span class="ss">&quot;</span>)</span>
-<span id="cb10-16"><a href="#cb10-16" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f&quot;Min common neighbors:   </span><span class="sc">{</span>rag_el<span class="sc">.</span>entity_linking_min_common_neighbors<span class="sc">}</span><span class="ss">&quot;</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-</details>
-<div class="cell-output cell-output-stderr">
-<div class="ansi-escaped-output">
-<pre>2026-05-09T15:09:09.616583Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">tokenizer_loading             </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">model_name</span>=<span class="ansi-magenta-fg">gpt-4o</span> <span class="ansi-cyan-fg">tokenizer_type</span>=<span class="ansi-magenta-fg">tiktoken</span>
-
-INFO:nano-graphrag:{&#39;tokenizer_type&#39;: &#39;tiktoken&#39;, &#39;model_name&#39;: &#39;gpt-4o&#39;, &#39;event&#39;: &#39;tokenizer_loading&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.616583Z&#39;}
-
-2026-05-09T15:09:09.618071Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">0</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">llm_response_cache</span>
-
-INFO:nano-graphrag:{&#39;namespace&#39;: &#39;llm_response_cache&#39;, &#39;entries&#39;: 0, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.618071Z&#39;}
-
-2026-05-09T15:09:09.618459Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">litellm_configured            </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">api_base</span>=<span class="ansi-magenta-fg">None</span> <span class="ansi-cyan-fg">model</span>=<span class="ansi-magenta-fg">openrouter/google/gemma-4-31b-it</span> <span class="ansi-cyan-fg">structured_output</span>=<span class="ansi-magenta-fg">True</span>
-
-INFO:nano-graphrag:{&#39;model&#39;: &#39;openrouter/google/gemma-4-31b-it&#39;, &#39;api_base&#39;: None, &#39;structured_output&#39;: True, &#39;event&#39;: &#39;litellm_configured&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.618459Z&#39;}
-
-2026-05-09T15:09:09.619521Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">0</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">full_docs</span>
-
-INFO:nano-graphrag:{&#39;namespace&#39;: &#39;full_docs&#39;, &#39;entries&#39;: 0, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.619521Z&#39;}
-
-2026-05-09T15:09:09.620324Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">0</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">text_chunks</span>
-
-INFO:nano-graphrag:{&#39;namespace&#39;: &#39;text_chunks&#39;, &#39;entries&#39;: 0, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.620324Z&#39;}
-
-2026-05-09T15:09:09.621262Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">0</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">community_reports</span>
-
-INFO:nano-graphrag:{&#39;namespace&#39;: &#39;community_reports&#39;, &#39;entries&#39;: 0, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.621262Z&#39;}
-
-2026-05-09T15:09:09.622082Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">0</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">document_index</span>
-
-INFO:nano-graphrag:{&#39;namespace&#39;: &#39;document_index&#39;, &#39;entries&#39;: 0, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.622082Z&#39;}
-
-2026-05-09T15:09:09.622817Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">0</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">graph_contribution_index</span>
-
-INFO:nano-graphrag:{&#39;namespace&#39;: &#39;graph_contribution_index&#39;, &#39;entries&#39;: 0, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.622817Z&#39;}
-
-2026-05-09T15:09:09.628058Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">hnsw_index_created            </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">entities</span>
-
-INFO:nano-graphrag:{&#39;namespace&#39;: &#39;entities&#39;, &#39;event&#39;: &#39;hnsw_index_created&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.628058Z&#39;}
-
-2026-05-09T15:09:09.628656Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">entity_registry_initialized   </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>]
-
-INFO:nano-graphrag:{&#39;event&#39;: &#39;entity_registry_initialized&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.628656Z&#39;}
-</pre>
-</div>
-</div>
-<div class="cell-output cell-output-stdout">
-<pre><code>Entity linking enabled: True
-Similarity threshold:   0.85
-Max candidates:         3
-IoU threshold:          0.3
-Min common neighbors:   2</code></pre>
-</div>
-</div>
-<p>With entity linking, “Alice” from doc-1 and “Alice Chen” from doc-2 would be recognized as the same entity and merged in the graph. This produces a more coherent knowledge graph when documents use different names for the same entities.</p>
-<p>Entity linking configuration reference:</p>
-<table class="caption-top table">
-<colgroup>
-<col style="width: 37%">
-<col style="width: 31%">
-<col style="width: 31%">
-</colgroup>
-<thead>
-<tr class="header">
-<th>Parameter</th>
-<th>Default</th>
-<th>Purpose</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td><code>entity_linking_similarity_threshold</code></td>
-<td>0.92</td>
-<td>Minimum embedding similarity for fuzzy matching</td>
-</tr>
-<tr class="even">
-<td><code>entity_linking_max_candidates</code></td>
-<td>3</td>
-<td>Max candidates to consider per entity</td>
-</tr>
-<tr class="odd">
-<td><code>entity_linking_iou_threshold</code></td>
-<td>0.3</td>
-<td>Min graph-neighborhood overlap for merge</td>
-</tr>
-<tr class="even">
-<td><code>entity_linking_min_common_neighbors</code></td>
-<td>2</td>
-<td>Min shared neighbors for neighborhood evidence</td>
-</tr>
-<tr class="odd">
-<td><code>entity_linking_use_neighborhood_evidence</code></td>
-<td>True</td>
-<td>Use graph structure to validate merges</td>
-</tr>
-</tbody>
-</table>
-</section>
-<section id="temporal-extraction" class="level2">
-<h2 class="anchored" data-anchor-id="temporal-extraction">3. Temporal Extraction</h2>
-<p>When <code>enable_temporal_extraction=True</code>, the extraction pipeline adds temporal fields to relationships:</p>
-<ul>
-<li><code>temporal_context</code> — natural language description of when the relationship holds</li>
-<li><code>valid_from</code> — start date/time (if extractable)</li>
-<li><code>valid_to</code> — end date/time (if extractable)</li>
-</ul>
-<p>This enables <strong>temporal queries</strong> — asking about relationships at specific points in time.</p>
-<div id="temporal-config" class="cell" data-execution_count="8">
-<details class="code-fold">
-<summary>Code</summary>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>WORKING_DIR_TEMP <span class="op">=</span> Path(<span class="st">&quot;./_cache/06_advanced_features/temporal&quot;</span>)</span>
-<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>WORKING_DIR_TEMP.mkdir(parents<span class="op">=</span><span class="va">True</span>, exist_ok<span class="op">=</span><span class="va">True</span>)</span>
-<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a>rag_temp <span class="op">=</span> GraphRAG(</span>
-<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a>    working_dir<span class="op">=</span><span class="bu">str</span>(WORKING_DIR_TEMP),</span>
-<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a>    enable_temporal_extraction<span class="op">=</span><span class="va">True</span>,</span>
-<span id="cb12-7"><a href="#cb12-7" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb12-8"><a href="#cb12-8" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f&quot;Temporal extraction: </span><span class="sc">{</span>rag_temp<span class="sc">.</span>enable_temporal_extraction<span class="sc">}</span><span class="ss">&quot;</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-</details>
-<div class="cell-output cell-output-stderr">
-<div class="ansi-escaped-output">
-<pre>2026-05-09T15:09:09.632266Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">tokenizer_loading             </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">model_name</span>=<span class="ansi-magenta-fg">gpt-4o</span> <span class="ansi-cyan-fg">tokenizer_type</span>=<span class="ansi-magenta-fg">tiktoken</span>
-
-INFO:nano-graphrag:{&#39;tokenizer_type&#39;: &#39;tiktoken&#39;, &#39;model_name&#39;: &#39;gpt-4o&#39;, &#39;event&#39;: &#39;tokenizer_loading&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.632266Z&#39;}
-
-2026-05-09T15:09:09.633337Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">0</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">llm_response_cache</span>
-
-INFO:nano-graphrag:{&#39;namespace&#39;: &#39;llm_response_cache&#39;, &#39;entries&#39;: 0, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.633337Z&#39;}
-
-2026-05-09T15:09:09.633672Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">litellm_configured            </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">api_base</span>=<span class="ansi-magenta-fg">None</span> <span class="ansi-cyan-fg">model</span>=<span class="ansi-magenta-fg">openrouter/google/gemma-4-31b-it</span> <span class="ansi-cyan-fg">structured_output</span>=<span class="ansi-magenta-fg">True</span>
-
-INFO:nano-graphrag:{&#39;model&#39;: &#39;openrouter/google/gemma-4-31b-it&#39;, &#39;api_base&#39;: None, &#39;structured_output&#39;: True, &#39;event&#39;: &#39;litellm_configured&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.633672Z&#39;}
-
-2026-05-09T15:09:09.634670Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">0</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">full_docs</span>
-
-INFO:nano-graphrag:{&#39;namespace&#39;: &#39;full_docs&#39;, &#39;entries&#39;: 0, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.634670Z&#39;}
-
-2026-05-09T15:09:09.636106Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">0</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">text_chunks</span>
-
-INFO:nano-graphrag:{&#39;namespace&#39;: &#39;text_chunks&#39;, &#39;entries&#39;: 0, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.636106Z&#39;}
-
-2026-05-09T15:09:09.636984Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">0</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">community_reports</span>
-
-INFO:nano-graphrag:{&#39;namespace&#39;: &#39;community_reports&#39;, &#39;entries&#39;: 0, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.636984Z&#39;}
-
-2026-05-09T15:09:09.637763Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">0</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">document_index</span>
-
-INFO:nano-graphrag:{&#39;namespace&#39;: &#39;document_index&#39;, &#39;entries&#39;: 0, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.637763Z&#39;}
-
-2026-05-09T15:09:09.638624Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">0</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">graph_contribution_index</span>
-
-INFO:nano-graphrag:{&#39;namespace&#39;: &#39;graph_contribution_index&#39;, &#39;entries&#39;: 0, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.638624Z&#39;}
-
-2026-05-09T15:09:09.644234Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">hnsw_index_created            </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">entities</span>
-
-INFO:nano-graphrag:{&#39;namespace&#39;: &#39;entities&#39;, &#39;event&#39;: &#39;hnsw_index_created&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.644234Z&#39;}
-
-2026-05-09T15:09:09.644874Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">entity_registry_initialized   </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>]
-
-INFO:nano-graphrag:{&#39;event&#39;: &#39;entity_registry_initialized&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.644874Z&#39;}
-</pre>
-</div>
-</div>
-<div class="cell-output cell-output-stdout">
-<pre><code>Temporal extraction: True</code></pre>
-</div>
-</div>
-<div id="temporal-query-config" class="cell" data-execution_count="9">
-<details class="code-fold">
-<summary>Code</summary>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb14"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;Temporal query parameters (QueryParam):&quot;</span>)</span>
-<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>()</span>
-<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> nano_graphrag <span class="im">import</span> QueryParam</span>
-<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a>qp <span class="op">=</span> QueryParam(</span>
-<span id="cb14-6"><a href="#cb14-6" aria-hidden="true" tabindex="-1"></a>    time_range<span class="op">=</span>(<span class="st">&quot;2023-01-01&quot;</span>, <span class="st">&quot;2024-01-01&quot;</span>),</span>
-<span id="cb14-7"><a href="#cb14-7" aria-hidden="true" tabindex="-1"></a>    temporal_mode<span class="op">=</span><span class="st">&quot;any&quot;</span>,</span>
-<span id="cb14-8"><a href="#cb14-8" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb14-9"><a href="#cb14-9" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f&quot;  time_range: </span><span class="sc">{</span>qp<span class="sc">.</span>time_range<span class="sc">}</span><span class="ss">&quot;</span>)</span>
-<span id="cb14-10"><a href="#cb14-10" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f&quot;  temporal_mode: </span><span class="sc">{</span>qp<span class="sc">.</span>temporal_mode<span class="sc">}</span><span class="ss">&quot;</span>)</span>
-<span id="cb14-11"><a href="#cb14-11" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>()</span>
-<span id="cb14-12"><a href="#cb14-12" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  temporal_mode options:&quot;</span>)</span>
-<span id="cb14-13"><a href="#cb14-13" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;    &#39;any&#39;  — match if any part of the relationship overlaps the time range&quot;</span>)</span>
-<span id="cb14-14"><a href="#cb14-14" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;    &#39;all&#39;  — match only if the entire relationship is within the time range&quot;</span>)</span>
-<span id="cb14-15"><a href="#cb14-15" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;    &#39;exact&#39; — match only if valid_from and valid_to are both in range&quot;</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>config <span class="op">=</span> GraphRAGConfig.from_env()</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;LLM model:      </span><span class="sc">{}</span><span class="st">&quot;</span>.<span class="bu">format</span>(config.llm_model))</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;Embedding model: </span><span class="sc">{}</span><span class="st">&quot;</span>.<span class="bu">format</span>(config.embedding_model))</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;Working dir:     </span><span class="sc">{}</span><span class="st">&quot;</span>.<span class="bu">format</span>(config.working_dir))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 <div class="cell-output cell-output-stdout">
-<pre><code>Temporal query parameters (QueryParam):
-
-  time_range: (&#39;2023-01-01&#39;, &#39;2024-01-01&#39;)
-  temporal_mode: any
-
-  temporal_mode options:
-    &#39;any&#39;  — match if any part of the relationship overlaps the time range
-    &#39;all&#39;  — match only if the entire relationship is within the time range
-    &#39;exact&#39; — match only if valid_from and valid_to are both in range</code></pre>
-</div>
-</div>
-<p>Temporal extraction works with both the structured and legacy extraction backends. In structured mode, the Pydantic schema includes <code>temporal_context</code>, <code>valid_from</code>, and <code>valid_to</code> fields on relationships.</p>
-</section>
-<section id="community-reports-configuration" class="level2">
-<h2 class="anchored" data-anchor-id="community-reports-configuration">4. Community Reports Configuration</h2>
-<p>Community reports are summaries generated for each cluster of entities. They power the <strong>global query mode</strong>. Key configuration options:</p>
-<div id="community-config" class="cell" data-execution_count="10">
-<details class="code-fold">
-<summary>Code</summary>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb16"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;Community report configuration:&quot;</span>)</span>
-<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>()</span>
-<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;GraphRAG parameters:&quot;</span>)</span>
-<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  enable_community_reports=True     # Generate reports (default: True)&quot;</span>)</span>
-<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  graph_cluster_algorithm=&#39;leiden&#39;  # Clustering algorithm (&#39;leiden&#39; or &#39;louvain&#39;)&quot;</span>)</span>
-<span id="cb16-6"><a href="#cb16-6" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>()</span>
-<span id="cb16-7"><a href="#cb16-7" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;QueryParam parameters for global search:&quot;</span>)</span>
-<span id="cb16-8"><a href="#cb16-8" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  global_min_community_rating=0     # Skip communities rated below this&quot;</span>)</span>
-<span id="cb16-9"><a href="#cb16-9" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  global_max_consider_community=512 # Max communities to consider&quot;</span>)</span>
-<span id="cb16-10"><a href="#cb16-10" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  global_max_token_for_community_report=16384  # Token budget for reports&quot;</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-</details>
-<div class="cell-output cell-output-stdout">
-<pre><code>Community report configuration:
-
-GraphRAG parameters:
-  enable_community_reports=True     # Generate reports (default: True)
-  graph_cluster_algorithm=&#39;leiden&#39;  # Clustering algorithm (&#39;leiden&#39; or &#39;louvain&#39;)
-
-QueryParam parameters for global search:
-  global_min_community_rating=0     # Skip communities rated below this
-  global_max_consider_community=512 # Max communities to consider
-  global_max_token_for_community_report=16384  # Token budget for reports</code></pre>
-</div>
-</div>
-<div id="community-algo" class="cell" data-execution_count="11">
-<details class="code-fold">
-<summary>Code</summary>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb18"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a>WORKING_DIR_COMM <span class="op">=</span> Path(<span class="st">&quot;./_cache/06_advanced_features/community&quot;</span>)</span>
-<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>WORKING_DIR_COMM.mkdir(parents<span class="op">=</span><span class="va">True</span>, exist_ok<span class="op">=</span><span class="va">True</span>)</span>
-<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a>rag_leiden <span class="op">=</span> GraphRAG(</span>
-<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a>    working_dir<span class="op">=</span><span class="bu">str</span>(WORKING_DIR_COMM),</span>
-<span id="cb18-6"><a href="#cb18-6" aria-hidden="true" tabindex="-1"></a>    graph_cluster_algorithm<span class="op">=</span><span class="st">&quot;leiden&quot;</span>,</span>
-<span id="cb18-7"><a href="#cb18-7" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb18-8"><a href="#cb18-8" aria-hidden="true" tabindex="-1"></a>rag_louvain <span class="op">=</span> GraphRAG(</span>
-<span id="cb18-9"><a href="#cb18-9" aria-hidden="true" tabindex="-1"></a>    working_dir<span class="op">=</span><span class="bu">str</span>(WORKING_DIR_COMM).replace(<span class="st">&quot;community&quot;</span>, <span class="st">&quot;community_louvain&quot;</span>),</span>
-<span id="cb18-10"><a href="#cb18-10" aria-hidden="true" tabindex="-1"></a>    graph_cluster_algorithm<span class="op">=</span><span class="st">&quot;louvain&quot;</span>,</span>
-<span id="cb18-11"><a href="#cb18-11" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb18-12"><a href="#cb18-12" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f&quot;Default algorithm: </span><span class="sc">{</span>rag_leiden<span class="sc">.</span>graph_cluster_algorithm<span class="sc">}</span><span class="ss">&quot;</span>)</span>
-<span id="cb18-13"><a href="#cb18-13" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f&quot;Alternative:       </span><span class="sc">{</span>rag_louvain<span class="sc">.</span>graph_cluster_algorithm<span class="sc">}</span><span class="ss">&quot;</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-</details>
-<div class="cell-output cell-output-stderr">
-<div class="ansi-escaped-output">
-<pre>2026-05-09T15:09:09.654484Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">tokenizer_loading             </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">model_name</span>=<span class="ansi-magenta-fg">gpt-4o</span> <span class="ansi-cyan-fg">tokenizer_type</span>=<span class="ansi-magenta-fg">tiktoken</span>
-
-INFO:nano-graphrag:{&#39;tokenizer_type&#39;: &#39;tiktoken&#39;, &#39;model_name&#39;: &#39;gpt-4o&#39;, &#39;event&#39;: &#39;tokenizer_loading&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.654484Z&#39;}
-
-2026-05-09T15:09:09.655588Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">0</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">llm_response_cache</span>
-
-INFO:nano-graphrag:{&#39;namespace&#39;: &#39;llm_response_cache&#39;, &#39;entries&#39;: 0, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.655588Z&#39;}
-
-2026-05-09T15:09:09.655933Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">litellm_configured            </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">api_base</span>=<span class="ansi-magenta-fg">None</span> <span class="ansi-cyan-fg">model</span>=<span class="ansi-magenta-fg">openrouter/google/gemma-4-31b-it</span> <span class="ansi-cyan-fg">structured_output</span>=<span class="ansi-magenta-fg">True</span>
-
-INFO:nano-graphrag:{&#39;model&#39;: &#39;openrouter/google/gemma-4-31b-it&#39;, &#39;api_base&#39;: None, &#39;structured_output&#39;: True, &#39;event&#39;: &#39;litellm_configured&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.655933Z&#39;}
-
-2026-05-09T15:09:09.656926Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">0</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">full_docs</span>
-
-INFO:nano-graphrag:{&#39;namespace&#39;: &#39;full_docs&#39;, &#39;entries&#39;: 0, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.656926Z&#39;}
-
-2026-05-09T15:09:09.657883Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">0</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">text_chunks</span>
-
-INFO:nano-graphrag:{&#39;namespace&#39;: &#39;text_chunks&#39;, &#39;entries&#39;: 0, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.657883Z&#39;}
-
-2026-05-09T15:09:09.658770Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">0</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">community_reports</span>
-
-INFO:nano-graphrag:{&#39;namespace&#39;: &#39;community_reports&#39;, &#39;entries&#39;: 0, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.658770Z&#39;}
-
-2026-05-09T15:09:09.659644Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">0</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">document_index</span>
-
-INFO:nano-graphrag:{&#39;namespace&#39;: &#39;document_index&#39;, &#39;entries&#39;: 0, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.659644Z&#39;}
-
-2026-05-09T15:09:09.660638Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">0</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">graph_contribution_index</span>
-
-INFO:nano-graphrag:{&#39;namespace&#39;: &#39;graph_contribution_index&#39;, &#39;entries&#39;: 0, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.660638Z&#39;}
-
-2026-05-09T15:09:09.665798Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">hnsw_index_created            </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">entities</span>
-
-INFO:nano-graphrag:{&#39;namespace&#39;: &#39;entities&#39;, &#39;event&#39;: &#39;hnsw_index_created&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.665798Z&#39;}
-
-2026-05-09T15:09:09.666369Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">entity_registry_initialized   </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>]
-
-INFO:nano-graphrag:{&#39;event&#39;: &#39;entity_registry_initialized&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.666369Z&#39;}
-
-2026-05-09T15:09:09.666778Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">tokenizer_loading             </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">model_name</span>=<span class="ansi-magenta-fg">gpt-4o</span> <span class="ansi-cyan-fg">tokenizer_type</span>=<span class="ansi-magenta-fg">tiktoken</span>
-
-INFO:nano-graphrag:{&#39;tokenizer_type&#39;: &#39;tiktoken&#39;, &#39;model_name&#39;: &#39;gpt-4o&#39;, &#39;event&#39;: &#39;tokenizer_loading&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.666778Z&#39;}
-
-2026-05-09T15:09:09.667707Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">0</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">llm_response_cache</span>
-
-INFO:nano-graphrag:{&#39;namespace&#39;: &#39;llm_response_cache&#39;, &#39;entries&#39;: 0, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.667707Z&#39;}
-
-2026-05-09T15:09:09.668016Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">litellm_configured            </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">api_base</span>=<span class="ansi-magenta-fg">None</span> <span class="ansi-cyan-fg">model</span>=<span class="ansi-magenta-fg">openrouter/google/gemma-4-31b-it</span> <span class="ansi-cyan-fg">structured_output</span>=<span class="ansi-magenta-fg">True</span>
-
-INFO:nano-graphrag:{&#39;model&#39;: &#39;openrouter/google/gemma-4-31b-it&#39;, &#39;api_base&#39;: None, &#39;structured_output&#39;: True, &#39;event&#39;: &#39;litellm_configured&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.668016Z&#39;}
-
-2026-05-09T15:09:09.668946Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">0</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">full_docs</span>
-
-INFO:nano-graphrag:{&#39;namespace&#39;: &#39;full_docs&#39;, &#39;entries&#39;: 0, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.668946Z&#39;}
-
-2026-05-09T15:09:09.669895Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">0</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">text_chunks</span>
-
-INFO:nano-graphrag:{&#39;namespace&#39;: &#39;text_chunks&#39;, &#39;entries&#39;: 0, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.669895Z&#39;}
-
-2026-05-09T15:09:09.671100Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">0</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">community_reports</span>
-
-INFO:nano-graphrag:{&#39;namespace&#39;: &#39;community_reports&#39;, &#39;entries&#39;: 0, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.671100Z&#39;}
-
-2026-05-09T15:09:09.672158Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">0</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">document_index</span>
-
-INFO:nano-graphrag:{&#39;namespace&#39;: &#39;document_index&#39;, &#39;entries&#39;: 0, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.672158Z&#39;}
-
-2026-05-09T15:09:09.673132Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">sqlite_kv_loaded              </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">entries</span>=<span class="ansi-magenta-fg">0</span> <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">graph_contribution_index</span>
-
-INFO:nano-graphrag:{&#39;namespace&#39;: &#39;graph_contribution_index&#39;, &#39;entries&#39;: 0, &#39;event&#39;: &#39;sqlite_kv_loaded&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.673132Z&#39;}
-
-2026-05-09T15:09:09.678465Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">hnsw_index_created            </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>] <span class="ansi-cyan-fg">namespace</span>=<span class="ansi-magenta-fg">entities</span>
-
-INFO:nano-graphrag:{&#39;namespace&#39;: &#39;entities&#39;, &#39;event&#39;: &#39;hnsw_index_created&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.678465Z&#39;}
-
-2026-05-09T15:09:09.678990Z [<span class="ansi-green-fg ansi-bold">info     </span>] <span class="ansi-bold">entity_registry_initialized   </span> [<span class="ansi-blue-fg ansi-bold">nano-graphrag</span>]
-
-INFO:nano-graphrag:{&#39;event&#39;: &#39;entity_registry_initialized&#39;, &#39;logger&#39;: &#39;nano-graphrag&#39;, &#39;level&#39;: &#39;info&#39;, &#39;timestamp&#39;: &#39;2026-05-09T15:09:09.678990Z&#39;}
-</pre>
-</div>
-</div>
-<div class="cell-output cell-output-stdout">
-<pre><code>Default algorithm: leiden
-Alternative:       louvain</code></pre>
-</div>
-</div>
-<p><strong>Leiden vs Louvain:</strong></p>
-<ul>
-<li><strong>Leiden</strong> (default): Higher quality communities, better connected. Recommended for most use cases.</li>
-<li><strong>Louvain</strong>: Faster, but may produce poorly disconnected communities. Good for large graphs where speed matters.</li>
-</ul>
-</section>
-<section id="graph-rebuild" class="level2">
-<h2 class="anchored" data-anchor-id="graph-rebuild">5. Graph Rebuild</h2>
-<p>The <code>arebuild_graph()</code> method reconstructs the knowledge graph from stored extraction manifests — without re-running the LLM extraction. This is useful when:</p>
-<ul>
-<li>You want to change the clustering algorithm</li>
-<li>You want to re-generate community reports with different parameters</li>
-<li>The graph was corrupted (e.g., due to a crash during insertion)</li>
-</ul>
-<div id="rebuild-demo" class="cell" data-execution_count="12">
-<details class="code-fold">
-<summary>Code</summary>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb20"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;Graph rebuild example (not executed to save API calls):&quot;</span>)</span>
-<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>()</span>
-<span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  # Rebuild graph from stored manifests&quot;</span>)</span>
-<span id="cb20-4"><a href="#cb20-4" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  await rag.arebuild_graph()&quot;</span>)</span>
-<span id="cb20-5"><a href="#cb20-5" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>()</span>
-<span id="cb20-6"><a href="#cb20-6" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  # This will:&quot;</span>)</span>
-<span id="cb20-7"><a href="#cb20-7" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  # 1. Read extraction manifests from document_index KV store&quot;</span>)</span>
-<span id="cb20-8"><a href="#cb20-8" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  # 2. Rebuild entity and relationship indexes&quot;</span>)</span>
-<span id="cb20-9"><a href="#cb20-9" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  # 3. Re-run community detection (Leiden/Louvain)&quot;</span>)</span>
-<span id="cb20-10"><a href="#cb20-10" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  # 4. Re-generate community reports via LLM&quot;</span>)</span>
-<span id="cb20-11"><a href="#cb20-11" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  #&quot;</span>)</span>
-<span id="cb20-12"><a href="#cb20-12" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  # Note: Community report generation still requires LLM calls,&quot;</span>)</span>
-<span id="cb20-13"><a href="#cb20-13" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  # but entity extraction is skipped (manifests are reused).&quot;</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-</details>
-<div class="cell-output cell-output-stdout">
-<pre><code>Graph rebuild example (not executed to save API calls):
-
-  # Rebuild graph from stored manifests
-  await rag.arebuild_graph()
-
-  # This will:
-  # 1. Read extraction manifests from document_index KV store
-  # 2. Rebuild entity and relationship indexes
-  # 3. Re-run community detection (Leiden/Louvain)
-  # 4. Re-generate community reports via LLM
-  #
-  # Note: Community report generation still requires LLM calls,
-  # but entity extraction is skipped (manifests are reused).</code></pre>
-</div>
-</div>
-<p>The rebuild process leverages the <code>graph_contribution_index</code> KV store, which maps each entity and relationship to the documents that contributed to it. This index is built incrementally during insertion and can be fully reconstructed from the <code>document_index</code>.</p>
-</section>
-<section id="entity-registry" class="level2">
-<h2 class="anchored" data-anchor-id="entity-registry">6. Entity Registry</h2>
-<p>nano-graphrag maintains an <strong>EntityRegistry</strong> that tracks canonical entity IDs and their aliases. This enables fuzzy entity resolution across documents.</p>
-<div id="entity-registry" class="cell" data-execution_count="13">
-<details class="code-fold">
-<summary>Code</summary>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb22"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> json</span>
-<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> pathlib <span class="im">import</span> Path</span>
-<span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb22-4"><a href="#cb22-4" aria-hidden="true" tabindex="-1"></a>registry_path <span class="op">=</span> WORKING_DIR_INC <span class="op">/</span> <span class="st">&quot;entity_registry.json&quot;</span></span>
-<span id="cb22-5"><a href="#cb22-5" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> registry_path.exists():</span>
-<span id="cb22-6"><a href="#cb22-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">with</span> <span class="bu">open</span>(registry_path) <span class="im">as</span> f:</span>
-<span id="cb22-7"><a href="#cb22-7" aria-hidden="true" tabindex="-1"></a>        registry <span class="op">=</span> json.load(f)</span>
-<span id="cb22-8"><a href="#cb22-8" aria-hidden="true" tabindex="-1"></a>    entity_count <span class="op">=</span> <span class="bu">len</span>(registry.get(<span class="st">&quot;entities&quot;</span>, {}))</span>
-<span id="cb22-9"><a href="#cb22-9" aria-hidden="true" tabindex="-1"></a>    alias_count <span class="op">=</span> <span class="bu">sum</span>(<span class="bu">len</span>(e.get(<span class="st">&quot;aliases&quot;</span>, [])) <span class="cf">for</span> e <span class="kw">in</span> registry.get(<span class="st">&quot;entities&quot;</span>, {}).values())</span>
-<span id="cb22-10"><a href="#cb22-10" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f&quot;Entity registry:&quot;</span>)</span>
-<span id="cb22-11"><a href="#cb22-11" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f&quot;  Canonical entities: </span><span class="sc">{</span>entity_count<span class="sc">}</span><span class="ss">&quot;</span>)</span>
-<span id="cb22-12"><a href="#cb22-12" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f&quot;  Total aliases:      </span><span class="sc">{</span>alias_count<span class="sc">}</span><span class="ss">&quot;</span>)</span>
-<span id="cb22-13"><a href="#cb22-13" aria-hidden="true" tabindex="-1"></a><span class="cf">else</span>:</span>
-<span id="cb22-14"><a href="#cb22-14" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="st">&quot;Entity registry not yet created (run an insert first)&quot;</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-</details>
-<div class="cell-output cell-output-stdout">
-<pre><code>Entity registry:
-  Canonical entities: 3
-  Total aliases:      0</code></pre>
-</div>
-</div>
-<p>The entity registry is stored at <code>{working_dir}/entity_registry.json</code> and supports:</p>
-<ul>
-<li><strong>Exact resolution</strong>: <code>registry.resolve_entity(&quot;Alice&quot;)</code> → canonical ID</li>
-<li><strong>Fuzzy matching</strong>: <code>registry.find_candidates(&quot;Alice Chen&quot;, threshold=0.9)</code> → candidates</li>
-<li><strong>Alias tracking</strong>: <code>&quot;Alice Chen&quot; → &quot;Alice&quot;</code> mapping</li>
-</ul>
-</section>
-<section id="feature-flags-summary" class="level2">
-<h2 class="anchored" data-anchor-id="feature-flags-summary">7. Feature Flags Summary</h2>
-<div id="feature-flags-table" class="cell" data-execution_count="14">
-<details class="code-fold">
-<summary>Code</summary>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb24"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a>features <span class="op">=</span> [</span>
-<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a>    (<span class="st">&quot;enable_entity_linking&quot;</span>, <span class="st">&quot;False&quot;</span>, <span class="st">&quot;Merge duplicate entities across documents&quot;</span>),</span>
-<span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a>    (<span class="st">&quot;enable_temporal_extraction&quot;</span>, <span class="st">&quot;False&quot;</span>, <span class="st">&quot;Extract time-bound relationship fields&quot;</span>),</span>
-<span id="cb24-4"><a href="#cb24-4" aria-hidden="true" tabindex="-1"></a>    (<span class="st">&quot;enable_community_reports&quot;</span>, <span class="st">&quot;True&quot;</span>, <span class="st">&quot;Generate community summaries for global search&quot;</span>),</span>
-<span id="cb24-5"><a href="#cb24-5" aria-hidden="true" tabindex="-1"></a>    (<span class="st">&quot;enable_local&quot;</span>, <span class="st">&quot;True&quot;</span>, <span class="st">&quot;Enable entity-level vector search (local mode)&quot;</span>),</span>
-<span id="cb24-6"><a href="#cb24-6" aria-hidden="true" tabindex="-1"></a>    (<span class="st">&quot;enable_naive_rag&quot;</span>, <span class="st">&quot;False&quot;</span>, <span class="st">&quot;Enable chunk-level vector search (naive mode)&quot;</span>),</span>
-<span id="cb24-7"><a href="#cb24-7" aria-hidden="true" tabindex="-1"></a>    (<span class="st">&quot;enable_llm_cache&quot;</span>, <span class="st">&quot;True&quot;</span>, <span class="st">&quot;Cache LLM responses to avoid duplicate API calls&quot;</span>),</span>
-<span id="cb24-8"><a href="#cb24-8" aria-hidden="true" tabindex="-1"></a>    (<span class="st">&quot;enable_node_embedding&quot;</span>, <span class="st">&quot;False&quot;</span>, <span class="st">&quot;Compute node2vec embeddings for graph nodes&quot;</span>),</span>
-<span id="cb24-9"><a href="#cb24-9" aria-hidden="true" tabindex="-1"></a>    (<span class="st">&quot;structured_output&quot;</span>, <span class="st">&quot;True&quot;</span>, <span class="st">&quot;Use Pydantic JSON schema for extraction&quot;</span>),</span>
-<span id="cb24-10"><a href="#cb24-10" aria-hidden="true" tabindex="-1"></a>    (<span class="st">&quot;fallback_to_parsing&quot;</span>, <span class="st">&quot;True&quot;</span>, <span class="st">&quot;Retry with legacy parser on structured output failure&quot;</span>),</span>
-<span id="cb24-11"><a href="#cb24-11" aria-hidden="true" tabindex="-1"></a>]</span>
-<span id="cb24-12"><a href="#cb24-12" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb24-13"><a href="#cb24-13" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f&quot;</span><span class="sc">{</span><span class="st">&#39;Flag&#39;</span><span class="sc">:&lt;35s}</span><span class="ss"> </span><span class="sc">{</span><span class="st">&#39;Default&#39;</span><span class="sc">:&lt;10s}</span><span class="ss"> </span><span class="sc">{</span><span class="st">&#39;Description&#39;</span><span class="sc">}</span><span class="ss">&quot;</span>)</span>
-<span id="cb24-14"><a href="#cb24-14" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;-&quot;</span> <span class="op">*</span> <span class="dv">100</span>)</span>
-<span id="cb24-15"><a href="#cb24-15" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> flag, default, desc <span class="kw">in</span> features:</span>
-<span id="cb24-16"><a href="#cb24-16" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f&quot;</span><span class="sc">{</span>flag<span class="sc">:&lt;35s}</span><span class="ss"> </span><span class="sc">{</span>default<span class="sc">:&lt;10s}</span><span class="ss"> </span><span class="sc">{</span>desc<span class="sc">}</span><span class="ss">&quot;</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
-</details>
-<div class="cell-output cell-output-stdout">
-<pre><code>Flag                                Default    Description
-----------------------------------------------------------------------------------------------------
-enable_entity_linking               False      Merge duplicate entities across documents
-enable_temporal_extraction          False      Extract time-bound relationship fields
-enable_community_reports            True       Generate community summaries for global search
-enable_local                        True       Enable entity-level vector search (local mode)
-enable_naive_rag                    False      Enable chunk-level vector search (naive mode)
-enable_llm_cache                    True       Cache LLM responses to avoid duplicate API calls
-enable_node_embedding               False      Compute node2vec embeddings for graph nodes
-structured_output                   True       Use Pydantic JSON schema for extraction
-fallback_to_parsing                 True       Retry with legacy parser on structured output failure</code></pre>
+<pre><code>LLM model:      openrouter/google/gemma-4-31b-it
+Embedding model: openrouter/qwen/qwen3-embedding-8b
+Working dir:     ./nano_graphrag</code></pre>
 </div>
 </div>
 </section>
-<section id="summary" class="level2">
-<h2 class="anchored" data-anchor-id="summary">Summary</h2>
-<p>In this notebook we covered:</p>
-<ul>
-<li><strong>Incremental insertion</strong> — <code>ainsert_documents()</code> with automatic duplicate detection via content hash</li>
-<li><strong>Entity linking</strong> — multi-step entity resolution (exact → fuzzy → neighborhood → LLM)</li>
-<li><strong>Temporal extraction</strong> — time-bound relationships with <code>valid_from</code>/<code>valid_to</code> fields</li>
-<li><strong>Community reports</strong> — Leiden vs Louvain clustering, rating filters, token budgets</li>
-<li><strong>Graph rebuild</strong> — reconstruct from manifests without re-extraction</li>
-<li><strong>Entity registry</strong> — canonical entity tracking with fuzzy alias resolution</li>
-<li><strong>Feature flags</strong> — complete reference for all toggleable features</li>
-</ul>
+<section id="practical-example-local-ollama-models" class="level2">
+<h2 class="anchored" data-anchor-id="practical-example-local-ollama-models">Practical Example: Local Ollama Models</h2>
+<p>No API key needed — runs everything locally.</p>
+<div id="ollama-example" class="cell" data-execution_count="5">
+<details class="code-fold">
+<summary>Code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>ollama_config <span class="op">=</span> GraphRAGConfig(</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>    working_dir<span class="op">=</span><span class="bu">str</span>(WORKING_DIR <span class="op">/</span> <span class="st">&quot;ollama&quot;</span>),</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>    llm_model<span class="op">=</span><span class="st">&quot;ollama/llama3.2&quot;</span>,</span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>    llm_api_base<span class="op">=</span><span class="st">&quot;http://localhost:11434&quot;</span>,</span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>    embedding_model<span class="op">=</span><span class="st">&quot;ollama/nomic-embed-text&quot;</span>,</span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>    embedding_api_base<span class="op">=</span><span class="st">&quot;http://localhost:11434&quot;</span>,</span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a>    embedding_dim<span class="op">=</span><span class="dv">768</span>,</span>
+<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb8-9"><a href="#cb8-9" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;</span><span class="ch">\n</span><span class="st">Ollama config:&quot;</span>)</span>
+<span id="cb8-10"><a href="#cb8-10" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  LLM:       </span><span class="sc">{}</span><span class="st">&quot;</span>.<span class="bu">format</span>(ollama_config.llm_model))</span>
+<span id="cb8-11"><a href="#cb8-11" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  Embedding: </span><span class="sc">{}</span><span class="st">&quot;</span>.<span class="bu">format</span>(ollama_config.embedding_model))</span>
+<span id="cb8-12"><a href="#cb8-12" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  API base:  </span><span class="sc">{}</span><span class="st">&quot;</span>.<span class="bu">format</span>(ollama_config.llm_api_base))</span>
+<span id="cb8-13"><a href="#cb8-13" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  Dim:       </span><span class="sc">{}</span><span class="st">&quot;</span>.<span class="bu">format</span>(ollama_config.embedding_dim))</span>
+<span id="cb8-14"><a href="#cb8-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-15"><a href="#cb8-15" aria-hidden="true" tabindex="-1"></a><span class="co"># Uncomment to use:</span></span>
+<span id="cb8-16"><a href="#cb8-16" aria-hidden="true" tabindex="-1"></a><span class="co"># rag = GraphRAG.from_config(ollama_config)</span></span>
+<span id="cb8-17"><a href="#cb8-17" aria-hidden="true" tabindex="-1"></a><span class="co"># await rag.ainsert(&quot;Your text here&quot;)</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>
+Ollama config:
+  LLM:       ollama/llama3.2
+  Embedding: ollama/nomic-embed-text
+  API base:  http://localhost:11434
+  Dim:       768</code></pre>
+</div>
+</div>
+</section>
+<section id="key-config-parameters-reference" class="level2">
+<h2 class="anchored" data-anchor-id="key-config-parameters-reference">Key Config Parameters Reference</h2>
+<div id="param-reference" class="cell" data-execution_count="6">
+<details class="code-fold">
+<summary>Code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;&quot;&quot;</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="st">Common parameters:</span></span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a><span class="st">  working_dir              — where all data is stored (default: ./nano_graphrag)</span></span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a><span class="st">  llm_model                — LLM for extraction + queries (default: from env)</span></span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a><span class="st">  llm_cheap_model          — cheaper LLM for fast mode</span></span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a><span class="st">  embedding_model          — embedding model name</span></span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a><span class="st">  embedding_dim            — embedding vector dimension</span></span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a><span class="st">  chunk_token_size         — tokens per chunk (default: 1200)</span></span>
+<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a><span class="st">  chunk_overlap_token_size — overlap between chunks (default: 100)</span></span>
+<span id="cb10-10"><a href="#cb10-10" aria-hidden="true" tabindex="-1"></a><span class="st">  enable_local             — enable local query mode (default: True)</span></span>
+<span id="cb10-11"><a href="#cb10-11" aria-hidden="true" tabindex="-1"></a><span class="st">  enable_naive_rag         — enable naive RAG mode (default: False)</span></span>
+<span id="cb10-12"><a href="#cb10-12" aria-hidden="true" tabindex="-1"></a><span class="st">  enable_llm_cache         — cache LLM responses (default: True)</span></span>
+<span id="cb10-13"><a href="#cb10-13" aria-hidden="true" tabindex="-1"></a><span class="st">  enable_entity_linking    — merge duplicate entities (default: False)</span></span>
+<span id="cb10-14"><a href="#cb10-14" aria-hidden="true" tabindex="-1"></a><span class="st">  extraction_batch_size    — chunks per LLM call (default: 5)</span></span>
+<span id="cb10-15"><a href="#cb10-15" aria-hidden="true" tabindex="-1"></a><span class="st">  entity_extraction_quality — &#39;balanced&#39; or &#39;fast&#39; (default: balanced)</span></span>
+<span id="cb10-16"><a href="#cb10-16" aria-hidden="true" tabindex="-1"></a><span class="st">&quot;&quot;&quot;</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>
+Common parameters:
+  working_dir              — where all data is stored (default: ./nano_graphrag)
+  llm_model                — LLM for extraction + queries (default: from env)
+  llm_cheap_model          — cheaper LLM for fast mode
+  embedding_model          — embedding model name
+  embedding_dim            — embedding vector dimension
+  chunk_token_size         — tokens per chunk (default: 1200)
+  chunk_overlap_token_size — overlap between chunks (default: 100)
+  enable_local             — enable local query mode (default: True)
+  enable_naive_rag         — enable naive RAG mode (default: False)
+  enable_llm_cache         — cache LLM responses (default: True)
+  enable_entity_linking    — merge duplicate entities (default: False)
+  extraction_batch_size    — chunks per LLM call (default: 5)
+  entity_extraction_quality — &#39;balanced&#39; or &#39;fast&#39; (default: balanced)
+</code></pre>
+</div>
+</div>
 <!-- -->
 
 </section>
@@ -3368,322 +2961,147 @@ fallback_to_parsing                 True       Retry with legacy parser on struc
     }
   });
   </script><div class="modal fade" id="quarto-embedded-source-code-modal" tabindex="-1" aria-labelledby="quarto-embedded-source-code-modal-label" aria-hidden="true"><div class="modal-dialog modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="quarto-embedded-source-code-modal-label">Source Code</h5><button class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><div class>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb26" data-shortcodes="false"><pre class="sourceCode markdown code-with-copy"><code class="sourceCode markdown"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a><span class="co">---</span></span>
-<span id="cb26-2"><a href="#cb26-2" aria-hidden="true" tabindex="-1"></a><span class="an">title:</span><span class="co"> &quot;Advanced Features&quot;</span></span>
-<span id="cb26-3"><a href="#cb26-3" aria-hidden="true" tabindex="-1"></a><span class="an">description:</span><span class="co"> &quot;Incremental insertion, entity linking, temporal extraction, community reports, and graph rebuild — production features for real-world usage.&quot;</span></span>
-<span id="cb26-4"><a href="#cb26-4" aria-hidden="true" tabindex="-1"></a><span class="an">date:</span><span class="co"> today</span></span>
-<span id="cb26-5"><a href="#cb26-5" aria-hidden="true" tabindex="-1"></a><span class="an">format:</span></span>
-<span id="cb26-6"><a href="#cb26-6" aria-hidden="true" tabindex="-1"></a><span class="co">  html:</span></span>
-<span id="cb26-7"><a href="#cb26-7" aria-hidden="true" tabindex="-1"></a><span class="co">    self-contained: true</span></span>
-<span id="cb26-8"><a href="#cb26-8" aria-hidden="true" tabindex="-1"></a><span class="co">    embed-resources: true</span></span>
-<span id="cb26-9"><a href="#cb26-9" aria-hidden="true" tabindex="-1"></a><span class="co">    code-fold: true</span></span>
-<span id="cb26-10"><a href="#cb26-10" aria-hidden="true" tabindex="-1"></a><span class="co">    code-tools: true</span></span>
-<span id="cb26-11"><a href="#cb26-11" aria-hidden="true" tabindex="-1"></a><span class="co">---</span></span>
-<span id="cb26-12"><a href="#cb26-12" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-13"><a href="#cb26-13" aria-hidden="true" tabindex="-1"></a><span class="fu">## Introduction</span></span>
-<span id="cb26-14"><a href="#cb26-14" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-15"><a href="#cb26-15" aria-hidden="true" tabindex="-1"></a>nano-graphrag includes several advanced features for production use cases:</span>
-<span id="cb26-16"><a href="#cb26-16" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-17"><a href="#cb26-17" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**Incremental insertion** — add new documents without reprocessing existing ones</span>
-<span id="cb26-18"><a href="#cb26-18" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**Entity linking** — merge duplicate entities across documents using LLM disambiguation</span>
-<span id="cb26-19"><a href="#cb26-19" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**Temporal extraction** — extract time-bound relationships (valid_from / valid_to)</span>
-<span id="cb26-20"><a href="#cb26-20" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**Community reports** — configure how community summaries are generated</span>
-<span id="cb26-21"><a href="#cb26-21" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**Graph rebuild** — reconstruct the knowledge graph from stored manifests</span>
-<span id="cb26-22"><a href="#cb26-22" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-23"><a href="#cb26-23" aria-hidden="true" tabindex="-1"></a>This notebook demonstrates each feature with configuration examples.</span>
-<span id="cb26-24"><a href="#cb26-24" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-25"><a href="#cb26-25" aria-hidden="true" tabindex="-1"></a><span class="fu">## Setup</span></span>
-<span id="cb26-26"><a href="#cb26-26" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-29"><a href="#cb26-29" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
-<span id="cb26-30"><a href="#cb26-30" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: setup</span></span>
-<span id="cb26-31"><a href="#cb26-31" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> logging</span>
-<span id="cb26-32"><a href="#cb26-32" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> time</span>
-<span id="cb26-33"><a href="#cb26-33" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> pathlib <span class="im">import</span> Path</span>
-<span id="cb26-34"><a href="#cb26-34" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-35"><a href="#cb26-35" aria-hidden="true" tabindex="-1"></a>logging.basicConfig(level<span class="op">=</span>logging.WARNING)</span>
-<span id="cb26-36"><a href="#cb26-36" aria-hidden="true" tabindex="-1"></a>logging.getLogger(<span class="st">&quot;nano-graphrag&quot;</span>).setLevel(logging.INFO)</span>
-<span id="cb26-37"><a href="#cb26-37" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-38"><a href="#cb26-38" aria-hidden="true" tabindex="-1"></a>TEXT_PART1 <span class="op">=</span> (</span>
-<span id="cb26-39"><a href="#cb26-39" aria-hidden="true" tabindex="-1"></a>    <span class="st">&quot;Alice is a quantum physicist at MIT. She published groundbreaking research on &quot;</span></span>
-<span id="cb26-40"><a href="#cb26-40" aria-hidden="true" tabindex="-1"></a>    <span class="st">&quot;quantum entanglement in 2023. Her colleague Bob is a computer scientist working &quot;</span></span>
-<span id="cb26-41"><a href="#cb26-41" aria-hidden="true" tabindex="-1"></a>    <span class="st">&quot;on quantum algorithms.&quot;</span></span>
-<span id="cb26-42"><a href="#cb26-42" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb26-43"><a href="#cb26-43" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-44"><a href="#cb26-44" aria-hidden="true" tabindex="-1"></a>TEXT_PART2 <span class="op">=</span> (</span>
-<span id="cb26-45"><a href="#cb26-45" aria-hidden="true" tabindex="-1"></a>    <span class="st">&quot;Alice Chen, the physicist from MIT, collaborated with Carol on a new paper about &quot;</span></span>
-<span id="cb26-46"><a href="#cb26-46" aria-hidden="true" tabindex="-1"></a>    <span class="st">&quot;quantum error correction. Bob Smith also contributed to the project. Dave is their &quot;</span></span>
-<span id="cb26-47"><a href="#cb26-47" aria-hidden="true" tabindex="-1"></a>    <span class="st">&quot;department head at MIT.&quot;</span></span>
-<span id="cb26-48"><a href="#cb26-48" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb26-49"><a href="#cb26-49" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb26-50"><a href="#cb26-50" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-53"><a href="#cb26-53" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
-<span id="cb26-54"><a href="#cb26-54" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: imports</span></span>
-<span id="cb26-55"><a href="#cb26-55" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> nano_graphrag <span class="im">import</span> GraphRAG, QueryParam</span>
-<span id="cb26-56"><a href="#cb26-56" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb26-57"><a href="#cb26-57" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-58"><a href="#cb26-58" aria-hidden="true" tabindex="-1"></a><span class="fu">## 1. Incremental Document Insertion</span></span>
-<span id="cb26-59"><a href="#cb26-59" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-60"><a href="#cb26-60" aria-hidden="true" tabindex="-1"></a><span class="in">`ainsert_documents()`</span> accepts a dictionary of <span class="in">`{doc_id: text}`</span> pairs. When you call it again with new documents, only the new ones are processed — existing documents (matched by content hash) are skipped.</span>
-<span id="cb26-61"><a href="#cb26-61" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-62"><a href="#cb26-62" aria-hidden="true" tabindex="-1"></a>This is the recommended API for production workflows where documents arrive over time.</span>
-<span id="cb26-63"><a href="#cb26-63" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-66"><a href="#cb26-66" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
-<span id="cb26-67"><a href="#cb26-67" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: incremental-init</span></span>
-<span id="cb26-68"><a href="#cb26-68" aria-hidden="true" tabindex="-1"></a>WORKING_DIR_INC <span class="op">=</span> Path(<span class="st">&quot;./_cache/06_advanced_features/incremental&quot;</span>)</span>
-<span id="cb26-69"><a href="#cb26-69" aria-hidden="true" tabindex="-1"></a>WORKING_DIR_INC.mkdir(parents<span class="op">=</span><span class="va">True</span>, exist_ok<span class="op">=</span><span class="va">True</span>)</span>
-<span id="cb26-70"><a href="#cb26-70" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-71"><a href="#cb26-71" aria-hidden="true" tabindex="-1"></a>rag_inc <span class="op">=</span> GraphRAG(</span>
-<span id="cb26-72"><a href="#cb26-72" aria-hidden="true" tabindex="-1"></a>    working_dir<span class="op">=</span><span class="bu">str</span>(WORKING_DIR_INC),</span>
-<span id="cb26-73"><a href="#cb26-73" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb26-74"><a href="#cb26-74" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb26-75"><a href="#cb26-75" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-78"><a href="#cb26-78" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
-<span id="cb26-79"><a href="#cb26-79" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: incremental-insert-1</span></span>
-<span id="cb26-80"><a href="#cb26-80" aria-hidden="true" tabindex="-1"></a><span class="co">#| cache: true</span></span>
-<span id="cb26-81"><a href="#cb26-81" aria-hidden="true" tabindex="-1"></a><span class="co">#| error: true</span></span>
-<span id="cb26-82"><a href="#cb26-82" aria-hidden="true" tabindex="-1"></a>start <span class="op">=</span> time.time()</span>
-<span id="cb26-83"><a href="#cb26-83" aria-hidden="true" tabindex="-1"></a><span class="cf">await</span> rag_inc.ainsert_documents({<span class="st">&quot;doc-1&quot;</span>: TEXT_PART1})</span>
-<span id="cb26-84"><a href="#cb26-84" aria-hidden="true" tabindex="-1"></a>elapsed <span class="op">=</span> time.time() <span class="op">-</span> start</span>
-<span id="cb26-85"><a href="#cb26-85" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f&quot;First insert (1 doc): </span><span class="sc">{</span>elapsed<span class="sc">:.1f}</span><span class="ss">s&quot;</span>)</span>
-<span id="cb26-86"><a href="#cb26-86" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb26-87"><a href="#cb26-87" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-90"><a href="#cb26-90" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
-<span id="cb26-91"><a href="#cb26-91" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: incremental-insert-2</span></span>
-<span id="cb26-92"><a href="#cb26-92" aria-hidden="true" tabindex="-1"></a><span class="co">#| cache: true</span></span>
-<span id="cb26-93"><a href="#cb26-93" aria-hidden="true" tabindex="-1"></a><span class="co">#| error: true</span></span>
-<span id="cb26-94"><a href="#cb26-94" aria-hidden="true" tabindex="-1"></a>start <span class="op">=</span> time.time()</span>
-<span id="cb26-95"><a href="#cb26-95" aria-hidden="true" tabindex="-1"></a><span class="cf">await</span> rag_inc.ainsert_documents({<span class="st">&quot;doc-2&quot;</span>: TEXT_PART2})</span>
-<span id="cb26-96"><a href="#cb26-96" aria-hidden="true" tabindex="-1"></a>elapsed <span class="op">=</span> time.time() <span class="op">-</span> start</span>
-<span id="cb26-97"><a href="#cb26-97" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f&quot;Second insert (1 new doc): </span><span class="sc">{</span>elapsed<span class="sc">:.1f}</span><span class="ss">s&quot;</span>)</span>
-<span id="cb26-98"><a href="#cb26-98" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;(doc-1 is skipped — already indexed)&quot;</span>)</span>
-<span id="cb26-99"><a href="#cb26-99" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb26-100"><a href="#cb26-100" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-101"><a href="#cb26-101" aria-hidden="true" tabindex="-1"></a>The incremental system uses a **content hash** to detect duplicates. If you insert the same text again, it&#39;s a no-op. The <span class="in">`document_index`</span> KV store tracks which documents have been processed and their extraction manifests.</span>
-<span id="cb26-102"><a href="#cb26-102" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-103"><a href="#cb26-103" aria-hidden="true" tabindex="-1"></a>You can also use <span class="in">`force_rebuild=True`</span> to reprocess all documents:</span>
-<span id="cb26-104"><a href="#cb26-104" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-107"><a href="#cb26-107" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
-<span id="cb26-108"><a href="#cb26-108" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: force-rebuild-note</span></span>
-<span id="cb26-109"><a href="#cb26-109" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;Force rebuild example (not executed to save API calls):&quot;</span>)</span>
-<span id="cb26-110"><a href="#cb26-110" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>()</span>
-<span id="cb26-111"><a href="#cb26-111" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  await rag_inc.ainsert_documents(&quot;</span>)</span>
-<span id="cb26-112"><a href="#cb26-112" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;      {&#39;doc-3&#39;: &#39;New document text&#39;},&quot;</span>)</span>
-<span id="cb26-113"><a href="#cb26-113" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;      force_rebuild=True,  # Reprocesses ALL docs&quot;</span>)</span>
-<span id="cb26-114"><a href="#cb26-114" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  )&quot;</span>)</span>
-<span id="cb26-115"><a href="#cb26-115" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb26-116"><a href="#cb26-116" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-117"><a href="#cb26-117" aria-hidden="true" tabindex="-1"></a><span class="fu">## 2. Entity Linking</span></span>
-<span id="cb26-118"><a href="#cb26-118" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-119"><a href="#cb26-119" aria-hidden="true" tabindex="-1"></a>When <span class="in">`enable_entity_linking=True`</span>, nano-graphrag uses a multi-step process to merge entities that refer to the same real-world thing:</span>
-<span id="cb26-120"><a href="#cb26-120" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-121"><a href="#cb26-121" aria-hidden="true" tabindex="-1"></a><span class="ss">1. </span>**Exact match** — same name after normalization</span>
-<span id="cb26-122"><a href="#cb26-122" aria-hidden="true" tabindex="-1"></a><span class="ss">2. </span>**Fuzzy match** — similarity above <span class="in">`entity_linking_similarity_threshold`</span> (default: 0.92)</span>
-<span id="cb26-123"><a href="#cb26-123" aria-hidden="true" tabindex="-1"></a><span class="ss">3. </span>**Neighborhood evidence** — overlapping graph neighbors (IoU above <span class="in">`entity_linking_iou_threshold`</span>, default: 0.3)</span>
-<span id="cb26-124"><a href="#cb26-124" aria-hidden="true" tabindex="-1"></a><span class="ss">4. </span>**LLM disambiguation** — the LLM decides if ambiguous candidates are the same entity</span>
-<span id="cb26-125"><a href="#cb26-125" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-128"><a href="#cb26-128" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
-<span id="cb26-129"><a href="#cb26-129" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: entity-linking-config</span></span>
-<span id="cb26-130"><a href="#cb26-130" aria-hidden="true" tabindex="-1"></a>WORKING_DIR_EL <span class="op">=</span> Path(<span class="st">&quot;./_cache/06_advanced_features/entity_linking&quot;</span>)</span>
-<span id="cb26-131"><a href="#cb26-131" aria-hidden="true" tabindex="-1"></a>WORKING_DIR_EL.mkdir(parents<span class="op">=</span><span class="va">True</span>, exist_ok<span class="op">=</span><span class="va">True</span>)</span>
-<span id="cb26-132"><a href="#cb26-132" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-133"><a href="#cb26-133" aria-hidden="true" tabindex="-1"></a>rag_el <span class="op">=</span> GraphRAG(</span>
-<span id="cb26-134"><a href="#cb26-134" aria-hidden="true" tabindex="-1"></a>    working_dir<span class="op">=</span><span class="bu">str</span>(WORKING_DIR_EL),</span>
-<span id="cb26-135"><a href="#cb26-135" aria-hidden="true" tabindex="-1"></a>    enable_entity_linking<span class="op">=</span><span class="va">True</span>,</span>
-<span id="cb26-136"><a href="#cb26-136" aria-hidden="true" tabindex="-1"></a>    entity_linking_similarity_threshold<span class="op">=</span><span class="fl">0.85</span>,</span>
-<span id="cb26-137"><a href="#cb26-137" aria-hidden="true" tabindex="-1"></a>    entity_linking_max_candidates<span class="op">=</span><span class="dv">3</span>,</span>
-<span id="cb26-138"><a href="#cb26-138" aria-hidden="true" tabindex="-1"></a>    entity_linking_iou_threshold<span class="op">=</span><span class="fl">0.3</span>,</span>
-<span id="cb26-139"><a href="#cb26-139" aria-hidden="true" tabindex="-1"></a>    entity_linking_min_common_neighbors<span class="op">=</span><span class="dv">2</span>,</span>
-<span id="cb26-140"><a href="#cb26-140" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb26-141"><a href="#cb26-141" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f&quot;Entity linking enabled: </span><span class="sc">{</span>rag_el<span class="sc">.</span>enable_entity_linking<span class="sc">}</span><span class="ss">&quot;</span>)</span>
-<span id="cb26-142"><a href="#cb26-142" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f&quot;Similarity threshold:   </span><span class="sc">{</span>rag_el<span class="sc">.</span>entity_linking_similarity_threshold<span class="sc">}</span><span class="ss">&quot;</span>)</span>
-<span id="cb26-143"><a href="#cb26-143" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f&quot;Max candidates:         </span><span class="sc">{</span>rag_el<span class="sc">.</span>entity_linking_max_candidates<span class="sc">}</span><span class="ss">&quot;</span>)</span>
-<span id="cb26-144"><a href="#cb26-144" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f&quot;IoU threshold:          </span><span class="sc">{</span>rag_el<span class="sc">.</span>entity_linking_iou_threshold<span class="sc">}</span><span class="ss">&quot;</span>)</span>
-<span id="cb26-145"><a href="#cb26-145" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f&quot;Min common neighbors:   </span><span class="sc">{</span>rag_el<span class="sc">.</span>entity_linking_min_common_neighbors<span class="sc">}</span><span class="ss">&quot;</span>)</span>
-<span id="cb26-146"><a href="#cb26-146" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb26-147"><a href="#cb26-147" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-148"><a href="#cb26-148" aria-hidden="true" tabindex="-1"></a>With entity linking, &quot;Alice&quot; from doc-1 and &quot;Alice Chen&quot; from doc-2 would be recognized as the same entity and merged in the graph. This produces a more coherent knowledge graph when documents use different names for the same entities.</span>
-<span id="cb26-149"><a href="#cb26-149" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-150"><a href="#cb26-150" aria-hidden="true" tabindex="-1"></a>Entity linking configuration reference:</span>
-<span id="cb26-151"><a href="#cb26-151" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-152"><a href="#cb26-152" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Parameter <span class="pp">|</span> Default <span class="pp">|</span> Purpose <span class="pp">|</span></span>
-<span id="cb26-153"><a href="#cb26-153" aria-hidden="true" tabindex="-1"></a><span class="pp">|-----------|---------|---------|</span></span>
-<span id="cb26-154"><a href="#cb26-154" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> <span class="in">`entity_linking_similarity_threshold`</span> <span class="pp">|</span> 0.92 <span class="pp">|</span> Minimum embedding similarity for fuzzy matching <span class="pp">|</span></span>
-<span id="cb26-155"><a href="#cb26-155" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> <span class="in">`entity_linking_max_candidates`</span> <span class="pp">|</span> 3 <span class="pp">|</span> Max candidates to consider per entity <span class="pp">|</span></span>
-<span id="cb26-156"><a href="#cb26-156" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> <span class="in">`entity_linking_iou_threshold`</span> <span class="pp">|</span> 0.3 <span class="pp">|</span> Min graph-neighborhood overlap for merge <span class="pp">|</span></span>
-<span id="cb26-157"><a href="#cb26-157" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> <span class="in">`entity_linking_min_common_neighbors`</span> <span class="pp">|</span> 2 <span class="pp">|</span> Min shared neighbors for neighborhood evidence <span class="pp">|</span></span>
-<span id="cb26-158"><a href="#cb26-158" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> <span class="in">`entity_linking_use_neighborhood_evidence`</span> <span class="pp">|</span> True <span class="pp">|</span> Use graph structure to validate merges <span class="pp">|</span></span>
-<span id="cb26-159"><a href="#cb26-159" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-160"><a href="#cb26-160" aria-hidden="true" tabindex="-1"></a><span class="fu">## 3. Temporal Extraction</span></span>
-<span id="cb26-161"><a href="#cb26-161" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-162"><a href="#cb26-162" aria-hidden="true" tabindex="-1"></a>When <span class="in">`enable_temporal_extraction=True`</span>, the extraction pipeline adds temporal fields to relationships:</span>
-<span id="cb26-163"><a href="#cb26-163" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-164"><a href="#cb26-164" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span><span class="in">`temporal_context`</span> — natural language description of when the relationship holds</span>
-<span id="cb26-165"><a href="#cb26-165" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span><span class="in">`valid_from`</span> — start date/time (if extractable)</span>
-<span id="cb26-166"><a href="#cb26-166" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span><span class="in">`valid_to`</span> — end date/time (if extractable)</span>
-<span id="cb26-167"><a href="#cb26-167" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-168"><a href="#cb26-168" aria-hidden="true" tabindex="-1"></a>This enables **temporal queries** — asking about relationships at specific points in time.</span>
-<span id="cb26-169"><a href="#cb26-169" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-172"><a href="#cb26-172" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
-<span id="cb26-173"><a href="#cb26-173" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: temporal-config</span></span>
-<span id="cb26-174"><a href="#cb26-174" aria-hidden="true" tabindex="-1"></a>WORKING_DIR_TEMP <span class="op">=</span> Path(<span class="st">&quot;./_cache/06_advanced_features/temporal&quot;</span>)</span>
-<span id="cb26-175"><a href="#cb26-175" aria-hidden="true" tabindex="-1"></a>WORKING_DIR_TEMP.mkdir(parents<span class="op">=</span><span class="va">True</span>, exist_ok<span class="op">=</span><span class="va">True</span>)</span>
-<span id="cb26-176"><a href="#cb26-176" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-177"><a href="#cb26-177" aria-hidden="true" tabindex="-1"></a>rag_temp <span class="op">=</span> GraphRAG(</span>
-<span id="cb26-178"><a href="#cb26-178" aria-hidden="true" tabindex="-1"></a>    working_dir<span class="op">=</span><span class="bu">str</span>(WORKING_DIR_TEMP),</span>
-<span id="cb26-179"><a href="#cb26-179" aria-hidden="true" tabindex="-1"></a>    enable_temporal_extraction<span class="op">=</span><span class="va">True</span>,</span>
-<span id="cb26-180"><a href="#cb26-180" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb26-181"><a href="#cb26-181" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f&quot;Temporal extraction: </span><span class="sc">{</span>rag_temp<span class="sc">.</span>enable_temporal_extraction<span class="sc">}</span><span class="ss">&quot;</span>)</span>
-<span id="cb26-182"><a href="#cb26-182" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb26-183"><a href="#cb26-183" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-186"><a href="#cb26-186" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
-<span id="cb26-187"><a href="#cb26-187" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: temporal-query-config</span></span>
-<span id="cb26-188"><a href="#cb26-188" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;Temporal query parameters (QueryParam):&quot;</span>)</span>
-<span id="cb26-189"><a href="#cb26-189" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>()</span>
-<span id="cb26-190"><a href="#cb26-190" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> nano_graphrag <span class="im">import</span> QueryParam</span>
-<span id="cb26-191"><a href="#cb26-191" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-192"><a href="#cb26-192" aria-hidden="true" tabindex="-1"></a>qp <span class="op">=</span> QueryParam(</span>
-<span id="cb26-193"><a href="#cb26-193" aria-hidden="true" tabindex="-1"></a>    time_range<span class="op">=</span>(<span class="st">&quot;2023-01-01&quot;</span>, <span class="st">&quot;2024-01-01&quot;</span>),</span>
-<span id="cb26-194"><a href="#cb26-194" aria-hidden="true" tabindex="-1"></a>    temporal_mode<span class="op">=</span><span class="st">&quot;any&quot;</span>,</span>
-<span id="cb26-195"><a href="#cb26-195" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb26-196"><a href="#cb26-196" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f&quot;  time_range: </span><span class="sc">{</span>qp<span class="sc">.</span>time_range<span class="sc">}</span><span class="ss">&quot;</span>)</span>
-<span id="cb26-197"><a href="#cb26-197" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f&quot;  temporal_mode: </span><span class="sc">{</span>qp<span class="sc">.</span>temporal_mode<span class="sc">}</span><span class="ss">&quot;</span>)</span>
-<span id="cb26-198"><a href="#cb26-198" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>()</span>
-<span id="cb26-199"><a href="#cb26-199" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  temporal_mode options:&quot;</span>)</span>
-<span id="cb26-200"><a href="#cb26-200" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;    &#39;any&#39;  — match if any part of the relationship overlaps the time range&quot;</span>)</span>
-<span id="cb26-201"><a href="#cb26-201" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;    &#39;all&#39;  — match only if the entire relationship is within the time range&quot;</span>)</span>
-<span id="cb26-202"><a href="#cb26-202" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;    &#39;exact&#39; — match only if valid_from and valid_to are both in range&quot;</span>)</span>
-<span id="cb26-203"><a href="#cb26-203" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb26-204"><a href="#cb26-204" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-205"><a href="#cb26-205" aria-hidden="true" tabindex="-1"></a>Temporal extraction works with both the structured and legacy extraction backends. In structured mode, the Pydantic schema includes <span class="in">`temporal_context`</span>, <span class="in">`valid_from`</span>, and <span class="in">`valid_to`</span> fields on relationships.</span>
-<span id="cb26-206"><a href="#cb26-206" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-207"><a href="#cb26-207" aria-hidden="true" tabindex="-1"></a><span class="fu">## 4. Community Reports Configuration</span></span>
-<span id="cb26-208"><a href="#cb26-208" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-209"><a href="#cb26-209" aria-hidden="true" tabindex="-1"></a>Community reports are summaries generated for each cluster of entities. They power the **global query mode**. Key configuration options:</span>
-<span id="cb26-210"><a href="#cb26-210" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-213"><a href="#cb26-213" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
-<span id="cb26-214"><a href="#cb26-214" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: community-config</span></span>
-<span id="cb26-215"><a href="#cb26-215" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;Community report configuration:&quot;</span>)</span>
-<span id="cb26-216"><a href="#cb26-216" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>()</span>
-<span id="cb26-217"><a href="#cb26-217" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;GraphRAG parameters:&quot;</span>)</span>
-<span id="cb26-218"><a href="#cb26-218" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  enable_community_reports=True     # Generate reports (default: True)&quot;</span>)</span>
-<span id="cb26-219"><a href="#cb26-219" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  graph_cluster_algorithm=&#39;leiden&#39;  # Clustering algorithm (&#39;leiden&#39; or &#39;louvain&#39;)&quot;</span>)</span>
-<span id="cb26-220"><a href="#cb26-220" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>()</span>
-<span id="cb26-221"><a href="#cb26-221" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;QueryParam parameters for global search:&quot;</span>)</span>
-<span id="cb26-222"><a href="#cb26-222" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  global_min_community_rating=0     # Skip communities rated below this&quot;</span>)</span>
-<span id="cb26-223"><a href="#cb26-223" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  global_max_consider_community=512 # Max communities to consider&quot;</span>)</span>
-<span id="cb26-224"><a href="#cb26-224" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  global_max_token_for_community_report=16384  # Token budget for reports&quot;</span>)</span>
-<span id="cb26-225"><a href="#cb26-225" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb26-226"><a href="#cb26-226" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-229"><a href="#cb26-229" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
-<span id="cb26-230"><a href="#cb26-230" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: community-algo</span></span>
-<span id="cb26-231"><a href="#cb26-231" aria-hidden="true" tabindex="-1"></a>WORKING_DIR_COMM <span class="op">=</span> Path(<span class="st">&quot;./_cache/06_advanced_features/community&quot;</span>)</span>
-<span id="cb26-232"><a href="#cb26-232" aria-hidden="true" tabindex="-1"></a>WORKING_DIR_COMM.mkdir(parents<span class="op">=</span><span class="va">True</span>, exist_ok<span class="op">=</span><span class="va">True</span>)</span>
-<span id="cb26-233"><a href="#cb26-233" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-234"><a href="#cb26-234" aria-hidden="true" tabindex="-1"></a>rag_leiden <span class="op">=</span> GraphRAG(</span>
-<span id="cb26-235"><a href="#cb26-235" aria-hidden="true" tabindex="-1"></a>    working_dir<span class="op">=</span><span class="bu">str</span>(WORKING_DIR_COMM),</span>
-<span id="cb26-236"><a href="#cb26-236" aria-hidden="true" tabindex="-1"></a>    graph_cluster_algorithm<span class="op">=</span><span class="st">&quot;leiden&quot;</span>,</span>
-<span id="cb26-237"><a href="#cb26-237" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb26-238"><a href="#cb26-238" aria-hidden="true" tabindex="-1"></a>rag_louvain <span class="op">=</span> GraphRAG(</span>
-<span id="cb26-239"><a href="#cb26-239" aria-hidden="true" tabindex="-1"></a>    working_dir<span class="op">=</span><span class="bu">str</span>(WORKING_DIR_COMM).replace(<span class="st">&quot;community&quot;</span>, <span class="st">&quot;community_louvain&quot;</span>),</span>
-<span id="cb26-240"><a href="#cb26-240" aria-hidden="true" tabindex="-1"></a>    graph_cluster_algorithm<span class="op">=</span><span class="st">&quot;louvain&quot;</span>,</span>
-<span id="cb26-241"><a href="#cb26-241" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb26-242"><a href="#cb26-242" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f&quot;Default algorithm: </span><span class="sc">{</span>rag_leiden<span class="sc">.</span>graph_cluster_algorithm<span class="sc">}</span><span class="ss">&quot;</span>)</span>
-<span id="cb26-243"><a href="#cb26-243" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f&quot;Alternative:       </span><span class="sc">{</span>rag_louvain<span class="sc">.</span>graph_cluster_algorithm<span class="sc">}</span><span class="ss">&quot;</span>)</span>
-<span id="cb26-244"><a href="#cb26-244" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb26-245"><a href="#cb26-245" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-246"><a href="#cb26-246" aria-hidden="true" tabindex="-1"></a>**Leiden vs Louvain:**</span>
-<span id="cb26-247"><a href="#cb26-247" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-248"><a href="#cb26-248" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**Leiden** (default): Higher quality communities, better connected. Recommended for most use cases.</span>
-<span id="cb26-249"><a href="#cb26-249" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**Louvain**: Faster, but may produce poorly disconnected communities. Good for large graphs where speed matters.</span>
-<span id="cb26-250"><a href="#cb26-250" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-251"><a href="#cb26-251" aria-hidden="true" tabindex="-1"></a><span class="fu">## 5. Graph Rebuild</span></span>
-<span id="cb26-252"><a href="#cb26-252" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-253"><a href="#cb26-253" aria-hidden="true" tabindex="-1"></a>The <span class="in">`arebuild_graph()`</span> method reconstructs the knowledge graph from stored extraction manifests — without re-running the LLM extraction. This is useful when:</span>
-<span id="cb26-254"><a href="#cb26-254" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-255"><a href="#cb26-255" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>You want to change the clustering algorithm</span>
-<span id="cb26-256"><a href="#cb26-256" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>You want to re-generate community reports with different parameters</span>
-<span id="cb26-257"><a href="#cb26-257" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>The graph was corrupted (e.g., due to a crash during insertion)</span>
-<span id="cb26-258"><a href="#cb26-258" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-261"><a href="#cb26-261" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
-<span id="cb26-262"><a href="#cb26-262" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: rebuild-demo</span></span>
-<span id="cb26-263"><a href="#cb26-263" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;Graph rebuild example (not executed to save API calls):&quot;</span>)</span>
-<span id="cb26-264"><a href="#cb26-264" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>()</span>
-<span id="cb26-265"><a href="#cb26-265" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  # Rebuild graph from stored manifests&quot;</span>)</span>
-<span id="cb26-266"><a href="#cb26-266" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  await rag.arebuild_graph()&quot;</span>)</span>
-<span id="cb26-267"><a href="#cb26-267" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>()</span>
-<span id="cb26-268"><a href="#cb26-268" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  # This will:&quot;</span>)</span>
-<span id="cb26-269"><a href="#cb26-269" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  # 1. Read extraction manifests from document_index KV store&quot;</span>)</span>
-<span id="cb26-270"><a href="#cb26-270" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  # 2. Rebuild entity and relationship indexes&quot;</span>)</span>
-<span id="cb26-271"><a href="#cb26-271" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  # 3. Re-run community detection (Leiden/Louvain)&quot;</span>)</span>
-<span id="cb26-272"><a href="#cb26-272" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  # 4. Re-generate community reports via LLM&quot;</span>)</span>
-<span id="cb26-273"><a href="#cb26-273" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  #&quot;</span>)</span>
-<span id="cb26-274"><a href="#cb26-274" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  # Note: Community report generation still requires LLM calls,&quot;</span>)</span>
-<span id="cb26-275"><a href="#cb26-275" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  # but entity extraction is skipped (manifests are reused).&quot;</span>)</span>
-<span id="cb26-276"><a href="#cb26-276" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb26-277"><a href="#cb26-277" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-278"><a href="#cb26-278" aria-hidden="true" tabindex="-1"></a>The rebuild process leverages the <span class="in">`graph_contribution_index`</span> KV store, which maps each entity and relationship to the documents that contributed to it. This index is built incrementally during insertion and can be fully reconstructed from the <span class="in">`document_index`</span>.</span>
-<span id="cb26-279"><a href="#cb26-279" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-280"><a href="#cb26-280" aria-hidden="true" tabindex="-1"></a><span class="fu">## 6. Entity Registry</span></span>
-<span id="cb26-281"><a href="#cb26-281" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-282"><a href="#cb26-282" aria-hidden="true" tabindex="-1"></a>nano-graphrag maintains an **EntityRegistry** that tracks canonical entity IDs and their aliases. This enables fuzzy entity resolution across documents.</span>
-<span id="cb26-283"><a href="#cb26-283" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-286"><a href="#cb26-286" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
-<span id="cb26-287"><a href="#cb26-287" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: entity-registry</span></span>
-<span id="cb26-288"><a href="#cb26-288" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> json</span>
-<span id="cb26-289"><a href="#cb26-289" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> pathlib <span class="im">import</span> Path</span>
-<span id="cb26-290"><a href="#cb26-290" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-291"><a href="#cb26-291" aria-hidden="true" tabindex="-1"></a>registry_path <span class="op">=</span> WORKING_DIR_INC <span class="op">/</span> <span class="st">&quot;entity_registry.json&quot;</span></span>
-<span id="cb26-292"><a href="#cb26-292" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> registry_path.exists():</span>
-<span id="cb26-293"><a href="#cb26-293" aria-hidden="true" tabindex="-1"></a>    <span class="cf">with</span> <span class="bu">open</span>(registry_path) <span class="im">as</span> f:</span>
-<span id="cb26-294"><a href="#cb26-294" aria-hidden="true" tabindex="-1"></a>        registry <span class="op">=</span> json.load(f)</span>
-<span id="cb26-295"><a href="#cb26-295" aria-hidden="true" tabindex="-1"></a>    entity_count <span class="op">=</span> <span class="bu">len</span>(registry.get(<span class="st">&quot;entities&quot;</span>, {}))</span>
-<span id="cb26-296"><a href="#cb26-296" aria-hidden="true" tabindex="-1"></a>    alias_count <span class="op">=</span> <span class="bu">sum</span>(<span class="bu">len</span>(e.get(<span class="st">&quot;aliases&quot;</span>, [])) <span class="cf">for</span> e <span class="kw">in</span> registry.get(<span class="st">&quot;entities&quot;</span>, {}).values())</span>
-<span id="cb26-297"><a href="#cb26-297" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f&quot;Entity registry:&quot;</span>)</span>
-<span id="cb26-298"><a href="#cb26-298" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f&quot;  Canonical entities: </span><span class="sc">{</span>entity_count<span class="sc">}</span><span class="ss">&quot;</span>)</span>
-<span id="cb26-299"><a href="#cb26-299" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f&quot;  Total aliases:      </span><span class="sc">{</span>alias_count<span class="sc">}</span><span class="ss">&quot;</span>)</span>
-<span id="cb26-300"><a href="#cb26-300" aria-hidden="true" tabindex="-1"></a><span class="cf">else</span>:</span>
-<span id="cb26-301"><a href="#cb26-301" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="st">&quot;Entity registry not yet created (run an insert first)&quot;</span>)</span>
-<span id="cb26-302"><a href="#cb26-302" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb26-303"><a href="#cb26-303" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-304"><a href="#cb26-304" aria-hidden="true" tabindex="-1"></a>The entity registry is stored at <span class="in">`{working_dir}/entity_registry.json`</span> and supports:</span>
-<span id="cb26-305"><a href="#cb26-305" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-306"><a href="#cb26-306" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**Exact resolution**: <span class="in">`registry.resolve_entity(&quot;Alice&quot;)`</span> → canonical ID</span>
-<span id="cb26-307"><a href="#cb26-307" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**Fuzzy matching**: <span class="in">`registry.find_candidates(&quot;Alice Chen&quot;, threshold=0.9)`</span> → candidates</span>
-<span id="cb26-308"><a href="#cb26-308" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**Alias tracking**: <span class="in">`&quot;Alice Chen&quot; → &quot;Alice&quot;`</span> mapping</span>
-<span id="cb26-309"><a href="#cb26-309" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-310"><a href="#cb26-310" aria-hidden="true" tabindex="-1"></a><span class="fu">## 7. Feature Flags Summary</span></span>
-<span id="cb26-311"><a href="#cb26-311" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-314"><a href="#cb26-314" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
-<span id="cb26-315"><a href="#cb26-315" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: feature-flags-table</span></span>
-<span id="cb26-316"><a href="#cb26-316" aria-hidden="true" tabindex="-1"></a>features <span class="op">=</span> [</span>
-<span id="cb26-317"><a href="#cb26-317" aria-hidden="true" tabindex="-1"></a>    (<span class="st">&quot;enable_entity_linking&quot;</span>, <span class="st">&quot;False&quot;</span>, <span class="st">&quot;Merge duplicate entities across documents&quot;</span>),</span>
-<span id="cb26-318"><a href="#cb26-318" aria-hidden="true" tabindex="-1"></a>    (<span class="st">&quot;enable_temporal_extraction&quot;</span>, <span class="st">&quot;False&quot;</span>, <span class="st">&quot;Extract time-bound relationship fields&quot;</span>),</span>
-<span id="cb26-319"><a href="#cb26-319" aria-hidden="true" tabindex="-1"></a>    (<span class="st">&quot;enable_community_reports&quot;</span>, <span class="st">&quot;True&quot;</span>, <span class="st">&quot;Generate community summaries for global search&quot;</span>),</span>
-<span id="cb26-320"><a href="#cb26-320" aria-hidden="true" tabindex="-1"></a>    (<span class="st">&quot;enable_local&quot;</span>, <span class="st">&quot;True&quot;</span>, <span class="st">&quot;Enable entity-level vector search (local mode)&quot;</span>),</span>
-<span id="cb26-321"><a href="#cb26-321" aria-hidden="true" tabindex="-1"></a>    (<span class="st">&quot;enable_naive_rag&quot;</span>, <span class="st">&quot;False&quot;</span>, <span class="st">&quot;Enable chunk-level vector search (naive mode)&quot;</span>),</span>
-<span id="cb26-322"><a href="#cb26-322" aria-hidden="true" tabindex="-1"></a>    (<span class="st">&quot;enable_llm_cache&quot;</span>, <span class="st">&quot;True&quot;</span>, <span class="st">&quot;Cache LLM responses to avoid duplicate API calls&quot;</span>),</span>
-<span id="cb26-323"><a href="#cb26-323" aria-hidden="true" tabindex="-1"></a>    (<span class="st">&quot;enable_node_embedding&quot;</span>, <span class="st">&quot;False&quot;</span>, <span class="st">&quot;Compute node2vec embeddings for graph nodes&quot;</span>),</span>
-<span id="cb26-324"><a href="#cb26-324" aria-hidden="true" tabindex="-1"></a>    (<span class="st">&quot;structured_output&quot;</span>, <span class="st">&quot;True&quot;</span>, <span class="st">&quot;Use Pydantic JSON schema for extraction&quot;</span>),</span>
-<span id="cb26-325"><a href="#cb26-325" aria-hidden="true" tabindex="-1"></a>    (<span class="st">&quot;fallback_to_parsing&quot;</span>, <span class="st">&quot;True&quot;</span>, <span class="st">&quot;Retry with legacy parser on structured output failure&quot;</span>),</span>
-<span id="cb26-326"><a href="#cb26-326" aria-hidden="true" tabindex="-1"></a>]</span>
-<span id="cb26-327"><a href="#cb26-327" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-328"><a href="#cb26-328" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f&quot;</span><span class="sc">{</span><span class="st">&#39;Flag&#39;</span><span class="sc">:&lt;35s}</span><span class="ss"> </span><span class="sc">{</span><span class="st">&#39;Default&#39;</span><span class="sc">:&lt;10s}</span><span class="ss"> </span><span class="sc">{</span><span class="st">&#39;Description&#39;</span><span class="sc">}</span><span class="ss">&quot;</span>)</span>
-<span id="cb26-329"><a href="#cb26-329" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;-&quot;</span> <span class="op">*</span> <span class="dv">100</span>)</span>
-<span id="cb26-330"><a href="#cb26-330" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> flag, default, desc <span class="kw">in</span> features:</span>
-<span id="cb26-331"><a href="#cb26-331" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f&quot;</span><span class="sc">{</span>flag<span class="sc">:&lt;35s}</span><span class="ss"> </span><span class="sc">{</span>default<span class="sc">:&lt;10s}</span><span class="ss"> </span><span class="sc">{</span>desc<span class="sc">}</span><span class="ss">&quot;</span>)</span>
-<span id="cb26-332"><a href="#cb26-332" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb26-333"><a href="#cb26-333" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-334"><a href="#cb26-334" aria-hidden="true" tabindex="-1"></a><span class="fu">## Summary</span></span>
-<span id="cb26-335"><a href="#cb26-335" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-336"><a href="#cb26-336" aria-hidden="true" tabindex="-1"></a>In this notebook we covered:</span>
-<span id="cb26-337"><a href="#cb26-337" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-338"><a href="#cb26-338" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**Incremental insertion** — <span class="in">`ainsert_documents()`</span> with automatic duplicate detection via content hash</span>
-<span id="cb26-339"><a href="#cb26-339" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**Entity linking** — multi-step entity resolution (exact → fuzzy → neighborhood → LLM)</span>
-<span id="cb26-340"><a href="#cb26-340" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**Temporal extraction** — time-bound relationships with <span class="in">`valid_from`</span>/<span class="in">`valid_to`</span> fields</span>
-<span id="cb26-341"><a href="#cb26-341" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**Community reports** — Leiden vs Louvain clustering, rating filters, token budgets</span>
-<span id="cb26-342"><a href="#cb26-342" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**Graph rebuild** — reconstruct from manifests without re-extraction</span>
-<span id="cb26-343"><a href="#cb26-343" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**Entity registry** — canonical entity tracking with fuzzy alias resolution</span>
-<span id="cb26-344"><a href="#cb26-344" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span>**Feature flags** — complete reference for all toggleable features</span>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12" data-shortcodes="false"><pre class="sourceCode markdown code-with-copy"><code class="sourceCode markdown"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="co">---</span></span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a><span class="an">title:</span><span class="co"> &quot;Configuration&quot;</span></span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a><span class="an">description:</span><span class="co"> &quot;Learn the three main config paths (kwargs, YAML, env vars) and see a practical Ollama example.&quot;</span></span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a><span class="an">date:</span><span class="co"> today</span></span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a><span class="an">format:</span></span>
+<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a><span class="co">  html:</span></span>
+<span id="cb12-7"><a href="#cb12-7" aria-hidden="true" tabindex="-1"></a><span class="co">    self-contained: true</span></span>
+<span id="cb12-8"><a href="#cb12-8" aria-hidden="true" tabindex="-1"></a><span class="co">    embed-resources: true</span></span>
+<span id="cb12-9"><a href="#cb12-9" aria-hidden="true" tabindex="-1"></a><span class="co">    code-fold: true</span></span>
+<span id="cb12-10"><a href="#cb12-10" aria-hidden="true" tabindex="-1"></a><span class="co">    code-tools: true</span></span>
+<span id="cb12-11"><a href="#cb12-11" aria-hidden="true" tabindex="-1"></a><span class="co">---</span></span>
+<span id="cb12-12"><a href="#cb12-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-13"><a href="#cb12-13" aria-hidden="true" tabindex="-1"></a>nano-graphrag offers three ways to configure your instance: direct keyword arguments, YAML files for team sharing, and environment variables for Docker/CI. This notebook demonstrates each approach and shows how to switch to local Ollama models.</span>
+<span id="cb12-14"><a href="#cb12-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-15"><a href="#cb12-15" aria-hidden="true" tabindex="-1"></a><span class="fu">## Setup</span></span>
+<span id="cb12-16"><a href="#cb12-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-19"><a href="#cb12-19" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb12-20"><a href="#cb12-20" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: setup</span></span>
+<span id="cb12-21"><a href="#cb12-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-22"><a href="#cb12-22" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> logging</span>
+<span id="cb12-23"><a href="#cb12-23" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> pathlib <span class="im">import</span> Path</span>
+<span id="cb12-24"><a href="#cb12-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-25"><a href="#cb12-25" aria-hidden="true" tabindex="-1"></a>logging.basicConfig(level<span class="op">=</span>logging.WARNING)</span>
+<span id="cb12-26"><a href="#cb12-26" aria-hidden="true" tabindex="-1"></a>logging.getLogger(<span class="st">&quot;nano-graphrag&quot;</span>).setLevel(logging.WARNING)</span>
+<span id="cb12-27"><a href="#cb12-27" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-28"><a href="#cb12-28" aria-hidden="true" tabindex="-1"></a>WORKING_DIR <span class="op">=</span> Path(<span class="st">&quot;./_cache/03_configuration&quot;</span>)</span>
+<span id="cb12-29"><a href="#cb12-29" aria-hidden="true" tabindex="-1"></a>WORKING_DIR.mkdir(parents<span class="op">=</span><span class="va">True</span>, exist_ok<span class="op">=</span><span class="va">True</span>)</span>
+<span id="cb12-30"><a href="#cb12-30" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-31"><a href="#cb12-31" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> nano_graphrag <span class="im">import</span> GraphRAG</span>
+<span id="cb12-32"><a href="#cb12-32" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> nano_graphrag.base <span class="im">import</span> GraphRAGConfig</span>
+<span id="cb12-33"><a href="#cb12-33" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb12-34"><a href="#cb12-34" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-35"><a href="#cb12-35" aria-hidden="true" tabindex="-1"></a><span class="fu">## Method 1: Direct Keyword Arguments</span></span>
+<span id="cb12-36"><a href="#cb12-36" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-37"><a href="#cb12-37" aria-hidden="true" tabindex="-1"></a>Simplest approach — best for scripts and notebooks.</span>
+<span id="cb12-38"><a href="#cb12-38" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-41"><a href="#cb12-41" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb12-42"><a href="#cb12-42" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: method-kwargs</span></span>
+<span id="cb12-43"><a href="#cb12-43" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-44"><a href="#cb12-44" aria-hidden="true" tabindex="-1"></a>rag <span class="op">=</span> GraphRAG(</span>
+<span id="cb12-45"><a href="#cb12-45" aria-hidden="true" tabindex="-1"></a>    working_dir<span class="op">=</span><span class="bu">str</span>(WORKING_DIR <span class="op">/</span> <span class="st">&quot;kwargs&quot;</span>),</span>
+<span id="cb12-46"><a href="#cb12-46" aria-hidden="true" tabindex="-1"></a>    enable_llm_cache<span class="op">=</span><span class="va">True</span>,</span>
+<span id="cb12-47"><a href="#cb12-47" aria-hidden="true" tabindex="-1"></a>    chunk_token_size<span class="op">=</span><span class="dv">1200</span>,</span>
+<span id="cb12-48"><a href="#cb12-48" aria-hidden="true" tabindex="-1"></a>    chunk_overlap_token_size<span class="op">=</span><span class="dv">100</span>,</span>
+<span id="cb12-49"><a href="#cb12-49" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb12-50"><a href="#cb12-50" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;LLM model:      </span><span class="sc">{}</span><span class="st">&quot;</span>.<span class="bu">format</span>(rag.llm_model))</span>
+<span id="cb12-51"><a href="#cb12-51" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;Embedding dim:  </span><span class="sc">{}</span><span class="st">&quot;</span>.<span class="bu">format</span>(rag.embedding_dim))</span>
+<span id="cb12-52"><a href="#cb12-52" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;Chunk size:     </span><span class="sc">{}</span><span class="st">&quot;</span>.<span class="bu">format</span>(rag.chunk_token_size))</span>
+<span id="cb12-53"><a href="#cb12-53" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb12-54"><a href="#cb12-54" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-55"><a href="#cb12-55" aria-hidden="true" tabindex="-1"></a><span class="fu">## Method 2: YAML File</span></span>
+<span id="cb12-56"><a href="#cb12-56" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-57"><a href="#cb12-57" aria-hidden="true" tabindex="-1"></a>Best for team sharing and reproducibility.</span>
+<span id="cb12-58"><a href="#cb12-58" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-61"><a href="#cb12-61" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb12-62"><a href="#cb12-62" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: method-yaml</span></span>
+<span id="cb12-63"><a href="#cb12-63" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-64"><a href="#cb12-64" aria-hidden="true" tabindex="-1"></a>yaml_content <span class="op">=</span> <span class="st">&quot;&quot;&quot;</span></span>
+<span id="cb12-65"><a href="#cb12-65" aria-hidden="true" tabindex="-1"></a><span class="st">working_dir: ./_cache/03_configuration/yaml</span></span>
+<span id="cb12-66"><a href="#cb12-66" aria-hidden="true" tabindex="-1"></a><span class="st">llm:</span></span>
+<span id="cb12-67"><a href="#cb12-67" aria-hidden="true" tabindex="-1"></a><span class="st">  model: openrouter/google/gemma-4-31b-it</span></span>
+<span id="cb12-68"><a href="#cb12-68" aria-hidden="true" tabindex="-1"></a><span class="st">  max_async: 16</span></span>
+<span id="cb12-69"><a href="#cb12-69" aria-hidden="true" tabindex="-1"></a><span class="st">embedding:</span></span>
+<span id="cb12-70"><a href="#cb12-70" aria-hidden="true" tabindex="-1"></a><span class="st">  model: openrouter/qwen/qwen3-embedding-8b</span></span>
+<span id="cb12-71"><a href="#cb12-71" aria-hidden="true" tabindex="-1"></a><span class="st">  dim: 4096</span></span>
+<span id="cb12-72"><a href="#cb12-72" aria-hidden="true" tabindex="-1"></a><span class="st">features:</span></span>
+<span id="cb12-73"><a href="#cb12-73" aria-hidden="true" tabindex="-1"></a><span class="st">  local_search: true</span></span>
+<span id="cb12-74"><a href="#cb12-74" aria-hidden="true" tabindex="-1"></a><span class="st">  llm_cache: true</span></span>
+<span id="cb12-75"><a href="#cb12-75" aria-hidden="true" tabindex="-1"></a><span class="st">&quot;&quot;&quot;</span></span>
+<span id="cb12-76"><a href="#cb12-76" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-77"><a href="#cb12-77" aria-hidden="true" tabindex="-1"></a>yaml_path <span class="op">=</span> WORKING_DIR <span class="op">/</span> <span class="st">&quot;settings.yaml&quot;</span></span>
+<span id="cb12-78"><a href="#cb12-78" aria-hidden="true" tabindex="-1"></a>yaml_path.write_text(yaml_content)</span>
+<span id="cb12-79"><a href="#cb12-79" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-80"><a href="#cb12-80" aria-hidden="true" tabindex="-1"></a>config <span class="op">=</span> GraphRAGConfig.from_yaml(<span class="bu">str</span>(yaml_path))</span>
+<span id="cb12-81"><a href="#cb12-81" aria-hidden="true" tabindex="-1"></a>rag <span class="op">=</span> GraphRAG.from_config(config)</span>
+<span id="cb12-82"><a href="#cb12-82" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;LLM model:      </span><span class="sc">{}</span><span class="st">&quot;</span>.<span class="bu">format</span>(rag.llm_model))</span>
+<span id="cb12-83"><a href="#cb12-83" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;Embedding dim:  </span><span class="sc">{}</span><span class="st">&quot;</span>.<span class="bu">format</span>(rag.embedding_dim))</span>
+<span id="cb12-84"><a href="#cb12-84" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;Local search:   </span><span class="sc">{}</span><span class="st">&quot;</span>.<span class="bu">format</span>(rag.enable_local))</span>
+<span id="cb12-85"><a href="#cb12-85" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb12-86"><a href="#cb12-86" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-87"><a href="#cb12-87" aria-hidden="true" tabindex="-1"></a><span class="fu">## Method 3: Environment Variables</span></span>
+<span id="cb12-88"><a href="#cb12-88" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-89"><a href="#cb12-89" aria-hidden="true" tabindex="-1"></a>Best for Docker, CI/CD. Set via dotenvx: <span class="in">`GRAPH_API_KEY`</span>, <span class="in">`LLM_MODEL`</span>, <span class="in">`EMBEDDING_MODEL`</span>, etc.</span>
+<span id="cb12-90"><a href="#cb12-90" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-93"><a href="#cb12-93" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb12-94"><a href="#cb12-94" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: method-env</span></span>
+<span id="cb12-95"><a href="#cb12-95" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-96"><a href="#cb12-96" aria-hidden="true" tabindex="-1"></a>config <span class="op">=</span> GraphRAGConfig.from_env()</span>
+<span id="cb12-97"><a href="#cb12-97" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;LLM model:      </span><span class="sc">{}</span><span class="st">&quot;</span>.<span class="bu">format</span>(config.llm_model))</span>
+<span id="cb12-98"><a href="#cb12-98" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;Embedding model: </span><span class="sc">{}</span><span class="st">&quot;</span>.<span class="bu">format</span>(config.embedding_model))</span>
+<span id="cb12-99"><a href="#cb12-99" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;Working dir:     </span><span class="sc">{}</span><span class="st">&quot;</span>.<span class="bu">format</span>(config.working_dir))</span>
+<span id="cb12-100"><a href="#cb12-100" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb12-101"><a href="#cb12-101" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-102"><a href="#cb12-102" aria-hidden="true" tabindex="-1"></a><span class="fu">## Practical Example: Local Ollama Models</span></span>
+<span id="cb12-103"><a href="#cb12-103" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-104"><a href="#cb12-104" aria-hidden="true" tabindex="-1"></a>No API key needed — runs everything locally.</span>
+<span id="cb12-105"><a href="#cb12-105" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-108"><a href="#cb12-108" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb12-109"><a href="#cb12-109" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: ollama-example</span></span>
+<span id="cb12-110"><a href="#cb12-110" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-111"><a href="#cb12-111" aria-hidden="true" tabindex="-1"></a>ollama_config <span class="op">=</span> GraphRAGConfig(</span>
+<span id="cb12-112"><a href="#cb12-112" aria-hidden="true" tabindex="-1"></a>    working_dir<span class="op">=</span><span class="bu">str</span>(WORKING_DIR <span class="op">/</span> <span class="st">&quot;ollama&quot;</span>),</span>
+<span id="cb12-113"><a href="#cb12-113" aria-hidden="true" tabindex="-1"></a>    llm_model<span class="op">=</span><span class="st">&quot;ollama/llama3.2&quot;</span>,</span>
+<span id="cb12-114"><a href="#cb12-114" aria-hidden="true" tabindex="-1"></a>    llm_api_base<span class="op">=</span><span class="st">&quot;http://localhost:11434&quot;</span>,</span>
+<span id="cb12-115"><a href="#cb12-115" aria-hidden="true" tabindex="-1"></a>    embedding_model<span class="op">=</span><span class="st">&quot;ollama/nomic-embed-text&quot;</span>,</span>
+<span id="cb12-116"><a href="#cb12-116" aria-hidden="true" tabindex="-1"></a>    embedding_api_base<span class="op">=</span><span class="st">&quot;http://localhost:11434&quot;</span>,</span>
+<span id="cb12-117"><a href="#cb12-117" aria-hidden="true" tabindex="-1"></a>    embedding_dim<span class="op">=</span><span class="dv">768</span>,</span>
+<span id="cb12-118"><a href="#cb12-118" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb12-119"><a href="#cb12-119" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;</span><span class="ch">\n</span><span class="st">Ollama config:&quot;</span>)</span>
+<span id="cb12-120"><a href="#cb12-120" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  LLM:       </span><span class="sc">{}</span><span class="st">&quot;</span>.<span class="bu">format</span>(ollama_config.llm_model))</span>
+<span id="cb12-121"><a href="#cb12-121" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  Embedding: </span><span class="sc">{}</span><span class="st">&quot;</span>.<span class="bu">format</span>(ollama_config.embedding_model))</span>
+<span id="cb12-122"><a href="#cb12-122" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  API base:  </span><span class="sc">{}</span><span class="st">&quot;</span>.<span class="bu">format</span>(ollama_config.llm_api_base))</span>
+<span id="cb12-123"><a href="#cb12-123" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;  Dim:       </span><span class="sc">{}</span><span class="st">&quot;</span>.<span class="bu">format</span>(ollama_config.embedding_dim))</span>
+<span id="cb12-124"><a href="#cb12-124" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-125"><a href="#cb12-125" aria-hidden="true" tabindex="-1"></a><span class="co"># Uncomment to use:</span></span>
+<span id="cb12-126"><a href="#cb12-126" aria-hidden="true" tabindex="-1"></a><span class="co"># rag = GraphRAG.from_config(ollama_config)</span></span>
+<span id="cb12-127"><a href="#cb12-127" aria-hidden="true" tabindex="-1"></a><span class="co"># await rag.ainsert(&quot;Your text here&quot;)</span></span>
+<span id="cb12-128"><a href="#cb12-128" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb12-129"><a href="#cb12-129" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-130"><a href="#cb12-130" aria-hidden="true" tabindex="-1"></a><span class="fu">## Key Config Parameters Reference</span></span>
+<span id="cb12-131"><a href="#cb12-131" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-134"><a href="#cb12-134" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb12-135"><a href="#cb12-135" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: param-reference</span></span>
+<span id="cb12-136"><a href="#cb12-136" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-137"><a href="#cb12-137" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;&quot;&quot;</span></span>
+<span id="cb12-138"><a href="#cb12-138" aria-hidden="true" tabindex="-1"></a><span class="st">Common parameters:</span></span>
+<span id="cb12-139"><a href="#cb12-139" aria-hidden="true" tabindex="-1"></a><span class="st">  working_dir              — where all data is stored (default: ./nano_graphrag)</span></span>
+<span id="cb12-140"><a href="#cb12-140" aria-hidden="true" tabindex="-1"></a><span class="st">  llm_model                — LLM for extraction + queries (default: from env)</span></span>
+<span id="cb12-141"><a href="#cb12-141" aria-hidden="true" tabindex="-1"></a><span class="st">  llm_cheap_model          — cheaper LLM for fast mode</span></span>
+<span id="cb12-142"><a href="#cb12-142" aria-hidden="true" tabindex="-1"></a><span class="st">  embedding_model          — embedding model name</span></span>
+<span id="cb12-143"><a href="#cb12-143" aria-hidden="true" tabindex="-1"></a><span class="st">  embedding_dim            — embedding vector dimension</span></span>
+<span id="cb12-144"><a href="#cb12-144" aria-hidden="true" tabindex="-1"></a><span class="st">  chunk_token_size         — tokens per chunk (default: 1200)</span></span>
+<span id="cb12-145"><a href="#cb12-145" aria-hidden="true" tabindex="-1"></a><span class="st">  chunk_overlap_token_size — overlap between chunks (default: 100)</span></span>
+<span id="cb12-146"><a href="#cb12-146" aria-hidden="true" tabindex="-1"></a><span class="st">  enable_local             — enable local query mode (default: True)</span></span>
+<span id="cb12-147"><a href="#cb12-147" aria-hidden="true" tabindex="-1"></a><span class="st">  enable_naive_rag         — enable naive RAG mode (default: False)</span></span>
+<span id="cb12-148"><a href="#cb12-148" aria-hidden="true" tabindex="-1"></a><span class="st">  enable_llm_cache         — cache LLM responses (default: True)</span></span>
+<span id="cb12-149"><a href="#cb12-149" aria-hidden="true" tabindex="-1"></a><span class="st">  enable_entity_linking    — merge duplicate entities (default: False)</span></span>
+<span id="cb12-150"><a href="#cb12-150" aria-hidden="true" tabindex="-1"></a><span class="st">  extraction_batch_size    — chunks per LLM call (default: 5)</span></span>
+<span id="cb12-151"><a href="#cb12-151" aria-hidden="true" tabindex="-1"></a><span class="st">  entity_extraction_quality — &#39;balanced&#39; or &#39;fast&#39; (default: balanced)</span></span>
+<span id="cb12-152"><a href="#cb12-152" aria-hidden="true" tabindex="-1"></a><span class="st">&quot;&quot;&quot;</span>)</span>
+<span id="cb12-153"><a href="#cb12-153" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
 </code></pre></div><button title="Copy to Clipboard" class="code-copy-button" data-in-quarto-modal><i class="bi"></i></button></div>
 </div></div></div></div></div>
 </div> <!-- /content -->

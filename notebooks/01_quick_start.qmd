@@ -1,6 +1,6 @@
 ---
 title: "Quick Start"
-description: "Minimal end-to-end: insert documents, build a knowledge graph, and query in global & local modes."
+description: "Get running in 5 minutes — insert a document, query it, and explore the resulting knowledge graph."
 date: today
 format:
   html:
@@ -10,28 +10,20 @@ format:
     code-tools: true
 ---
 
-## Introduction
-
-**nano-graphrag** is a lightweight GraphRAG implementation that extracts entities and relationships from text, builds a knowledge graph, generates community reports, and supports multiple query modes.
-
-This notebook walks through the minimal workflow:
-
-1. **Insert** text into the graph (entity extraction + community detection)
-2. **Query** using global and local search modes
-3. **Inspect** the resulting knowledge graph
-
-We use the default storage backends (NetworkX graph, HNSWLib vector DB, JSON KV store) and the default OpenRouter LLM models.
-
-## Setup
+This notebook walks through the core nano-graphrag workflow: load text, build a knowledge graph, query it with different modes, then dive deep into the resulting graph structure with rich visualization and analysis.
 
 ```{python}
 #| label: setup
+#| cache: true
+
+import json
 import logging
 import time
+from collections import Counter
 from pathlib import Path
 
 logging.basicConfig(level=logging.WARNING)
-logging.getLogger("nano-graphrag").setLevel(logging.INFO)
+logging.getLogger("nano-graphrag").setLevel(logging.WARNING)
 
 WORKING_DIR = Path("./_cache/01_quick_start")
 WORKING_DIR.mkdir(parents=True, exist_ok=True)
@@ -39,15 +31,19 @@ WORKING_DIR.mkdir(parents=True, exist_ok=True)
 
 ```{python}
 #| label: imports
+#| cache: true
+
 from nano_graphrag import GraphRAG, QueryParam
 ```
 
-## Load Data
+## Load Sample Text
 
-We use the bundled *A Christmas Carol* text from Project Gutenberg. To keep indexing time manageable for this tutorial, we use the first two staves (~130 lines), which introduce the main characters and their relationships.
+We use the first 400 lines of *A Christmas Carol* from the test fixtures.
 
 ```{python}
-#| label: load-data
+#| label: load-text
+#| cache: true
+
 with open("../tests/fixtures/mock_data.txt", encoding="utf-8-sig") as f:
     lines = f.readlines()
 
@@ -57,117 +53,442 @@ print(f"Loaded {len(text):,} characters ({len(text.splitlines())} lines)")
 
 ## Initialize GraphRAG
 
-The default configuration uses environment variables for API credentials (`GRAPH_API_KEY`, `LLM_MODEL`, etc.) set via `dotenvx`. All defaults are tuned for OpenRouter models.
+API credentials come from environment variables (managed via dotenvx).
 
 ```{python}
-#| label: init-graphrag
+#| label: init-rag
+#| cache: true
+
 rag = GraphRAG(
     working_dir=str(WORKING_DIR),
     enable_llm_cache=True,
 )
-print(f"Working dir: {WORKING_DIR}")
-print(f"LLM model: {rag.llm_model}")
+print(f"LLM model:      {rag.llm_model}")
 print(f"Embedding model: {rag.embedding_model}")
 ```
 
-## Insert Documents
+## Insert — Build the Knowledge Graph
 
-This is the main indexing step. nano-graphrag will:
-
-1. **Chunk** the text by token size (default: 1200 tokens, 100 overlap)
-2. **Extract entities & relationships** from each chunk via LLM
-3. **Build the knowledge graph** (incremental merges)
-4. **Detect communities** via Leiden clustering
-5. **Generate community reports** via LLM
-
-This step makes real API calls and may take a few minutes depending on the model and text size.
+This chunks the text, extracts entities, builds the graph, and detects communities.
 
 ```{python}
 #| label: insert
 #| cache: true
+
+print("Indexing...")
 start = time.time()
 await rag.ainsert(text)
 elapsed = time.time() - start
-print(f"\nIndexing complete in {elapsed:.1f}s")
+print(f"Done in {elapsed:.1f}s")
 ```
 
-## Query: Global Mode
+## Query — Global vs Local
 
-Global search aggregates across **community reports** to answer broad, thematic questions. It is the default query mode.
+**Global** mode aggregates community reports for broad thematic questions.
 
 ```{python}
 #| label: query-global
-result_global = await rag.aquery(
+#| cache: true
+
+result = await rag.aquery(
     "What are the main themes in A Christmas Carol?",
     param=QueryParam(mode="global"),
 )
-print(result_global)
+print(result)
 ```
 
-## Query: Local Mode
-
-Local search starts from **entity-level retrieval**: it finds the most relevant entities to the query, then gathers their local context (neighborhood, community report, text chunks).
+**Local** mode does entity-level retrieval for specific questions.
 
 ```{python}
 #| label: query-local
-result_local = await rag.aquery(
+#| cache: true
+
+result = await rag.aquery(
     "What is the relationship between Scrooge and Bob Cratchit?",
     param=QueryParam(mode="local"),
 )
-print(result_local)
+print(result)
 ```
 
-## Inspect the Knowledge Graph
-
-Let's look at some statistics about the built graph.
+## Graph Analysis & Visualization
 
 ```{python}
-#| label: inspect-graph
+#| label: viz-imports
+#| cache: true
+
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 import networkx as nx
+import numpy as np
+
+plt.rcParams.update({
+    "figure.dpi": 150,
+    "savefig.dpi": 200,
+    "font.size": 11,
+    "axes.titlesize": 14,
+    "axes.labelsize": 12,
+})
 
 graphml_path = WORKING_DIR / "graph_chunk_entity_relation.graphml"
-if graphml_path.exists():
-    G = nx.read_graphml(str(graphml_path))
-    print(f"Nodes (entities):  {G.number_of_nodes()}")
-    print(f"Edges (relations): {G.number_of_edges()}")
-    print(f"Density:           {nx.density(G):.4f}")
-
-    top_by_degree = sorted(G.degree(), key=lambda x: x[1], reverse=True)[:10]
-    print(f"\nTop 10 entities by degree:")
-    for node_id, deg in top_by_degree:
-        data = G.nodes[node_id]
-        name = data.get("entity_name", node_id)
-        etype = data.get("entity_type", "?")
-        print(f"  {name:40s} ({etype:10s}) degree={deg}")
-else:
-    print("GraphML file not found (insert may not have completed)")
+G = nx.read_graphml(str(graphml_path))
 ```
 
 ```{python}
-#| label: inspect-communities
-import json
+#| label: graph-helpers
+#| cache: true
 
-reports_path = WORKING_DIR / "kv_store_community_reports.json"
-if reports_path.exists():
-    with open(reports_path) as f:
-        reports = json.load(f)
-    print(f"Community reports: {len(reports)}")
-    for i, (key, val) in enumerate(list(reports.items())[:3]):
-        title = val.get("title", "N/A")
-        rating = val.get("report_json", {}).get("rating", "N/A")
-        level = val.get("level", "N/A")
-        print(f"  [{i+1}] \"{title}\" (level={level}, rating={rating})")
-else:
-    print("Community reports not found")
+node_names = {n: G.nodes[n].get("entity_name", n) for n in G.nodes()}
+node_types = {n: G.nodes[n].get("entity_type", "UNKNOWN") for n in G.nodes()}
+edge_weights = [G.edges[u, v].get("weight", 1.0) for u, v in G.edges()]
+edge_descriptions = [G.edges[u, v].get("description", "") for u, v in G.edges()]
+
+community_map = {}
+for nid, data in G.nodes(data=True):
+    clusters = json.loads(data.get("clusters", "[]"))
+    for c in clusters:
+        cname = c["cluster"]
+        if cname not in community_map:
+            community_map[cname] = []
+        community_map[cname].append(nid)
+
+l0_communities = {k: v for k, v in community_map.items() if k.startswith("l0_")}
 ```
 
-## Summary
+### Figure 1 — Graph Overview
 
-In this notebook we:
+Four-panel summary: degree distribution, entity types, top-20 entities, edge weight distribution.
 
-- **Loaded** a full-length novel text
-- **Inserted** it into a knowledge graph via `await rag.ainsert()`
-- **Queried** in global mode (broad themes) and local mode (specific entity relationships)
-- **Inspected** the graph: entities, relationships, and community reports
+```{python}
+#| label: fig1-overview
+#| cache: true
 
-Next up: [Configuration](02-configuration.md) — explore all the ways to configure nano-graphrag.
+fig, axes = plt.subplots(2, 2, figsize=(20, 14))
+fig.suptitle("Knowledge Graph Overview — A Christmas Carol", fontsize=18, fontweight="bold", y=0.98)
+
+degrees = [d for _, d in G.degree()]
+axes[0, 0].hist(degrees, bins=range(1, max(degrees) + 2), edgecolor="white", color="#4C78A8", alpha=0.85)
+axes[0, 0].set_xlabel("Degree (number of connections)")
+axes[0, 0].set_ylabel("Number of entities")
+axes[0, 0].set_title("(a) Degree Distribution")
+axes[0, 0].set_yscale("log")
+axes[0, 0].axvline(x=np.median(degrees), color="red", linestyle="--", label="median={}".format(int(np.median(degrees))))
+axes[0, 0].legend()
+
+type_counts = Counter(node_types.values())
+sorted_types = type_counts.most_common()
+type_names = [t for t, _ in sorted_types]
+type_vals = [c for _, c in sorted_types]
+colors_types = ["#4C78A8", "#F58518", "#E45756", "#72B7B2", "#54A24B", "#EECA3B"]
+bars = axes[0, 1].barh(range(len(type_names)), type_vals, color=colors_types[:len(type_names)], edgecolor="white")
+axes[0, 1].set_yticks(range(len(type_names)))
+axes[0, 1].set_yticklabels(type_names)
+axes[0, 1].set_xlabel("Count")
+axes[0, 1].set_title("(b) Entities by Type")
+axes[0, 1].invert_yaxis()
+for bar, val in zip(bars, type_vals):
+    axes[0, 1].text(bar.get_width() + 0.3, bar.get_y() + bar.get_height() / 2, str(val), va="center", fontweight="bold")
+
+top20 = sorted(G.degree(), key=lambda x: x[1], reverse=True)[:20]
+top20_names = [node_names[nid][:28] for nid, _ in top20]
+top20_degs = [d for _, d in top20]
+top20_colors = [colors_types[type_names.index(node_types[nid]) % len(colors_types)] for nid, _ in top20]
+
+axes[1, 0].barh(range(len(top20_names)), top20_degs, color=top20_colors, edgecolor="white")
+axes[1, 0].set_yticks(range(len(top20_names)))
+axes[1, 0].set_yticklabels(top20_names, fontsize=9)
+axes[1, 0].set_xlabel("Degree")
+axes[1, 0].set_title("(c) Top 20 Entities by Degree")
+axes[1, 0].invert_yaxis()
+
+axes[1, 1].hist(edge_weights, bins=20, edgecolor="white", color="#72B7B2", alpha=0.85)
+axes[1, 1].set_xlabel("Edge Weight")
+axes[1, 1].set_ylabel("Count")
+axes[1, 1].set_title("(d) Relationship Weight Distribution")
+
+plt.tight_layout(rect=[0, 0, 1, 0.95])
+plt.savefig(WORKING_DIR / "fig1_graph_overview.png", bbox_inches="tight")
+```
+
+```{python}
+#| label: fig1-stats
+#| cache: true
+
+print("\nGraph Statistics:")
+print("  Nodes (entities):     {}".format(G.number_of_nodes()))
+print("  Edges (relations):    {}".format(G.number_of_edges()))
+print("  Density:              {:.4f}".format(nx.density(G)))
+print("  Avg clustering:       {:.4f}".format(nx.average_clustering(G)))
+print("  Connected components: {}".format(nx.number_connected_components(G)))
+print("  Avg degree:           {:.1f}".format(np.mean(degrees)))
+print("  Median degree:        {:.0f}".format(np.median(degrees)))
+print("  L0 communities:       {}".format(len(l0_communities)))
+```
+
+### Figure 2 — Network Communities
+
+Full network colored by level-0 community, with the top-15 entities labeled.
+
+```{python}
+#| label: fig2-communities
+#| cache: true
+
+fig, ax = plt.subplots(1, 1, figsize=(22, 22))
+
+pos = nx.spring_layout(G, k=2.5 / (G.number_of_nodes() ** 0.5), seed=42, iterations=100)
+
+node_to_l0 = {}
+for cname, members in l0_communities.items():
+    for nid in members:
+        node_to_l0[nid] = cname
+
+community_colors = {}
+cmap_communities = plt.cm.tab10
+l0_names = sorted(l0_communities.keys())
+for i, cname in enumerate(l0_names):
+    community_colors[cname] = cmap_communities(i / max(len(l0_names) - 1, 1))
+
+node_colors = []
+for n in G.nodes():
+    cname = node_to_l0.get(n)
+    node_colors.append(community_colors.get(cname, "#CCCCCC"))
+
+node_sizes = [120 + 60 * G.degree(n) for n in G.nodes()]
+edge_widths = [0.3 + 0.7 * float(G.edges[u, v].get("weight", 1.0)) for u, v in G.edges()]
+
+nx.draw_networkx_edges(G, pos, alpha=0.12, width=edge_widths, edge_color="#888888", ax=ax)
+nx.draw_networkx_nodes(G, pos, node_color=node_colors, node_size=node_sizes, alpha=0.85, edgecolors="white", linewidths=0.5, ax=ax)
+
+top15_nodes = {nid for nid, _ in sorted(G.degree(), key=lambda x: x[1], reverse=True)[:15]}
+labels = {nid: node_names[nid][:22] for nid in top15_nodes}
+nx.draw_networkx_labels(G, pos, labels, font_size=10, font_weight="bold", ax=ax)
+
+handles = []
+for cname in l0_names:
+    member_names = [node_names[n][:18] for n in l0_communities[cname][:4]]
+    label = "{}: {}".format(cname, ", ".join(member_names))
+    handles.append(mpatches.Patch(color=community_colors[cname], label=label))
+ax.legend(handles=handles, title="Level-0 Communities", loc="upper left", fontsize=9, title_fontsize=10, framealpha=0.9)
+
+ax.set_title("Knowledge Graph — Community Structure", fontsize=18, fontweight="bold", pad=20)
+ax.axis("off")
+plt.savefig(WORKING_DIR / "fig2_network_communities.png", bbox_inches="tight", facecolor="white")
+```
+
+### Figure 3 — Entity Type Subgraphs
+
+Separate subgraphs for each entity type (PERSON, GEO, ORG, etc.).
+
+```{python}
+#| label: fig3-subgraphs
+#| cache: true
+
+fig, axes = plt.subplots(1, len(sorted_types), figsize=(6 * len(sorted_types), 6))
+if len(sorted_types) == 1:
+    axes = [axes]
+fig.suptitle("Subgraphs by Entity Type", fontsize=16, fontweight="bold", y=1.02)
+
+for ax, (etype, count) in zip(axes, sorted_types):
+    nodes_of_type = [n for n in G.nodes() if node_types[n] == etype]
+    sub = G.subgraph(nodes_of_type).copy()
+    if sub.number_of_nodes() == 0:
+        ax.axis("off")
+        ax.set_title("{} (0)".format(etype))
+        continue
+
+    pos_sub = nx.spring_layout(sub, seed=42, k=1.5) if sub.number_of_nodes() > 1 else {nodes_of_type[0]: (0.5, 0.5)}
+    nx.draw_networkx_edges(sub, pos_sub, alpha=0.3, ax=ax)
+    nx.draw_networkx_nodes(sub, pos_sub, node_color=colors_types[type_names.index(etype) % len(colors_types)], node_size=300, alpha=0.85, ax=ax)
+    labels_sub = {n: node_names[n][:15] for n in sub.nodes()}
+    nx.draw_networkx_labels(sub, pos_sub, labels_sub, font_size=7, ax=ax)
+    ax.set_title("{} ({})".format(etype, count))
+    ax.axis("off")
+
+plt.tight_layout()
+plt.savefig(WORKING_DIR / "fig3_entity_type_subgraphs.png", bbox_inches="tight")
+```
+
+### Figure 4 — Entity Neighborhoods
+
+1-hop neighborhoods of the top-6 entities with edge descriptions.
+
+```{python}
+#| label: fig4-neighborhoods
+#| cache: true
+
+top_entities = sorted(G.degree(), key=lambda x: x[1], reverse=True)[:6]
+
+fig, axes = plt.subplots(2, 3, figsize=(24, 16))
+fig.suptitle("Neighborhood of Top Entities (1-hop)", fontsize=16, fontweight="bold", y=0.98)
+axes = axes.flatten()
+
+for ax, (center_id, center_deg) in zip(axes, top_entities):
+    neighbors = list(G.neighbors(center_id))
+    ego_nodes = [center_id] + neighbors
+    ego = G.subgraph(ego_nodes).copy()
+
+    pos_ego = nx.spring_layout(ego, seed=42, k=1.2) if ego.number_of_nodes() > 1 else {center_id: (0.5, 0.5)}
+
+    ego_colors = []
+    ego_sizes = []
+    for n in ego.nodes():
+        if n == center_id:
+            ego_colors.append("#E45756")
+            ego_sizes.append(600)
+        else:
+            ego_colors.append(community_colors.get(node_to_l0.get(n), "#CCCCCC"))
+            ego_sizes.append(250)
+
+    nx.draw_networkx_edges(ego, pos_ego, alpha=0.3, ax=ax)
+    edge_labels_ego = {}
+    for u, v in ego.edges():
+        desc = G.edges[u, v].get("description", "")
+        if len(desc) > 25:
+            desc = desc[:22] + "..."
+        edge_labels_ego[(u, v)] = desc
+    nx.draw_networkx_edge_labels(ego, pos_ego, edge_labels_ego, font_size=6, ax=ax)
+    nx.draw_networkx_nodes(ego, pos_ego, node_color=ego_colors, node_size=ego_sizes, edgecolors="white", linewidths=0.5, ax=ax)
+    labels_ego = {n: node_names[n][:18] for n in ego.nodes()}
+    nx.draw_networkx_labels(ego, pos_ego, labels_ego, font_size=8, ax=ax)
+
+    center_name = node_names[center_id]
+    ax.set_title("{} (degree={})".format(center_name, center_deg), fontsize=12, fontweight="bold")
+    ax.axis("off")
+
+plt.tight_layout(rect=[0, 0, 1, 0.95])
+plt.savefig(WORKING_DIR / "fig4_entity_neighborhoods.png", bbox_inches="tight")
+```
+
+### Figure 5 — Centrality Analysis
+
+Betweenness, closeness, and eigenvector centrality for the top entities.
+
+```{python}
+#| label: fig5-centrality
+#| cache: true
+
+betweenness = nx.betweenness_centrality(G)
+closeness = nx.closeness_centrality(G)
+eigenvector = nx.eigenvector_centrality(G, max_iter=500)
+
+fig, axes = plt.subplots(1, 3, figsize=(22, 8))
+fig.suptitle("Centrality Analysis — Who Are the Key Entities?", fontsize=16, fontweight="bold", y=1.02)
+
+centrality_measures = [
+    ("Betweenness Centrality", betweenness, "Bridge nodes — control information flow"),
+    ("Closeness Centrality", closeness, "Well-connected — reach others quickly"),
+    ("Eigenvector Centrality", eigenvector, "Influential — connected to other important nodes"),
+]
+
+for ax, (title, measure, subtitle) in zip(axes, centrality_measures):
+    top = sorted(measure.items(), key=lambda x: x[1], reverse=True)[:12]
+    names = [node_names[nid][:25] for nid, _ in top]
+    vals = [v for _, v in top]
+
+    ax.barh(range(len(names)), vals, color="#4C78A8", edgecolor="white", alpha=0.85)
+    ax.set_yticks(range(len(names)))
+    ax.set_yticklabels(names, fontsize=9)
+    ax.set_xlabel("Score")
+    ax.set_title(title, fontsize=12, fontweight="bold")
+    ax.invert_yaxis()
+    ax.text(0.5, -0.08, subtitle, transform=ax.transAxes, ha="center", fontsize=9, style="italic", color="#666666")
+
+plt.tight_layout()
+plt.savefig(WORKING_DIR / "fig5_centrality_analysis.png", bbox_inches="tight")
+```
+
+### Figure 6 — Relationship Analysis
+
+Strongest entity relationships and community size distribution.
+
+```{python}
+#| label: fig6-relationships
+#| cache: true
+
+fig, axes = plt.subplots(1, 2, figsize=(20, 8))
+fig.suptitle("Relationship Analysis", fontsize=16, fontweight="bold", y=1.02)
+
+strongest_edges = sorted(G.edges(data=True), key=lambda x: float(x[2].get("weight", 1.0)), reverse=True)[:15]
+edge_labels_list = []
+edge_weights_top = []
+for u, v, data in strongest_edges:
+    name_u = node_names[u][:20]
+    name_v = node_names[v][:20]
+    w = float(data.get("weight", 1.0))
+    edge_labels_list.append("{} — {}".format(name_u, name_v))
+    edge_weights_top.append(w)
+
+axes[0].barh(range(len(edge_labels_list)), edge_weights_top, color="#F58518", edgecolor="white", alpha=0.85)
+axes[0].set_yticks(range(len(edge_labels_list)))
+axes[0].set_yticklabels(edge_labels_list, fontsize=8)
+axes[0].set_xlabel("Weight (co-occurrence strength)")
+axes[0].set_title("(a) Strongest Entity Relationships")
+axes[0].invert_yaxis()
+
+comm_sizes = [len(members) for members in l0_communities.values()]
+comm_names = [cname for cname in l0_communities.keys()]
+axes[1].bar(range(len(comm_names)), comm_sizes, color=list(community_colors.values())[:len(comm_names)], edgecolor="white")
+axes[1].set_xticks(range(len(comm_names)))
+axes[1].set_xticklabels(comm_names, rotation=45, ha="right")
+axes[1].set_ylabel("Number of entities")
+axes[1].set_title("(b) Community Size (Level 0)")
+for i, (_cn, sz) in enumerate(zip(comm_names, comm_sizes)):
+    axes[1].text(i, sz + 0.2, str(sz), ha="center", fontweight="bold")
+
+plt.tight_layout()
+plt.savefig(WORKING_DIR / "fig6_relationship_analysis.png", bbox_inches="tight")
+```
+
+## Textual Analysis
+
+```{python}
+#| label: textual-analysis
+#| cache: true
+
+print("\n" + "=" * 70)
+print("TEXTUAL ANALYSIS")
+print("=" * 70)
+
+print("\nTop 10 entities by degree:")
+for nid, deg in sorted(G.degree(), key=lambda x: x[1], reverse=True)[:10]:
+    name = node_names[nid]
+    etype = node_types[nid]
+    print("  {:40s} ({:12s}) degree={}".format(name, etype, deg))
+
+print("\nStrongest relationships:")
+for u, v, data in strongest_edges[:10]:
+    name_u = node_names[u]
+    name_v = node_names[v]
+    w = data.get("weight", 1.0)
+    desc = data.get("description", "")
+    print("  {:25s} <-> {:25s} weight={}  ({})".format(name_u, name_v, w, desc[:50]))
+
+print("\nCommunities (Level 0):")
+for cname in sorted(l0_communities.keys()):
+    members = l0_communities[cname]
+    member_names = [node_names[n] for n in members]
+    print("  {} ({} entities): {}".format(cname, len(members), ", ".join(member_names[:8])))
+```
+
+```{python}
+#| label: community-reports
+#| cache: true
+
+import sqlite3
+
+db_path = WORKING_DIR / "kv_store_community_reports.db"
+if db_path.exists():
+    conn = sqlite3.connect(str(db_path))
+    rows = conn.execute("SELECT key, value FROM kv_store").fetchall()
+    conn.close()
+
+    print("Community reports: {}".format(len(rows)))
+    for key, val_str in rows[:5]:
+        val = json.loads(val_str)
+        title = val.get("title", "N/A")
+        level = val.get("level", "N/A")
+        report_str = val.get("report_string", "")
+        print('  [{}] "{}" (level={})'.format(key, title, level))
+        if report_str:
+            preview = report_str[:120].replace("\n", " ")
+            print("    {}...".format(preview))
+```

@@ -1,0 +1,141 @@
+---
+title: "Configuration"
+description: "Learn the three main config paths (kwargs, YAML, env vars) and see a practical Ollama example."
+date: today
+format:
+  html:
+    self-contained: true
+    embed-resources: true
+    code-fold: true
+    code-tools: true
+---
+
+nano-graphrag offers three ways to configure your instance: direct keyword arguments, YAML files for team sharing, and environment variables for Docker/CI. This notebook demonstrates each approach and shows how to switch to local Ollama models.
+
+## Setup
+
+```{python}
+#| label: setup
+
+import logging
+from pathlib import Path
+
+logging.basicConfig(level=logging.WARNING)
+logging.getLogger("nano-graphrag").setLevel(logging.WARNING)
+
+WORKING_DIR = Path("./_cache/03_configuration")
+WORKING_DIR.mkdir(parents=True, exist_ok=True)
+
+from nano_graphrag import GraphRAG
+from nano_graphrag.base import GraphRAGConfig
+```
+
+## Method 1: Direct Keyword Arguments
+
+Simplest approach — best for scripts and notebooks.
+
+```{python}
+#| label: method-kwargs
+
+rag = GraphRAG(
+    working_dir=str(WORKING_DIR / "kwargs"),
+    enable_llm_cache=True,
+    chunk_token_size=1200,
+    chunk_overlap_token_size=100,
+)
+print("LLM model:      {}".format(rag.llm_model))
+print("Embedding dim:  {}".format(rag.embedding_dim))
+print("Chunk size:     {}".format(rag.chunk_token_size))
+```
+
+## Method 2: YAML File
+
+Best for team sharing and reproducibility.
+
+```{python}
+#| label: method-yaml
+
+yaml_content = """
+working_dir: ./_cache/03_configuration/yaml
+llm:
+  model: openrouter/google/gemma-4-31b-it
+  max_async: 16
+embedding:
+  model: openrouter/qwen/qwen3-embedding-8b
+  dim: 4096
+features:
+  local_search: true
+  llm_cache: true
+"""
+
+yaml_path = WORKING_DIR / "settings.yaml"
+yaml_path.write_text(yaml_content)
+
+config = GraphRAGConfig.from_yaml(str(yaml_path))
+rag = GraphRAG.from_config(config)
+print("LLM model:      {}".format(rag.llm_model))
+print("Embedding dim:  {}".format(rag.embedding_dim))
+print("Local search:   {}".format(rag.enable_local))
+```
+
+## Method 3: Environment Variables
+
+Best for Docker, CI/CD. Set via dotenvx: `GRAPH_API_KEY`, `LLM_MODEL`, `EMBEDDING_MODEL`, etc.
+
+```{python}
+#| label: method-env
+
+config = GraphRAGConfig.from_env()
+print("LLM model:      {}".format(config.llm_model))
+print("Embedding model: {}".format(config.embedding_model))
+print("Working dir:     {}".format(config.working_dir))
+```
+
+## Practical Example: Local Ollama Models
+
+No API key needed — runs everything locally.
+
+```{python}
+#| label: ollama-example
+
+ollama_config = GraphRAGConfig(
+    working_dir=str(WORKING_DIR / "ollama"),
+    llm_model="ollama/llama3.2",
+    llm_api_base="http://localhost:11434",
+    embedding_model="ollama/nomic-embed-text",
+    embedding_api_base="http://localhost:11434",
+    embedding_dim=768,
+)
+print("\nOllama config:")
+print("  LLM:       {}".format(ollama_config.llm_model))
+print("  Embedding: {}".format(ollama_config.embedding_model))
+print("  API base:  {}".format(ollama_config.llm_api_base))
+print("  Dim:       {}".format(ollama_config.embedding_dim))
+
+# Uncomment to use:
+# rag = GraphRAG.from_config(ollama_config)
+# await rag.ainsert("Your text here")
+```
+
+## Key Config Parameters Reference
+
+```{python}
+#| label: param-reference
+
+print("""
+Common parameters:
+  working_dir              — where all data is stored (default: ./nano_graphrag)
+  llm_model                — LLM for extraction + queries (default: from env)
+  llm_cheap_model          — cheaper LLM for fast mode
+  embedding_model          — embedding model name
+  embedding_dim            — embedding vector dimension
+  chunk_token_size         — tokens per chunk (default: 1200)
+  chunk_overlap_token_size — overlap between chunks (default: 100)
+  enable_local             — enable local query mode (default: True)
+  enable_naive_rag         — enable naive RAG mode (default: False)
+  enable_llm_cache         — cache LLM responses (default: True)
+  enable_entity_linking    — merge duplicate entities (default: False)
+  extraction_batch_size    — chunks per LLM call (default: 5)
+  entity_extraction_quality — 'balanced' or 'fast' (default: balanced)
+""")
+```
