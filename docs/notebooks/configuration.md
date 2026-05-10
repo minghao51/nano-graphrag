@@ -1,15 +1,23 @@
+---
+hide:
+  - navigation
+  - toc
+---
+
 # Configuration
 
-All config paths: direct kwargs, environment variables, YAML files, and dictionaries — nested vs flat format.
+Learn the three main config paths (kwargs, YAML, env vars) and see a practical Ollama example.
 
-<div style="margin: 0 -0.8rem">
-  <iframe src="/nano-graphrag/notebooks/html/02_configuration.html"
-    style="width:100%; height:600px; border:1px solid var(--md-default-fg-color--lightest); border-radius:4px;"
-    loading="lazy"></iframe>
+<div class="iframe-container" id="iframe-wrapper-configuration">
+  <div class="iframe-controls">
+    <button onclick="toggleNotebookFullscreen(this)" class="md-button">Expand</button>
+    <a href="/nano-graphrag/notebooks/html/03_configuration.html" target="_blank" class="md-button">Open in New Tab</a>
+  </div>
+  <iframe src="/nano-graphrag/notebooks/html/03_configuration.html" allowfullscreen loading="lazy"></iframe>
 </div>
 
 ## Run Locally
 
 ```bash
-dotenvx run -- uv run quarto render notebooks/02_configuration.qmd
+dotenvx run -- uv run quarto render notebooks/03_configuration.qmd
 ```

@@ -4,12 +4,10 @@ Interactive tutorials demonstrating nano-graphrag features.
 
 | Notebook | Description |
 |----------|-------------|
-| [Quick Start](quick-start.md) | Minimal end-to-end: insert documents, build a knowledge graph, and query in global & local modes. |
-| [Configuration](configuration.md) | All config paths: direct kwargs, environment variables, YAML files, and dictionaries — nested vs flat format. |
-| [Query Modes](query-modes.md) | Deep dive into global, local, naive, entity-grounded, and streaming query modes — when to use each and how to tune them. |
-| [Storage Backends](storage-backends.md) | Swap graph, vector, and KV storage backends — NetworkX vs SQLite vs Neo4j for graphs, HNSWLib vs NanoVectorDB for vectors. |
-| [Extraction Pipeline](extraction-pipeline.md) | Explore entity extraction backends — structured (batched), legacy (text parsing), and GLiNER — plus quality modes and fallback behavior. |
-| [Advanced Features](advanced-features.md) | Incremental insertion, entity linking, temporal extraction, community reports, and graph rebuild — production features for real-world usage. |
+| [Quick Start](quick-start.md) | Get running in 5 minutes — insert a document, query it, and explore the resulting knowledge graph. |
+| [Query Modes](query-modes.md) | Compare global, local, naive, and entity-grounded query modes with timing benchmarks, token/cost analysis, and quality comparison. |
+| [Configuration](configuration.md) | Learn the three main config paths (kwargs, YAML, env vars) and see a practical Ollama example. |
+| [Storage & Extraction](storage-extraction.md) | Swap storage backends for your scale, do incremental inserts, tune extraction quality vs speed, and enable entity linking. |
 
 ## Running Locally
 

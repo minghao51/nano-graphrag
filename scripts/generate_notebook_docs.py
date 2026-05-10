@@ -62,16 +62,24 @@ def generate_stub(qmd_path: Path, base_path: str) -> tuple[str, str]:
     description = fm.get("description", "")
     html_name = qmd_path.stem + ".html"
     slug = slugify(title)
-    iframe_src = f"{base_path}/notebooks/html/{html_name}"
+    iframe_src = f"{base_path}" + f"/notebooks/html/{html_name}"
 
-    stub = f"""# {title}
+    stub = f"""---
+hide:
+  - navigation
+  - toc
+---
+
+# {title}
 
 {description}
 
-<div style="margin: 0 -0.8rem">
-  <iframe src="{iframe_src}"
-    style="width:100%; height:600px; border:1px solid var(--md-default-fg-color--lightest); border-radius:4px;"
-    loading="lazy"></iframe>
+<div class="iframe-container" id="iframe-wrapper-{slug}">
+  <div class="iframe-controls">
+    <button onclick="toggleNotebookFullscreen(this)" class="md-button">Expand</button>
+    <a href="{iframe_src}" target="_blank" class="md-button">Open in New Tab</a>
+  </div>
+  <iframe src="{iframe_src}" allowfullscreen loading="lazy"></iframe>
 </div>
 
 ## Run Locally

@@ -1,11 +1,19 @@
+---
+hide:
+  - navigation
+  - toc
+---
+
 # Quick Start
 
-Minimal end-to-end: insert documents, build a knowledge graph, and query in global & local modes.
+Get running in 5 minutes — insert a document, query it, and explore the resulting knowledge graph.
 
-<div style="margin: 0 -0.8rem">
-  <iframe src="/nano-graphrag/notebooks/html/01_quick_start.html"
-    style="width:100%; height:600px; border:1px solid var(--md-default-fg-color--lightest); border-radius:4px;"
-    loading="lazy"></iframe>
+<div class="iframe-container" id="iframe-wrapper-quick-start">
+  <div class="iframe-controls">
+    <button onclick="toggleNotebookFullscreen(this)" class="md-button">Expand</button>
+    <a href="/nano-graphrag/notebooks/html/01_quick_start.html" target="_blank" class="md-button">Open in New Tab</a>
+  </div>
+  <iframe src="/nano-graphrag/notebooks/html/01_quick_start.html" allowfullscreen loading="lazy"></iframe>
 </div>
 
 ## Run Locally
