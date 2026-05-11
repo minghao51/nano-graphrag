@@ -122,13 +122,13 @@ async def _pack_single_community_describe(
             (data or {}).get("description", "UNKNOWN"),
             node_degrees[i],
         ]
-        for i, (name, data) in enumerate(zip(nodes_in_order, nodes_data))
+        for i, (name, data) in enumerate(zip(nodes_in_order, nodes_data, strict=False))
         if name not in contain_nodes
     ]
 
     node_index_lookup = {name: idx for idx, name in enumerate(nodes_in_order)}
     edges_list_data = []
-    for i, (edge, data) in enumerate(zip(edges_in_order, edges_data)):
+    for i, (edge, data) in enumerate(zip(edges_in_order, edges_data, strict=False)):
         if (edge[0], edge[1]) in contain_edges:
             continue
         edge_data = data or {}
@@ -267,7 +267,7 @@ async def generate_community_report(
     existing_reports = await community_report_kv.get_by_ids(existing_report_keys)
     seeded_reports: dict[str, CommunitySchema] = {
         key: value
-        for key, value in zip(existing_report_keys, existing_reports)
+        for key, value in zip(existing_report_keys, existing_reports, strict=False)
         if value is not None
     }
 
@@ -275,7 +275,9 @@ async def generate_community_report(
     level_communities = {}
     for level in levels:
         level_pairs = [
-            (k, v) for k, v in zip(community_keys, community_values) if v["level"] == level
+            (k, v)
+            for k, v in zip(community_keys, community_values, strict=False)
+            if v["level"] == level
         ]
         if level_pairs:
             level_communities[level] = level_pairs
@@ -294,11 +296,13 @@ async def generate_community_report(
         level_pairs = level_communities[level]
         if not level_pairs:
             continue
-        this_level_community_keys, this_level_community_values = zip(*level_pairs)
+        this_level_community_keys, this_level_community_values = zip(*level_pairs, strict=False)
         this_level_reports = await asyncio.gather(
             *[
                 _generate_report(k, v, {**seeded_reports, **community_datas})
-                for k, v in zip(this_level_community_keys, this_level_community_values)
+                for k, v in zip(
+                    this_level_community_keys, this_level_community_values, strict=False
+                )
             ]
         )
         for k, report in this_level_reports:
