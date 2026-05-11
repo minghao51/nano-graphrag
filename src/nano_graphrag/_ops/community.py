@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from .._utils import TokenizerWrapper, list_of_list_to_csv, logger, truncate_list_by_token_size
 from ..base import BaseGraphStorage, BaseKVStorage, CommunitySchema, SingleCommunitySchema

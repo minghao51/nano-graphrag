@@ -67,7 +67,7 @@ jobs:
           NANO_GRAPHRAG_TEST_IGNORE_NEO4J: true
           DOTENV_PRIVATE_KEY: ${{ secrets.DOTENV_PRIVATE_KEY }}
         run: |
-          dotenvx run -- uv run pytest -o log_cli=true -o log_cli_level="INFO" --cov-report=xml -v ./tests/
+          dotenvx run -- uv run pytest -o log_cli=true -o log_cli_level="INFO" --cov-report=xml --cov-fail-under=70 -v ./tests/
       - uses: codecov/codecov-action@v5
         with:
           files: ./coverage.xml

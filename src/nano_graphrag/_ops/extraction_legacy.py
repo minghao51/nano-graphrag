@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from ..base import TextChunkSchema
 from ..prompt import PROMPTS
@@ -29,7 +30,7 @@ async def extract_document_entity_relationships_legacy(
     )
     ordered_chunks = list(chunks.items())
 
-    if global_config.get("enable_temporal_extraction", False):
+    if global_config.get("enable_temporal_extraction", True):
         entity_extract_prompt = PROMPTS["entity_extraction_temporal"]
     else:
         entity_extract_prompt = PROMPTS["entity_extraction"]

@@ -15,7 +15,7 @@
 - **Env vars:** `.env` uses [dotenvx encryption](https://dotenvx.com/encryption). Values are `encrypted:...` format. `python-dotenv` loads raw encrypted strings — **NOT usable by litellm/SDKs**. Must run via `dotenvx run -- uv run <command>` to inject decrypted values. Never use `load_dotenv()` alone for API keys.
 - **Frontend:**
   - Verify: Run `npm run check` and `npm test` after changes.
-- **Docs:** Update `ARCHITECTURE.md` if structure changes.
+- **Docs:** Update `docs/architecture/architecture.md` if structure changes.
 - **Files:** Markdown files must follow `YYYYMMDD-filename.md` format.
 
 ## 4. Known Issues
