@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from .._schemas import BatchedEntityExtractionOutput, EntityExtractionOutput
 from .._utils import logger
@@ -105,6 +106,8 @@ def _parse_single_result(
             relationship.description,
             relationship.weight,
             chunk_key,
+            relation_type=relationship.relation_type,
+            confidence=relationship.confidence,
             temporal_context=getattr(relationship, "temporal_context", None),
             valid_from=getattr(relationship, "valid_from", None),
             valid_to=getattr(relationship, "valid_to", None),

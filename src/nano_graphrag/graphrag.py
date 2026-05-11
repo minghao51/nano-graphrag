@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field, fields
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any
 
 from ._ops import chunking_by_token_size, extract_entities
 from ._schemas import CommunityReportOutput
@@ -239,3 +240,39 @@ class GraphRAG(_ConfigFields):
     def rebuild_graph(self):
         loop = always_get_an_event_loop()
         return loop.run_until_complete(self.arebuild_graph())
+
+    async def arefine(self, phases: list[str] | None = None) -> dict:
+        from ._ops.refinement import arefine
+
+        return await arefine(
+            self.chunk_entity_relation_graph,
+            self.entities_vdb,
+            self.text_chunks,
+            self._runtime_config(),
+            phases=phases,
+        )
+
+    def refine(self, phases: list[str] | None = None) -> dict:
+        loop = always_get_an_event_loop()
+        return loop.run_until_complete(self.arefine(phases))
+
+    async def aexport_vault(
+        self, path: str | None = None, include_communities: bool | None = None
+    ) -> dict:
+        from ._vault import aexport_vault
+
+        if include_communities is None:
+            include_communities = self.vault_export_communities
+        return await aexport_vault(
+            self.chunk_entity_relation_graph,
+            self.community_reports,
+            self._runtime_config(),
+            path=path,
+            include_communities=include_communities,
+        )
+
+    def export_vault(
+        self, path: str | None = None, include_communities: bool | None = None
+    ) -> dict:
+        loop = always_get_an_event_loop()
+        return loop.run_until_complete(self.aexport_vault(path, include_communities))

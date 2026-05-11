@@ -14,6 +14,12 @@ from ._llm_litellm import (
     supports_structured_output as supports_structured_output,
 )
 from ._schemas import (
+    RELATION_ALIASES as RELATION_ALIASES,
+)
+from ._schemas import (
+    RELATION_VOCABULARY as RELATION_VOCABULARY,
+)
+from ._schemas import (
     CommunityReportOutput as CommunityReportOutput,
 )
 from ._schemas import (
@@ -24,6 +30,9 @@ from ._schemas import (
 )
 from ._schemas import (
     ExtractedRelationship as ExtractedRelationship,
+)
+from ._schemas import (
+    normalize_relation_type as normalize_relation_type,
 )
 from .base import GraphRAGConfig as GraphRAGConfig
 from .graphrag import GraphRAG as GraphRAG

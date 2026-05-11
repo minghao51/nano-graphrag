@@ -93,6 +93,21 @@ class LoggingConfig(BaseModel):
         return v.upper()
 
 
+class RefinementConfig(BaseModel):
+    enabled: bool = False
+    merge_threshold: float = Field(0.93, ge=0.0, le=1.0)
+    enrich_min_chars: int = Field(80, ge=1)
+    infer_confidence: float = Field(0.80, ge=0.0, le=1.0)
+    batch_size: int = Field(50, ge=1)
+    infer_hub_cap: int = Field(3, ge=1)
+    relationship_confidence_threshold: float = Field(0.0, ge=0.0, le=1.0)
+
+
+class VaultConfig(BaseModel):
+    path: str = "./vault"
+    export_communities: bool = True
+
+
 class GraphRAGSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="GRAPH_",
@@ -113,6 +128,8 @@ class GraphRAGSettings(BaseSettings):
     entity_filter: EntityFilterConfig = EntityFilterConfig()  # type: ignore[call-arg]
     features: FeatureFlags = FeatureFlags()
     logging: LoggingConfig = LoggingConfig()
+    refinement: RefinementConfig = RefinementConfig()
+    vault: VaultConfig = VaultConfig()
 
     @classmethod
     def settings_customise_sources(
@@ -214,6 +231,21 @@ class GraphRAGSettings(BaseSettings):
                 level=os.getenv("LOG_LEVEL", "INFO"),
                 file=os.getenv("LOG_FILE"),
             ),
+            refinement=RefinementConfig(
+                enabled=_parse_bool_env("ENABLE_REFINEMENT", False),
+                merge_threshold=float(os.getenv("REFINEMENT_MERGE_THRESHOLD", "0.93")),
+                enrich_min_chars=_parse_int_env("REFINEMENT_ENRICH_MIN_CHARS", 80, 1),
+                infer_confidence=float(os.getenv("REFINEMENT_INFER_CONFIDENCE", "0.80")),
+                batch_size=_parse_int_env("REFINEMENT_BATCH_SIZE", 50, 1),
+                infer_hub_cap=_parse_int_env("REFINEMENT_INFER_HUB_CAP", 3, 1),
+                relationship_confidence_threshold=float(
+                    os.getenv("RELATIONSHIP_CONFIDENCE_THRESHOLD", "0.0")
+                ),
+            ),
+            vault=VaultConfig(
+                path=os.getenv("VAULT_PATH", "./vault"),
+                export_communities=_parse_bool_env("VAULT_EXPORT_COMMUNITIES", True),
+            ),
         )
 
     def merge(self, overrides: dict[str, Any]) -> GraphRAGSettings:
@@ -271,6 +303,8 @@ def _is_nested_format(data: dict[str, Any]) -> bool:
         "entity_filter",
         "features",
         "logging",
+        "refinement",
+        "vault",
     }
     return bool(set(data.keys()) & nested_keys)
 
@@ -319,6 +353,15 @@ def _unflatten_data(data: dict[str, Any]) -> dict[str, Any]:
         "enable_temporal_extraction": ("features", "temporal_extraction"),
         "log_level": ("logging", "level"),
         "log_file": ("logging", "file"),
+        "enable_refinement": ("refinement", "enabled"),
+        "refinement_merge_threshold": ("refinement", "merge_threshold"),
+        "refinement_enrich_min_chars": ("refinement", "enrich_min_chars"),
+        "refinement_infer_confidence": ("refinement", "infer_confidence"),
+        "refinement_batch_size": ("refinement", "batch_size"),
+        "refinement_infer_hub_cap": ("refinement", "infer_hub_cap"),
+        "relationship_confidence_threshold": ("refinement", "relationship_confidence_threshold"),
+        "vault_path": ("vault", "path"),
+        "vault_export_communities": ("vault", "export_communities"),
     }
     result: dict[str, Any] = {}
     used_keys: set = set()
@@ -382,6 +425,15 @@ def _flatten_settings(settings: GraphRAGSettings) -> dict[str, Any]:
         ("features", "temporal_extraction"): "enable_temporal_extraction",
         ("logging", "level"): "log_level",
         ("logging", "file"): "log_file",
+        ("refinement", "enabled"): "enable_refinement",
+        ("refinement", "merge_threshold"): "refinement_merge_threshold",
+        ("refinement", "enrich_min_chars"): "refinement_enrich_min_chars",
+        ("refinement", "infer_confidence"): "refinement_infer_confidence",
+        ("refinement", "batch_size"): "refinement_batch_size",
+        ("refinement", "infer_hub_cap"): "refinement_infer_hub_cap",
+        ("refinement", "relationship_confidence_threshold"): "relationship_confidence_threshold",
+        ("vault", "path"): "vault_path",
+        ("vault", "export_communities"): "vault_export_communities",
     }
     result: dict[str, Any] = {
         "working_dir": settings.working_dir,
@@ -448,6 +500,15 @@ FLAT_FIELD_TO_ENV_VAR: dict[str, str] = {
     "entity_count_min_absolute": "ENTITY_COUNT_MIN_ABSOLUTE",
     "log_level": "LOG_LEVEL",
     "log_file": "LOG_FILE",
+    "enable_refinement": "ENABLE_REFINEMENT",
+    "refinement_merge_threshold": "REFINEMENT_MERGE_THRESHOLD",
+    "refinement_enrich_min_chars": "REFINEMENT_ENRICH_MIN_CHARS",
+    "refinement_infer_confidence": "REFINEMENT_INFER_CONFIDENCE",
+    "refinement_batch_size": "REFINEMENT_BATCH_SIZE",
+    "refinement_infer_hub_cap": "REFINEMENT_INFER_HUB_CAP",
+    "relationship_confidence_threshold": "RELATIONSHIP_CONFIDENCE_THRESHOLD",
+    "vault_path": "VAULT_PATH",
+    "vault_export_communities": "VAULT_EXPORT_COMMUNITIES",
 }
 
 

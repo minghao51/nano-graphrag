@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
+from .._schemas import RELATION_VOCABULARY_SORTED
 from .._utils import (
     TokenizerWrapper,
     clean_str,
@@ -318,6 +320,20 @@ async def _merge_edges_then_upsert(
         edge_data["valid_from"] = valid_from
     if valid_to:
         edge_data["valid_to"] = valid_to
+    relation_types = [
+        dp.get("relation_type", "related_to")
+        for dp in edges_data
+        if dp.get("relation_type", "related_to") != "related_to"
+    ]
+    if relation_types:
+        from collections import Counter as _Counter
+
+        edge_data["relation_type"] = _Counter(relation_types).most_common(1)[0][0]
+    else:
+        edge_data["relation_type"] = "related_to"
+    confidences = [dp.get("confidence", 0.8) for dp in edges_data]
+    if confidences:
+        edge_data["confidence"] = max(confidences)
     await knowledge_graph_inst.upsert_edge(src_id, tgt_id, edge_data=edge_data)
 
 
@@ -359,11 +375,15 @@ def _upsert_document_relationship(
     description: str,
     weight: float,
     chunk_key: str,
-    relation_type: str = "related",
+    relation_type: str = "related_to",
+    confidence: float = 0.8,
     temporal_context: str | None = None,
     valid_from: str | None = None,
     valid_to: str | None = None,
 ) -> str:
+    from .._schemas import normalize_relation_type
+
+    relation_type = normalize_relation_type(relation_type)
     relationship_id = generate_stable_relationship_id(
         src_entity_id, tgt_entity_id, relation_type, temporal_context=temporal_context
     )
@@ -376,6 +396,7 @@ def _upsert_document_relationship(
             "descriptions": [],
             "weight": 0.0,
             "source_chunk_ids": [],
+            "confidence": confidence,
             "temporal_context": temporal_context,
             "valid_from": valid_from,
             "valid_to": valid_to,
@@ -384,6 +405,8 @@ def _upsert_document_relationship(
     relationship_entry["descriptions"].append(description)
     relationship_entry["weight"] += weight
     relationship_entry["source_chunk_ids"].append(chunk_key)
+    if confidence > relationship_entry.get("confidence", 0.0):
+        relationship_entry["confidence"] = confidence
     if temporal_context and not relationship_entry.get("temporal_context"):
         relationship_entry["temporal_context"] = temporal_context
     if valid_from and not relationship_entry.get("valid_from"):
@@ -410,10 +433,11 @@ def _normalize_document_manifest(manifest: dict) -> dict:
         normalized_relationships[relationship_id] = {
             "src_entity_id": relationship["src_entity_id"],
             "tgt_entity_id": relationship["tgt_entity_id"],
-            "relation_type": relationship.get("relation_type", "related"),
+            "relation_type": relationship.get("relation_type", "related_to"),
             "descriptions": sorted(set(relationship.get("descriptions", []))),
             "weight": relationship.get("weight", 0.0),
             "source_chunk_ids": sorted(set(relationship.get("source_chunk_ids", []))),
+            "confidence": relationship.get("confidence", 0.8),
             "temporal_context": relationship.get("temporal_context"),
             "valid_from": relationship.get("valid_from"),
             "valid_to": relationship.get("valid_to"),
@@ -498,7 +522,8 @@ def _combine_relationship_contributions(contributions: list[dict]) -> dict | Non
         "source_id": _join_unique(source_chunk_ids),
         "weight": total_weight,
         "order": 1,
-        "relation_type": first.get("relation_type", "related"),
+        "relation_type": first.get("relation_type", "related_to"),
+        "confidence": first.get("confidence", 0.8),
         "temporal_context": temporal_context,
         "valid_from": valid_from,
         "valid_to": valid_to,
@@ -537,10 +562,11 @@ def _merge_results_into_manifest(
                 {
                     "src_entity_id": relationship["src_entity_id"],
                     "tgt_entity_id": relationship["tgt_entity_id"],
-                    "relation_type": relationship.get("relation_type", "related"),
+                    "relation_type": relationship.get("relation_type", "related_to"),
                     "descriptions": [],
                     "weight": 0.0,
                     "source_chunk_ids": [],
+                    "confidence": relationship.get("confidence", 0.8),
                     "temporal_context": relationship.get("temporal_context"),
                     "valid_from": relationship.get("valid_from"),
                     "valid_to": relationship.get("valid_to"),
@@ -593,7 +619,7 @@ async def _run_gleaning_loop(
 
 
 def _build_temporal_instructions(global_config: dict) -> str:
-    temporal = global_config.get("enable_temporal_extraction", False)
+    temporal = global_config.get("enable_temporal_extraction", True)
     if temporal:
         return (
             " For aliases: include alternative names, abbreviations, or nicknames."
@@ -642,35 +668,52 @@ def _build_extraction_system_prompt(
     quality = global_config.get("entity_extraction_quality", "balanced")
     temporal_instructions = _build_temporal_instructions(global_config)
     types_str = ", ".join(entity_types)
+    relation_types_str = ", ".join(RELATION_VOCABULARY_SORTED)
 
     if quality == "fast":
         if batched:
             return (
                 f"Extract entities and relationships from each chunk.\n"
                 f"Entity types: {types_str}.\n"
+                f"Relation types: {relation_types_str}.\n"
+                f"For each relationship, assign a relation_type from the list above and a confidence score (0.0-1.0).\n"
                 f'Return JSON: {{"chunks": [{{"chunk_id": str, "entities": ['
                 f'{{"entity_name": str, "entity_type": str, "description": str}}], '
-                f'"relationships": [{{"source": str, "target": str, "description": str, "weight": float}}]}}]}}'
+                f'"relationships": [{{"source": str, "target": str, "description": str, '
+                f'"relation_type": str, "confidence": float, "weight": float}}]}}]}}'
             )
         return (
             f"Extract entities and relationships.\n"
             f"Entity types: {types_str}.\n"
+            f"Relation types: {relation_types_str}.\n"
+            f"For each relationship, assign a relation_type from the list above and a confidence score (0.0-1.0).\n"
             f'Return JSON: {{"entities": [{{"entity_name": str, "entity_type": str, "description": str}}], '
-            f'"relationships": [{{"source": str, "target": str, "description": str, "weight": float}}]}}'
+            f'"relationships": [{{"source": str, "target": str, "description": str, '
+            f'"relation_type": str, "confidence": float, "weight": float}}]}}'
         )
 
     if batched:
         return (
             f"You are an entity extraction assistant. Extract entities and relationships from each chunk below.\n"
             f"Entity types: {types_str}.\n"
+            f"Relation types: {relation_types_str}.\n"
+            f"For each relationship, choose the most specific relation_type from the list above "
+            f"(avoid 'related_to' if a more specific type fits). Also assign a confidence score "
+            f"from 0.0 to 1.0 indicating how certain you are about the relationship.\n"
             f"Return a JSON with a 'chunks' array. Each element has: chunk_id (string matching the id in the header), "
-            f"entities (name, type, description, aliases), relationships (source, target, description, weight)."
+            f"entities (name, type, description, aliases), relationships (source, target, description, "
+            f"relation_type, confidence, weight)."
             f"{temporal_instructions}\n"
             f"Preserve the chunk_id exactly as given."
         )
     return (
         f"You are an entity extraction assistant. Extract entities and relationships from the text.\n"
         f"Entity types: {types_str}.\n"
+        f"Relation types: {relation_types_str}.\n"
+        f"For each relationship, choose the most specific relation_type from the list above "
+        f"(avoid 'related_to' if a more specific type fits). Also assign a confidence score "
+        f"from 0.0 to 1.0 indicating how certain you are about the relationship.\n"
         f"Return a JSON with 'entities' (name, type, description, aliases) and "
-        f"'relationships' (source, target, description, weight).{temporal_instructions}"
+        f"'relationships' (source, target, description, relation_type, confidence, weight)."
+        f"{temporal_instructions}"
     )

@@ -68,6 +68,8 @@ async def _process_relationship_writeback(
         "source_id": _join_unique(relationship["source_chunk_ids"]),
         "order": 1,
         "relationship_id": relationship_id,
+        "relation_type": relationship.get("relation_type", "related_to"),
+        "confidence": relationship.get("confidence", 0.8),
     }
     temporal_context = relationship.get("temporal_context")
     valid_from = relationship.get("valid_from")

@@ -5,6 +5,96 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator
 
+RELATION_VOCABULARY = {
+    "part_of",
+    "contains",
+    "parent_organization_of",
+    "subsidiary_of",
+    "member_of",
+    "located_in",
+    "headquartered_in",
+    "operates_in",
+    "originates_from",
+    "created_by",
+    "authored_by",
+    "founded_by",
+    "managed_by",
+    "led_by",
+    "developed_by",
+    "influences",
+    "cites",
+    "builds_on",
+    "extends",
+    "contradicts",
+    "supports",
+    "references",
+    "precedes",
+    "causes",
+    "enables",
+    "prevents",
+    "uses",
+    "depends_on",
+    "produces",
+    "consumes",
+    "implements",
+    "provides",
+    "employed_by",
+    "collaborates_with",
+    "works_on",
+    "invests_in",
+    "competes_with",
+    "instance_of",
+    "has_characteristic",
+    "classified_as",
+    "related_to",
+}
+
+RELATION_ALIASES: dict[str, str] = {
+    "is_part_of": "part_of",
+    "is_member_of": "member_of",
+    "works_for": "employed_by",
+    "headquartered_at": "headquartered_in",
+    "located_at": "located_in",
+    "authored": "authored_by",
+    "written_by": "authored_by",
+    "founded": "founded_by",
+    "developed": "developed_by",
+    "built_on": "builds_on",
+    "is_instance_of": "instance_of",
+    "has_property": "has_characteristic",
+    "uses_tool": "uses",
+    "uses_technology": "uses",
+    "invests": "invests_in",
+    "competes": "competes_with",
+    "collaborates": "collaborates_with",
+}
+
+_BANNED_RELATION_TYPES = {
+    "related",
+    "associated_with",
+    "connected_to",
+    "associated",
+    "linked_to",
+    "linked",
+    "similar_to",
+}
+
+
+def normalize_relation_type(raw: str) -> str:
+    if not raw or not isinstance(raw, str):
+        return "related_to"
+    cleaned = raw.strip().lower().replace(" ", "_").replace("-", "_")
+    if cleaned in _BANNED_RELATION_TYPES:
+        return "related_to"
+    if cleaned in RELATION_ALIASES:
+        return RELATION_ALIASES[cleaned]
+    if cleaned in RELATION_VOCABULARY:
+        return cleaned
+    return "related_to"
+
+
+RELATION_VOCABULARY_SORTED = sorted(RELATION_VOCABULARY - {"related_to"})
+
 
 def _coerce_iso_date(v):
     if not v or not isinstance(v, str):
@@ -50,7 +140,14 @@ class ExtractedRelationship(BaseModel):
     source: str = Field(..., description="Name of the source entity, capitalized")
     target: str = Field(..., description="Name of the target entity, capitalized")
     description: str = Field(..., description="Explanation of the relationship")
+    relation_type: str = Field(
+        default="related_to",
+        description="Typed relationship from the curated vocabulary",
+    )
     weight: float = Field(default=1.0, description="Strength of the relationship (0-10)")
+    confidence: float = Field(
+        default=0.8, ge=0.0, le=1.0, description="Extraction confidence 0.0-1.0"
+    )
     temporal_context: str | None = Field(
         default=None,
         description="Free-text description of when this relationship was/is true (e.g. 'in 2023', 'from 2019 to 2022')",
@@ -63,6 +160,11 @@ class ExtractedRelationship(BaseModel):
         default=None,
         description="End date in YYYY-MM-DD format when this relationship ceased to be true. Null if still current or unknown.",
     )
+
+    @field_validator("relation_type", mode="before")
+    @classmethod
+    def normalize_relation(cls, v):
+        return normalize_relation_type(v)
 
     @field_validator("valid_from", "valid_to", mode="before")
     @classmethod

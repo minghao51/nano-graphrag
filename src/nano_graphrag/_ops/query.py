@@ -167,6 +167,7 @@ async def _find_most_related_edges_from_entities(
     query_param: QueryParam,
     knowledge_graph_inst: BaseGraphStorage,
     tokenizer_wrapper,
+    global_config: dict | None = None,
 ):
     all_related_edges = await knowledge_graph_inst.get_nodes_edges_batch(
         [dp["id"] for dp in node_datas]
@@ -204,6 +205,11 @@ async def _find_most_related_edges_from_entities(
     ]
     if query_param.time_range is not None:
         all_edges_data = [e for e in all_edges_data if _edge_matches_time_range(e, query_param)]
+    confidence_threshold = (global_config or {}).get("relationship_confidence_threshold", 0.0)
+    if confidence_threshold > 0:
+        all_edges_data = [
+            e for e in all_edges_data if e.get("confidence", 0.8) >= confidence_threshold
+        ]
     all_edges_data = sorted(all_edges_data, key=lambda x: (x["rank"], x["weight"]), reverse=True)
     return truncate_list_by_token_size(
         all_edges_data,
@@ -221,6 +227,7 @@ async def _build_local_query_context(
     text_chunks_db: BaseKVStorage[TextChunkSchema],
     query_param: QueryParam,
     tokenizer_wrapper,
+    global_config: dict | None = None,
 ):
     results = await entities_vdb.query(query, top_k=query_param.top_k)
     if not len(results):
@@ -241,7 +248,11 @@ async def _build_local_query_context(
         node_datas, query_param, text_chunks_db, knowledge_graph_inst, tokenizer_wrapper
     )
     use_relations = await _find_most_related_edges_from_entities(
-        node_datas, query_param, knowledge_graph_inst, tokenizer_wrapper
+        node_datas,
+        query_param,
+        knowledge_graph_inst,
+        tokenizer_wrapper,
+        global_config=global_config,
     )
     logger.info(
         "local_query_context",
@@ -264,7 +275,7 @@ async def _build_local_query_context(
     entities_context = list_of_list_to_csv(entites_section_list)
 
     relations_section_list: list[list[Any]] = [
-        ["id", "source", "target", "description", "weight", "rank", "temporal"]
+        ["id", "source", "target", "description", "relation_type", "weight", "rank", "temporal"]
     ]
     for i, e in enumerate(use_relations):
         temporal = e.get("temporal_context") or ""
@@ -278,6 +289,7 @@ async def _build_local_query_context(
                 e.get("src_entity_name", e["src_tgt"][0]),
                 e.get("tgt_entity_name", e["src_tgt"][1]),
                 e["description"],
+                e.get("relation_type", "related_to"),
                 e["weight"],
                 e["rank"],
                 temporal,
@@ -332,6 +344,7 @@ async def local_query(
         text_chunks_db,
         query_param,
         tokenizer_wrapper,
+        global_config=global_config,
     )
     if query_param.only_need_context:
         return context
@@ -361,6 +374,7 @@ async def local_query_stream(
         text_chunks_db,
         query_param,
         tokenizer_wrapper,
+        global_config=global_config,
     )
     if query_param.only_need_context:
         if context is not None:

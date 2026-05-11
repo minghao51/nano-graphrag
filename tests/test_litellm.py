@@ -62,11 +62,11 @@ class TestDetectProvider:
         assert detect_provider("phi3") == "ollama"
         assert detect_provider("qwen2.5") == "ollama"
 
-    def test_unknown_model_defaults_to_openai(self):
+    def test_unknown_model_raises(self):
         with patch("nano_graphrag._llm_litellm.logger") as mock_logger:
-            result = detect_provider("unknown-model-x")
-            assert result == "openai"
-            mock_logger.warning.assert_called_once()
+            with pytest.raises(ValueError, match="Unable to detect provider"):
+                detect_provider("unknown-model-x")
+            mock_logger.error.assert_called_once()
 
 
 class TestSupportsStructuredOutput:
@@ -220,6 +220,17 @@ class TestLiteLLMCompletion:
                 second_call = mock_completion.await_args_list[1].kwargs
                 assert "response_format" in first_call
                 assert "response_format" not in second_call
+
+    async def test_completion_does_not_retry_non_transient_errors(self):
+        """Non-transient errors should fail fast without extra retries."""
+        with patch("nano_graphrag._llm_litellm.litellm.acompletion", new_callable=AsyncMock) as mock_completion:
+            mock_completion.side_effect = ValueError("invalid request schema")
+            with pytest.raises(ValueError, match="invalid request schema"):
+                await litellm_completion(
+                    model="gpt-4o",
+                    prompt="Test prompt",
+                )
+            assert mock_completion.await_count == 1
 
     async def test_should_fallback_without_structured_output(self):
         """Fallback detection should be message-based for LiteLLM compatibility."""

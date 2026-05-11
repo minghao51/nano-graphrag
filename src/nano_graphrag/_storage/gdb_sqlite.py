@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import sqlite3
@@ -38,7 +39,7 @@ class SQLiteGraphStorage(BaseGraphStorage):
         working_dir = self.global_config["working_dir"]
         os.makedirs(working_dir, exist_ok=True)
         self._db_file = os.path.join(working_dir, f"graph_{self.namespace}.db")
-        self._conn = sqlite3.connect(self._db_file)
+        self._conn = sqlite3.connect(self._db_file, check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=NORMAL")
         self._ensure_schema()
@@ -82,6 +83,15 @@ class SQLiteGraphStorage(BaseGraphStorage):
         self._conn.execute("CREATE INDEX IF NOT EXISTS idx_edges_target_id ON edges(target_id)")
         self._migrate_edges_to_multigraph()
         self._conn.commit()
+
+    def _fetchone_sync(self, sql: str, params=()) -> tuple | None:
+        return self._conn.execute(sql, params).fetchone()
+
+    def _fetchall_sync(self, sql: str, params=()) -> list[tuple]:
+        return self._conn.execute(sql, params).fetchall()
+
+    def _execute_sync(self, sql: str, params=()) -> None:
+        self._conn.execute(sql, params)
 
     def _migrate_edges_to_multigraph(self):
         rows = self._conn.execute("PRAGMA table_info(edges)").fetchall()
@@ -183,7 +193,7 @@ class SQLiteGraphStorage(BaseGraphStorage):
         snapshot_conn = sqlite3.connect(snapshot_path)
         try:
             self._conn.close()
-            self._conn = sqlite3.connect(self._db_file)
+            self._conn = sqlite3.connect(self._db_file, check_same_thread=False)
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA synchronous=NORMAL")
             snapshot_conn.backup(self._conn)
@@ -193,26 +203,30 @@ class SQLiteGraphStorage(BaseGraphStorage):
             snapshot_conn.close()
 
     async def has_node(self, node_id: str) -> bool:
-        row = self._conn.execute("SELECT 1 FROM nodes WHERE id = ?", (node_id,)).fetchone()
+        row = await asyncio.to_thread(
+            self._fetchone_sync, "SELECT 1 FROM nodes WHERE id = ?", (node_id,)
+        )
         return row is not None
 
     async def has_edge(self, source_node_id: str, target_node_id: str) -> bool:
         source_id, target_id = _canonical_edge(source_node_id, target_node_id)
-        row = self._conn.execute(
+        row = await asyncio.to_thread(
+            self._fetchone_sync,
             "SELECT 1 FROM edges WHERE source_id = ? AND target_id = ? LIMIT 1",
             (source_id, target_id),
-        ).fetchone()
+        )
         return row is not None
 
     async def node_degree(self, node_id: str) -> int:
-        row = self._conn.execute(
+        row = await asyncio.to_thread(
+            self._fetchone_sync,
             """
             SELECT COUNT(DISTINCT CASE WHEN source_id = ? THEN target_id ELSE source_id END)
             FROM edges
             WHERE source_id = ? OR target_id = ?
             """,
             (node_id, node_id, node_id),
-        ).fetchone()
+        )
         return int(row[0]) if row is not None else 0
 
     async def node_degrees_batch(self, node_ids: list[str]) -> list[int]:
@@ -225,7 +239,9 @@ class SQLiteGraphStorage(BaseGraphStorage):
         return [await self.edge_degree(src_id, tgt_id) for src_id, tgt_id in edge_pairs]
 
     async def get_node(self, node_id: str) -> dict | None:
-        row = self._conn.execute("SELECT data FROM nodes WHERE id = ?", (node_id,)).fetchone()
+        row = await asyncio.to_thread(
+            self._fetchone_sync, "SELECT data FROM nodes WHERE id = ?", (node_id,)
+        )
         if row is None:
             return None
         return json.loads(row[0])
@@ -241,10 +257,11 @@ class SQLiteGraphStorage(BaseGraphStorage):
         first-found temporal fields. Use direct storage access for per-edge temporal detail.
         """
         source_id, target_id = _canonical_edge(source_node_id, target_node_id)
-        rows = self._conn.execute(
+        rows = await asyncio.to_thread(
+            self._fetchall_sync,
             "SELECT data FROM edges WHERE source_id = ? AND target_id = ?",
             (source_id, target_id),
-        ).fetchall()
+        )
         if not rows:
             return None
         if len(rows) == 1:
@@ -286,7 +303,8 @@ class SQLiteGraphStorage(BaseGraphStorage):
     async def get_node_edges(self, source_node_id: str) -> list[tuple[str, str]] | None:
         if not await self.has_node(source_node_id):
             return None
-        rows = self._conn.execute(
+        rows = await asyncio.to_thread(
+            self._fetchall_sync,
             """
             SELECT source_id, target_id
             FROM edges
@@ -294,14 +312,15 @@ class SQLiteGraphStorage(BaseGraphStorage):
             ORDER BY source_id, target_id
             """,
             (source_node_id, source_node_id),
-        ).fetchall()
+        )
         return [(row[0], row[1]) for row in rows]
 
     async def get_nodes_edges_batch(self, node_ids: list[str]) -> list[list[tuple[str, str]]]:
         return [(await self.get_node_edges(node_id)) or [] for node_id in node_ids]
 
     async def upsert_node(self, node_id: str, node_data: dict[str, Any]):
-        self._conn.execute(
+        await asyncio.to_thread(
+            self._execute_sync,
             "INSERT OR REPLACE INTO nodes (id, data) VALUES (?, ?)",
             (node_id, json.dumps(node_data)),
         )
@@ -315,7 +334,8 @@ class SQLiteGraphStorage(BaseGraphStorage):
     ):
         source_id, target_id = _canonical_edge(source_node_id, target_node_id)
         edge_key = edge_data.get("relationship_id", "")
-        self._conn.execute(
+        await asyncio.to_thread(
+            self._execute_sync,
             """
             INSERT OR REPLACE INTO edges (source_id, target_id, edge_key, data)
             VALUES (?, ?, ?, ?)
@@ -328,8 +348,9 @@ class SQLiteGraphStorage(BaseGraphStorage):
             await self.upsert_edge(source_id, target_id, edge_data)
 
     async def delete_node(self, node_id: str):
-        self._conn.execute("DELETE FROM nodes WHERE id = ?", (node_id,))
-        self._conn.execute(
+        await asyncio.to_thread(self._execute_sync, "DELETE FROM nodes WHERE id = ?", (node_id,))
+        await asyncio.to_thread(
+            self._execute_sync,
             "DELETE FROM edges WHERE source_id = ? OR target_id = ?",
             (node_id, node_id),
         )
@@ -340,7 +361,8 @@ class SQLiteGraphStorage(BaseGraphStorage):
 
     async def delete_edge(self, source_node_id: str, target_node_id: str):
         source_id, target_id = _canonical_edge(source_node_id, target_node_id)
-        self._conn.execute(
+        await asyncio.to_thread(
+            self._execute_sync,
             "DELETE FROM edges WHERE source_id = ? AND target_id = ?",
             (source_id, target_id),
         )

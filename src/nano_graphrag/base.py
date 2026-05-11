@@ -282,7 +282,7 @@ class _ConfigFields:
     enable_entity_linking: bool = False
     entity_linking_use_neighborhood_evidence: bool = True
     enable_community_reports: bool = True
-    enable_temporal_extraction: bool = False
+    enable_temporal_extraction: bool = True
     entity_linking_similarity_threshold: float = 0.92
     entity_linking_max_candidates: int = 3
     entity_linking_iou_threshold: float = 0.3
@@ -294,6 +294,19 @@ class _ConfigFields:
     # === Logging ===
     log_level: str = "INFO"
     log_file: str | None = None
+
+    # === Refinement Pipeline ===
+    enable_refinement: bool = False
+    refinement_merge_threshold: float = 0.93
+    refinement_enrich_min_chars: int = 80
+    refinement_infer_confidence: float = 0.80
+    refinement_batch_size: int = 50
+    refinement_infer_hub_cap: int = 3
+    relationship_confidence_threshold: float = 0.0
+
+    # === Vault Export ===
+    vault_path: str = "./vault"
+    vault_export_communities: bool = True
 
 
 @dataclass

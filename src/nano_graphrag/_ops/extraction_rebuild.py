@@ -394,7 +394,7 @@ async def rebuild_knowledge_graph_for_documents(
         canonical_relationship_id = generate_stable_relationship_id(
             src_entity_id,
             tgt_entity_id,
-            relationship.get("relation_type", "related"),
+            relationship.get("relation_type", "related_to"),
         )
         canonical_relationship_contributions[canonical_relationship_id].append(
             {

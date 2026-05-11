@@ -211,7 +211,7 @@ async def _apply_entity_linking(manifest: dict, global_config: dict) -> dict:
             relationship["tgt_entity_id"], relationship["tgt_entity_id"]
         )
         relationship_id = generate_stable_relationship_id(
-            src_entity_id, tgt_entity_id, relationship.get("relation_type", "related")
+            src_entity_id, tgt_entity_id, relationship.get("relation_type", "related_to")
         )
         grouped_relationships.setdefault(relationship_id, []).append(
             {
@@ -229,7 +229,7 @@ async def _apply_entity_linking(manifest: dict, global_config: dict) -> dict:
         normalized_relationships[relationship_id] = {
             "src_entity_id": combined["src_entity_id"],
             "tgt_entity_id": combined["tgt_entity_id"],
-            "relation_type": combined.get("relation_type", "related"),
+            "relation_type": combined.get("relation_type", "related_to"),
             "descriptions": sorted(
                 {
                     description
@@ -245,6 +245,7 @@ async def _apply_entity_linking(manifest: dict, global_config: dict) -> dict:
                     for chunk_id in contribution.get("source_chunk_ids", [])
                 }
             ),
+            "confidence": combined.get("confidence", 0.8),
         }
 
     return _normalize_document_manifest(

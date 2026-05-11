@@ -528,6 +528,35 @@ def test_manifests_rolled_back_on_rebuild_failure(monkeypatch):
     assert manifest is None, "Manifest should have been rolled back after rebuild failure"
 
 
+def test_rebuild_failure_does_not_delete_unchanged_existing_docs(monkeypatch):
+    """Rollback should only remove docs touched in this insert attempt."""
+    rag = build_incremental_rag()
+    rag.insert_documents({"doc-1": "Charles Dickens wrote A Christmas Carol."})
+
+    async def failing_rebuild(*args, **kwargs):
+        raise RuntimeError("Simulated rebuild failure")
+
+    monkeypatch.setattr(
+        "nano_graphrag.graphrag_insert.rebuild_knowledge_graph_for_documents",
+        failing_rebuild,
+    )
+
+    with pytest.raises(RuntimeError, match="Simulated rebuild failure"):
+        rag.insert_documents(
+            {
+                "doc-1": "Charles Dickens wrote A Christmas Carol.",
+                "doc-2": "Charles Dickens wrote Oliver Twist.",
+            }
+        )
+
+    loop = asyncio.get_event_loop()
+    doc1 = loop.run_until_complete(rag.full_docs.get_by_id("doc-1"))
+    doc2 = loop.run_until_complete(rag.full_docs.get_by_id("doc-2"))
+
+    assert doc1 is not None, "Unchanged existing doc should survive rollback"
+    assert doc2 is None, "New doc from failed transaction should be rolled back"
+
+
 # --- Fix 3: Integrity check ---
 
 
