@@ -8,7 +8,7 @@ from functools import partial
 
 import structlog
 
-from ._utils import EmbeddingFunc, TokenizerWrapper, limit_async_func_call, logger
+from ._utils import LOG_PRE_CHAIN, EmbeddingFunc, TokenizerWrapper, limit_async_func_call, logger
 from .base import (
     SUPPORTED_GRAPH_CLUSTERING,
 )
@@ -45,19 +45,13 @@ def _configure_logging(self):
     numeric_level = getattr(logging, self.log_level.upper(), logging.INFO)
     stdlib_logger.setLevel(numeric_level)
 
-    pre_chain = [
-        structlog.stdlib.add_log_level,
-        structlog.stdlib.add_logger_name,
-        structlog.processors.TimeStamper(fmt="iso"),
-    ]
-
     if not any(getattr(h, "_nano_graphrag_console", False) for h in stdlib_logger.handlers):
         console_handler = logging.StreamHandler()
         console_handler.setLevel(numeric_level)
         console_handler.setFormatter(
             structlog.stdlib.ProcessorFormatter(
                 processor=structlog.dev.ConsoleRenderer(),
-                foreign_pre_chain=pre_chain,
+                foreign_pre_chain=LOG_PRE_CHAIN,
             )
         )
         console_handler._nano_graphrag_console = True
@@ -72,7 +66,7 @@ def _configure_logging(self):
             file_handler.setFormatter(
                 structlog.stdlib.ProcessorFormatter(
                     processor=structlog.processors.JSONRenderer(),
-                    foreign_pre_chain=pre_chain,
+                    foreign_pre_chain=LOG_PRE_CHAIN,
                 )
             )
             file_handler._nano_graphrag_file = self.log_file

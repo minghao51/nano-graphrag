@@ -8,7 +8,13 @@ from typing import TYPE_CHECKING, Any
 
 import litellm
 from pydantic import BaseModel
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import (
+    retry,
+    retry_if_exception,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from ._utils import compute_args_hash, logger, wrap_embedding_func_with_attrs
 from .base import BaseKVStorage
@@ -57,6 +63,47 @@ Respond with valid JSON matching this schema:
 """
 
 
+def _extract_usage(response, model: str, elapsed_ms: float, event_name: str, **extra) -> dict:
+    """Extract usage data from a LiteLLM response and log it.
+
+    Args:
+        response: LiteLLM completion or embedding response object.
+        model: Model name used for the call.
+        elapsed_ms: Call latency in milliseconds.
+        event_name: Structlog event name (e.g., "llm_call_complete").
+        **extra: Additional key-value pairs to include in the log.
+
+    Returns:
+        Dict with prompt_tokens, completion_tokens, total_tokens, cost_usd.
+    """
+    usage = getattr(response, "usage", None)
+    prompt_tokens = getattr(usage, "prompt_tokens", 0) if usage else 0
+    completion_tokens = getattr(usage, "completion_tokens", 0) if usage else 0
+    total_tokens = getattr(usage, "total_tokens", 0) if usage else 0
+    try:
+        cost = litellm.completion_cost(completion_response=response)
+    except Exception as e:
+        logger.debug("llm_cost_calculation_failed", model=model, error=str(e))
+        cost = 0.0
+
+    logger.info(
+        event_name,
+        model=model,
+        latency_ms=round(elapsed_ms, 1),
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        total_tokens=total_tokens,
+        cost_usd=round(cost, 6),
+        **extra,
+    )
+    return {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+        "cost_usd": round(cost, 6),
+    }
+
+
 def detect_provider(model: str) -> str:
     """Detect LiteLLM provider from model name.
 
@@ -82,18 +129,49 @@ def detect_provider(model: str) -> str:
         if any(model_only.startswith(p) for p in prefixes):
             return provider
 
-    # Unknown provider, log warning and default to openai
-    logger.warning(
-        "provider_detection_failed",
-        model=model,
-        fallback="openai",
+    logger.error("provider_detection_failed", model=model)
+    raise ValueError(
+        f"Unable to detect provider for model {model!r}. "
+        "Use an explicit provider prefix (e.g., 'openai/...', 'openrouter/...')."
     )
-    return "openai"
 
 
 def supports_structured_output(model: str) -> bool:
     provider = detect_provider(model)
     return provider in PROVIDERS_SUPPORTING_STRUCTURED_OUTPUT
+
+
+def _is_transient_llm_exception(exc: Exception) -> bool:
+    transient_types = tuple(
+        err
+        for err in (
+            getattr(litellm, "RateLimitError", None),
+            getattr(litellm, "APIConnectionError", None),
+            getattr(litellm, "ServiceUnavailableError", None),
+            getattr(litellm, "InternalServerError", None),
+            getattr(litellm, "Timeout", None),
+        )
+        if isinstance(err, type)
+    )
+    if transient_types and isinstance(exc, transient_types):
+        return True
+    if isinstance(exc, asyncio.TimeoutError):
+        return True
+
+    message = str(exc).lower()
+    transient_patterns = (
+        "rate limit",
+        "timeout",
+        "timed out",
+        "temporarily unavailable",
+        "service unavailable",
+        "connection reset",
+        "connection refused",
+        "internal server error",
+        "bad gateway",
+        "gateway timeout",
+    )
+    return any(pattern in message for pattern in transient_patterns)
 
 
 def should_fallback_without_structured_output(exc: Exception) -> bool:
@@ -219,7 +297,7 @@ def _add_schema_instruction_to_messages(
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=10),
-    retry=retry_if_exception_type((asyncio.TimeoutError, Exception)),
+    retry=retry_if_exception(_is_transient_llm_exception),
     reraise=True,
 )
 async def litellm_completion(
@@ -321,7 +399,7 @@ async def litellm_completion(
     start_time = time.monotonic()
     try:
         response = await asyncio.wait_for(_call_llm(), timeout=timeout)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         elapsed_ms = (time.monotonic() - start_time) * 1000
         logger.error(
             "llm_call_timeout", model=model, timeout_s=timeout, latency_ms=round(elapsed_ms, 1)
@@ -341,24 +419,7 @@ async def litellm_completion(
     elapsed_ms = (time.monotonic() - start_time) * 1000
     result = response.choices[0].message.content
 
-    usage = getattr(response, "usage", None)
-    prompt_tokens = getattr(usage, "prompt_tokens", 0) if usage else 0
-    completion_tokens = getattr(usage, "completion_tokens", 0) if usage else 0
-    total_tokens = getattr(usage, "total_tokens", 0) if usage else 0
-    try:
-        cost = litellm.completion_cost(completion_response=response)
-    except Exception:
-        cost = 0.0
-
-    logger.info(
-        "llm_call_complete",
-        model=model,
-        latency_ms=round(elapsed_ms, 1),
-        prompt_tokens=prompt_tokens,
-        completion_tokens=completion_tokens,
-        total_tokens=total_tokens,
-        cost_usd=round(cost, 6),
-    )
+    usage_data = _extract_usage(response, model, elapsed_ms, "llm_call_complete")
 
     if (
         response_format is not None
@@ -385,15 +446,6 @@ async def litellm_completion(
                         timeout=timeout,
                         **kwargs,
                     )
-                return result
-    elif response_format is not None and isinstance(result, str):
-        try:
-            parsed = json.loads(result)
-            if isinstance(parsed, dict):
-                result = json.dumps(parsed)
-        except Exception as e:
-            logger.warning("json_parse_failed", model=model, error=str(e))
-            return result
 
     if hashing_kv is not None:
         cached_payload = result.model_dump_json() if isinstance(result, BaseModel) else result
@@ -403,10 +455,7 @@ async def litellm_completion(
                     "return": cached_payload,
                     "model": model,
                     "is_structured": isinstance(result, BaseModel),
-                    "prompt_tokens": prompt_tokens,
-                    "completion_tokens": completion_tokens,
-                    "total_tokens": total_tokens,
-                    "cost_usd": round(cost, 6),
+                    **usage_data,
                 }
             }
         )
@@ -510,22 +559,7 @@ async def litellm_embedding(
     response = await litellm.aembedding(**kwargs)
     elapsed_ms = (time.monotonic() - start_time) * 1000
 
-    usage = getattr(response, "usage", None)
-    prompt_tokens = getattr(usage, "prompt_tokens", 0) if usage else 0
-    total_tokens = getattr(usage, "total_tokens", 0) if usage else 0
-    try:
-        cost = litellm.completion_cost(completion_response=response)
-    except Exception:
-        cost = 0.0
-    logger.info(
-        "embedding_call_complete",
-        model=model,
-        num_texts=len(texts),
-        latency_ms=round(elapsed_ms, 1),
-        prompt_tokens=prompt_tokens,
-        total_tokens=total_tokens,
-        cost_usd=round(cost, 6),
-    )
+    _extract_usage(response, model, elapsed_ms, "embedding_call_complete", num_texts=len(texts))
     return np.array([dp["embedding"] for dp in response.data])
 
 

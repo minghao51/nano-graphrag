@@ -33,7 +33,7 @@ class NanoVectorDBStorage(BaseVectorStorage):
     async def upsert(self, data: dict[str, dict]):
         logger.info("nanovecdb_upsert", vectors=len(data), namespace=self.namespace)
         if not len(data):
-            logger.warning("You insert an empty data to vector DB")
+            logger.warning("nanovecdb_empty_upsert")
             return []
         list_data = [
             {

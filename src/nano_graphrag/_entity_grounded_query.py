@@ -15,6 +15,8 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 
+from ._utils import logger
+
 
 @dataclass
 class QueryResult:
@@ -73,6 +75,7 @@ class EntityGroundedQuery:
         entity_ids = await self._retrieve_entities(question, top_k, mode)
 
         if not entity_ids:
+            logger.info("entity_grounded_no_entities", question=question[:100])
             return QueryResult(
                 answer=self.fallback_message,
                 entity_ids=[],
@@ -89,6 +92,14 @@ class EntityGroundedQuery:
 
         # Stage 4: Validate and normalize answer
         result = self._validate_and_normalize(raw_answer, entity_ids, entity_context)
+
+        logger.info(
+            "entity_grounded_query_complete",
+            entities_retrieved=len(entity_ids),
+            entities_used=len(result.entity_ids),
+            confidence=round(result.confidence, 2),
+            validation_errors=len(result.validation_errors),
+        )
 
         return result
 
@@ -111,6 +122,7 @@ class EntityGroundedQuery:
         else:  # naive
             entities = await self._naive_retrieval(question, top_k)
 
+        logger.info("entity_grounded_retrieval", mode=mode, top_k=top_k, retrieved=len(entities))
         return entities
 
     async def _local_retrieval(self, question: str, top_k: int) -> list[str]:
@@ -320,6 +332,7 @@ Answer:"""
         if not used_entity_ids:
             if self.require_entity_match:
                 # Answer doesn't use any retrieved entities
+                logger.info("entity_grounded_no_entity_match", answer=raw_answer[:100])
                 validation_errors.append("Answer does not reference any retrieved entities")
                 # Try to extract and resolve entities from raw answer
                 resolved = self.registry.resolve_entities_from_text(raw_answer)

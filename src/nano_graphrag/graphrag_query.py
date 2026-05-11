@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 import time
-from uuid import uuid4
-
-import structlog
 
 from ._entity_grounded_query import EntityGroundedQuery
 from ._ops.query import (
@@ -14,7 +11,7 @@ from ._ops.query import (
     naive_query,
     naive_query_stream,
 )
-from ._utils import logger
+from ._utils import bind_run_context, logger
 
 
 def _check_mode_permissions(mode: str, enable_local: bool, enable_naive_rag: bool):
@@ -27,8 +24,7 @@ def _check_mode_permissions(mode: str, enable_local: bool, enable_naive_rag: boo
 
 
 async def aquery(self, query, param):
-    structlog.contextvars.clear_contextvars()
-    structlog.contextvars.bind_contextvars(run_id=uuid4().hex[:8], mode=param.mode)
+    bind_run_context(mode=param.mode)
     _check_mode_permissions(param.mode, self.enable_local, self.enable_naive_rag)
     runtime = self._runtime_config()
     logger.info("query_start", query=query[:100] if query else "")
@@ -89,8 +85,7 @@ async def aquery(self, query, param):
 
 
 async def astream_query(self, query, param):
-    structlog.contextvars.clear_contextvars()
-    structlog.contextvars.bind_contextvars(run_id=uuid4().hex[:8], mode=param.mode)
+    bind_run_context(mode=param.mode)
     _check_mode_permissions(param.mode, self.enable_local, self.enable_naive_rag)
     runtime = self._runtime_config()
     logger.info("query_start", query=query[:100] if query else "")

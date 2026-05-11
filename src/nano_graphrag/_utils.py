@@ -7,10 +7,11 @@ import json
 import logging
 import numbers
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from functools import wraps
 from hashlib import md5, sha256
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 
 import numpy as np
 import structlog
@@ -22,27 +23,58 @@ try:
 except ImportError:
     AutoTokenizer = None  # type: ignore[assignment,misc]
 
-structlog.configure(
-    processors=[
-        structlog.contextvars.merge_contextvars,
-        structlog.stdlib.filter_by_level,
-        structlog.stdlib.add_logger_name,
-        structlog.stdlib.add_log_level,
-        structlog.stdlib.PositionalArgumentsFormatter(),
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.StackInfoRenderer(),
-        structlog.processors.format_exc_info,
-        structlog.processors.UnicodeDecoder(),
-        structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
-    ],
-    context_class=dict,
-    logger_factory=structlog.stdlib.LoggerFactory(),
-    wrapper_class=structlog.stdlib.BoundLogger,
-    cache_logger_on_first_use=True,
-)
+_LOGGING_CONFIGURED = False
+
+
+def _configure_structlog() -> None:
+    """Configure structlog (idempotent — runs once per process)."""
+    global _LOGGING_CONFIGURED
+    if _LOGGING_CONFIGURED:
+        return
+    _LOGGING_CONFIGURED = True
+    structlog.configure(
+        processors=[
+            structlog.contextvars.merge_contextvars,
+            structlog.stdlib.filter_by_level,
+            structlog.stdlib.add_logger_name,
+            structlog.stdlib.add_log_level,
+            structlog.stdlib.PositionalArgumentsFormatter(),
+            structlog.processors.TimeStamper(fmt="iso"),
+            structlog.processors.StackInfoRenderer(),
+            structlog.processors.format_exc_info,
+            structlog.processors.UnicodeDecoder(),
+            structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
+        ],
+        context_class=dict,
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        wrapper_class=structlog.stdlib.BoundLogger,
+        cache_logger_on_first_use=True,
+    )
+
+
+_configure_structlog()
 
 logger = structlog.get_logger("nano-graphrag")
 logging.getLogger("neo4j").setLevel(logging.ERROR)
+
+
+def bind_run_context(**extra) -> None:
+    """Clear and bind structlog context variables for a new run.
+
+    Always binds a short ``run_id``. Additional key-value pairs are merged in.
+    """
+    from uuid import uuid4
+
+    structlog.contextvars.clear_contextvars()
+    structlog.contextvars.bind_contextvars(run_id=uuid4().hex[:8], **extra)
+
+
+# Shared pre_chain for ProcessorFormatter (stdlib log entries bridged to structlog)
+LOG_PRE_CHAIN = [
+    structlog.stdlib.add_log_level,
+    structlog.stdlib.add_logger_name,
+    structlog.processors.TimeStamper(fmt="iso"),
+]
 
 
 def always_get_an_event_loop() -> asyncio.AbstractEventLoop:
@@ -278,7 +310,7 @@ def generate_stable_entity_id(
 def generate_stable_relationship_id(
     src_entity_id: str,
     tgt_entity_id: str,
-    relation_type: str = "related",
+    relation_type: str = "related_to",
     temporal_context: str | None = None,
 ):
     left, right = sorted([src_entity_id, tgt_entity_id])

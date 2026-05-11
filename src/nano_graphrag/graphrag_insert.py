@@ -3,9 +3,6 @@ from __future__ import annotations
 import asyncio
 import os
 from hashlib import sha256
-from uuid import uuid4
-
-import structlog
 
 from ._ops import (
     extract_document_entity_relationships,
@@ -159,8 +156,9 @@ async def _rollback_insert_storages(
 async def _ainsert_documents(
     self, documents: dict[str, str], allow_legacy_custom: bool, force_rebuild: bool = False
 ):
-    structlog.contextvars.clear_contextvars()
-    structlog.contextvars.bind_contextvars(run_id=uuid4().hex[:8])
+    from ._utils import bind_run_context
+
+    bind_run_context()
     if not _is_builtin_extractor(self.entity_extraction_func):
         if allow_legacy_custom:
             return await self._legacy_custom_ainsert(documents)
@@ -327,23 +325,8 @@ async def _ainsert_documents(
                 for chunk_id in manifest.get("chunk_ids", [])
             }
         )
-        if old_chunk_ids:
-            await self.text_chunks.delete(old_chunk_ids)
-            if self.enable_naive_rag:
-                await self.chunks_vdb.delete(old_chunk_ids)
-
-        if inserting_chunks:
-            await self.text_chunks.upsert(inserting_chunks)
-            if self.enable_naive_rag:
-                await self.chunks_vdb.upsert(inserting_chunks)
-            inserted_chunk_ids = set(inserting_chunks.keys())
-        else:
-            inserted_chunk_ids = set()
-
-        await self.full_docs.upsert(normalized_docs)
-        inserted_doc_ids = set(normalized_docs.keys())
-
-        await self.document_index.upsert(new_document_index_entries)
+        inserted_chunk_ids = set(inserting_chunks.keys()) if inserting_chunks else set()
+        inserted_doc_ids = set(docs_to_process.keys())
 
         inserted_entity_ids = {
             entity_id
@@ -351,6 +334,7 @@ async def _ainsert_documents(
             if manifest is not None
             for entity_id in manifest.get("entities", {}).keys()
         }
+        await self.document_index.upsert(new_document_index_entries)
 
         logger.info("graph_rebuild_start")
         snapshot_path = None
@@ -367,6 +351,18 @@ async def _ainsert_documents(
                 old_manifest_lookup,
                 new_document_index_entries,
             )
+            if old_chunk_ids:
+                await self.text_chunks.delete(old_chunk_ids)
+                if self.enable_naive_rag:
+                    await self.chunks_vdb.delete(old_chunk_ids)
+
+            if inserting_chunks:
+                await self.text_chunks.upsert(inserting_chunks)
+                if self.enable_naive_rag:
+                    await self.chunks_vdb.upsert(inserting_chunks)
+
+            await self.full_docs.upsert(docs_to_process)
+
             affected_entity_ids = {
                 entity_id
                 for manifest in list(old_manifest_lookup.values())
@@ -438,12 +434,20 @@ async def _ainsert_documents(
             await self._rollback_insert_storages(
                 inserted_chunk_ids, inserted_doc_ids, inserted_entity_ids
             )
-            new_doc_ids = list(new_document_index_entries.keys())
+            staged_doc_ids = set(new_document_index_entries.keys())
+            existing_doc_ids = set(old_manifest_lookup.keys())
+            new_doc_ids = sorted(staged_doc_ids - existing_doc_ids)
+            changed_existing_doc_ids = sorted(staged_doc_ids & existing_doc_ids)
             if new_doc_ids:
                 await self.document_index.delete(new_doc_ids)
+            if changed_existing_doc_ids:
+                await self.document_index.upsert(
+                    {doc_id: old_manifest_lookup[doc_id] for doc_id in changed_existing_doc_ids}
+                )
+            if staged_doc_ids:
                 logger.warning(
                     "rebuild_failed_rollback",
-                    doc_count=len(new_doc_ids),
+                    doc_count=len(staged_doc_ids),
                 )
             raise e
     finally:
