@@ -7,7 +7,7 @@
   </a>
   <p><strong>A simple, easy-to-hack GraphRAG implementation</strong></p>
   <p>
-    <img src="https://img.shields.io/badge/python->=3.9.11-blue">
+    <img src="https://img.shields.io/badge/python->=3.11-blue">
     <a href="https://pypi.org/project/nano-graphrag/">
       <img src="https://img.shields.io/pypi/v/nano-graphrag.svg">
     </a>

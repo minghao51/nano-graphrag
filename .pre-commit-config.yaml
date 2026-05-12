@@ -28,6 +28,8 @@ repos:
         exclude: ^docs/notebooks/html/|^notebooks/_freeze/
       - id: check-merge-conflict
       - id: check-case-conflict
+      - id: check-ast
+      - id: debug-statements
       - id: detect-private-key
       - id: mixed-line-ending
         args: ['--fix=lf']
@@ -73,4 +75,14 @@ repos:
         entry: uv run mypy src/nano_graphrag
         language: system
         types: [python]
+        pass_filenames: false
+
+  # Security
+  - repo: local
+    hooks:
+      - id: pip-audit
+        name: pip-audit
+        entry: uv run pip-audit --skip-editable
+        language: system
+        always_run: true
         pass_filenames: false
