@@ -3,7 +3,6 @@
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Union
 
 from ..datasets import QAPair
 
@@ -15,7 +14,7 @@ class Metric(ABC):
     async def compute(
         self,
         prediction: str,
-        gold: Union[str, QAPair],
+        gold: str | QAPair,
         question: str = "",
         context: str = "",
     ) -> float:
@@ -60,7 +59,7 @@ class ExactMatchMetric(Metric):
     async def compute(
         self,
         prediction: str,
-        gold: Union[str, QAPair],
+        gold: str | QAPair,
         question: str = "",
         context: str = "",
     ) -> float:
@@ -95,7 +94,7 @@ class TokenF1Metric(Metric):
     async def compute(
         self,
         prediction: str,
-        gold: Union[str, QAPair],
+        gold: str | QAPair,
         question: str = "",
         context: str = "",
     ) -> float:
@@ -136,15 +135,15 @@ class TokenF1Metric(Metric):
 class MetricSuite:
     """Collection of metrics with batch computation support."""
 
-    metrics: Dict[str, Metric] = field(default_factory=dict)
+    metrics: dict[str, Metric] = field(default_factory=dict)
 
     async def compute(
         self,
         prediction: str,
-        gold: Union[str, QAPair],
+        gold: str | QAPair,
         question: str = "",
         context: str = "",
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Compute all metrics for a single prediction."""
         results = {}
         for name, metric in self.metrics.items():
@@ -159,11 +158,11 @@ class MetricSuite:
 
     async def compute_batch(
         self,
-        predictions: List[str],
-        golds: List[Union[str, QAPair]],
-        questions: Optional[List[str]] = None,
-        contexts: Optional[List[str]] = None,
-    ) -> Dict[str, float]:
+        predictions: list[str],
+        golds: list[str | QAPair],
+        questions: list[str] | None = None,
+        contexts: list[str] | None = None,
+    ) -> dict[str, float]:
         """Compute all metrics for a batch of predictions.
 
         Returns average scores for each metric.
@@ -184,11 +183,11 @@ class MetricSuite:
             )
 
         # Initialize accumulators
-        metric_sums = {name: 0.0 for name in self.metrics}
+        metric_sums = dict.fromkeys(self.metrics, 0.0)
         count = len(predictions)
 
         # Compute metrics for each prediction
-        for i, (pred, gold) in enumerate(zip(predictions, golds)):
+        for i, (pred, gold) in enumerate(zip(predictions, golds, strict=False)):
             question = questions[i] if questions else ""
             context = contexts[i] if contexts else ""
 
@@ -234,7 +233,7 @@ class NativeContextRecallMetric(Metric):
     async def compute(
         self,
         prediction: str,
-        gold: Union[str, QAPair],
+        gold: str | QAPair,
         question: str = "",
         context: str = "",
     ) -> float:
@@ -263,7 +262,7 @@ class RagasFaithfulnessMetric(Metric):
     async def compute(
         self,
         prediction: str,
-        gold: Union[str, QAPair],
+        gold: str | QAPair,
         question: str = "",
         context: str = "",
     ) -> float:
@@ -308,7 +307,7 @@ class RagasAnswerRelevanceMetric(Metric):
     async def compute(
         self,
         prediction: str,
-        gold: Union[str, QAPair],
+        gold: str | QAPair,
         question: str = "",
         context: str = "",
     ) -> float:

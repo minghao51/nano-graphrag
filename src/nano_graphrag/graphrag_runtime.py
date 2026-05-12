@@ -138,38 +138,34 @@ def _configure_runtime(self):
             model=self.llm_model,
         )
 
-    self.best_model_func = limit_async_func_call(self.best_model_max_async)(
-        LiteLLMWrapper(
-            model=self.llm_model,
-            structured_output=self.structured_output,
-            use_native_structured_output=self.use_pydantic_structured_output,
-            hashing_kv=self.llm_response_cache,
-            api_base=self.llm_api_base or self.api_base,
-            api_key=self.llm_api_key or self.api_key,
-            timeout=self.llm_timeout,
+    api_base = self.llm_api_base or self.api_base
+    api_key = self.llm_api_key or self.api_key
+
+    def _make_llm_wrapper(model: str, max_async: int):
+        return limit_async_func_call(max_async)(
+            LiteLLMWrapper(
+                model=model,
+                structured_output=self.structured_output,
+                use_native_structured_output=self.use_pydantic_structured_output,
+                hashing_kv=self.llm_response_cache,
+                api_base=api_base,
+                api_key=api_key,
+                timeout=self.llm_timeout,
+            )
         )
-    )
+
+    self.best_model_func = _make_llm_wrapper(self.llm_model, self.best_model_max_async)
     self.best_model_stream_func = _make_litellm_stream_wrapper(
         self.llm_model,
-        self.llm_api_base or self.api_base,
-        self.llm_api_key or self.api_key,
+        api_base,
+        api_key,
         self.llm_timeout,
     )
-    self.cheap_model_func = limit_async_func_call(self.cheap_model_max_async)(
-        LiteLLMWrapper(
-            model=self.llm_cheap_model,
-            structured_output=self.structured_output,
-            use_native_structured_output=self.use_pydantic_structured_output,
-            hashing_kv=self.llm_response_cache,
-            api_base=self.llm_api_base or self.api_base,
-            api_key=self.llm_api_key or self.api_key,
-            timeout=self.llm_timeout,
-        )
-    )
+    self.cheap_model_func = _make_llm_wrapper(self.llm_cheap_model, self.cheap_model_max_async)
     self.cheap_model_stream_func = _make_litellm_stream_wrapper(
         self.llm_cheap_model,
-        self.llm_api_base or self.api_base,
-        self.llm_api_key or self.api_key,
+        api_base,
+        api_key,
         self.llm_timeout,
     )
 

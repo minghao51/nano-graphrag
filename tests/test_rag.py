@@ -2,6 +2,7 @@ import os
 import json
 import shutil
 import asyncio
+from unittest.mock import AsyncMock
 import numpy as np
 import pytest
 from nano_graphrag import GraphRAG, QueryParam
@@ -255,6 +256,22 @@ def test_naive_query():
     rag = build_query_rag(best_model_func=fake_model, enable_naive_rag=True)
     result = rag.query("Dickens", param=QueryParam(mode="naive"))
     assert result == FAKE_RESPONSE
+
+
+def test_aquery_calls_query_done_on_failure(monkeypatch):
+    rag = build_query_rag(best_model_func=fake_model)
+    query_done_mock = AsyncMock()
+    monkeypatch.setattr(rag, "_query_done", query_done_mock)
+
+    async def _raise_local_query(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("nano_graphrag.graphrag_query.local_query", _raise_local_query)
+
+    with pytest.raises(RuntimeError, match="boom"):
+        rag.query("Dickens", param=QueryParam(mode="local"))
+
+    assert query_done_mock.await_count == 1
 
 
 def test_subcommunity_insert():

@@ -4,7 +4,7 @@ import json
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 @dataclass
@@ -15,9 +15,9 @@ class PredictionRecord:
     question: str
     gold_answer: str
     prediction: str
-    metrics: Dict[str, float]
+    metrics: dict[str, float]
     latency_seconds: float
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -27,13 +27,13 @@ class RunResult:
     run_id: str
     experiment_name: str
     timestamp: str
-    config: Dict[str, Any]
+    config: dict[str, Any]
     variant_label: str
-    mode_results: Dict[str, Dict[str, float]]
-    predictions: List[PredictionRecord]
-    aggregate_metrics: Dict[str, Dict[str, float]]
-    cache_stats: Optional[Dict[str, Any]]
-    timing: Dict[str, float]
+    mode_results: dict[str, dict[str, float]]
+    predictions: list[PredictionRecord]
+    aggregate_metrics: dict[str, dict[str, float]]
+    cache_stats: dict[str, Any] | None
+    timing: dict[str, float]
     duration_seconds: float
 
     def to_markdown_table(self) -> str:
@@ -60,12 +60,12 @@ class ResultsBackend(ABC):
         ...
 
     @abstractmethod
-    async def load(self, run_id: str) -> Optional[RunResult]:
+    async def load(self, run_id: str) -> RunResult | None:
         """Load result by run_id."""
         ...
 
     @abstractmethod
-    async def list_runs(self, experiment_name: Optional[str] = None) -> List[str]:
+    async def list_runs(self, experiment_name: str | None = None) -> list[str]:
         """List all run_ids, optionally filtered by experiment."""
         ...
 
@@ -84,18 +84,18 @@ class JSONResultsBackend(ResultsBackend):
             json.dump(result_dict, f, indent=2, ensure_ascii=False)
         return str(output_path)
 
-    async def load(self, run_id: str) -> Optional[RunResult]:
+    async def load(self, run_id: str) -> RunResult | None:
         filepath = self.results_dir / f"{run_id}.json"
         if not filepath.exists():
             return None
-        with open(filepath, "r", encoding="utf-8") as f:
+        with open(filepath, encoding="utf-8") as f:
             data = json.load(f)
         data["predictions"] = [
             PredictionRecord(**prediction) for prediction in data.get("predictions", [])
         ]
         return RunResult(**data)
 
-    async def list_runs(self, experiment_name: Optional[str] = None) -> List[str]:
+    async def list_runs(self, experiment_name: str | None = None) -> list[str]:
         runs = []
         for f in self.results_dir.glob("*.json"):
             if experiment_name:

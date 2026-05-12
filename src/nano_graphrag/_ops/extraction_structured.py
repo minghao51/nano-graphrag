@@ -11,7 +11,6 @@ from ..base import TextChunkSchema
 from ..prompt import PROMPTS
 from .extraction_common import (
     UNKNOWN_ENTITY_TYPE,
-    _build_extraction_system_prompt,
     _ExtractionProgress,
     _merge_results_into_manifest,
     _normalize_entity_name,
@@ -21,6 +20,7 @@ from .extraction_common import (
     _upsert_document_entity,
     _upsert_document_relationship,
 )
+from .extraction_prompts import _build_extraction_system_prompt
 
 
 async def _process_chunk_with_legacy_prompt(

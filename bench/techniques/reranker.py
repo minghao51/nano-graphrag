@@ -12,7 +12,8 @@ Example:
 
 from __future__ import annotations
 
-from typing import Any, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 
 class CrossEncoderReranker:
@@ -40,7 +41,7 @@ class CrossEncoderReranker:
         self,
         model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
         top_k: int = 20,
-        device: Optional[str] = None,
+        device: str | None = None,
         batch_size: int = 32,
     ) -> None:
         self._model_name = model
@@ -77,7 +78,7 @@ class CrossEncoderReranker:
         scores = self._model.predict(pairs, batch_size=self._batch_size)
 
         # Sort passages by score
-        ranked = sorted(zip(passages, scores), key=lambda x: x[1], reverse=True)
+        ranked = sorted(zip(passages, scores, strict=False), key=lambda x: x[1], reverse=True)
 
         # Return top_k
         return ranked[: self._top_k]
@@ -107,7 +108,7 @@ class CrossEncoderReranker:
         )
 
     @classmethod
-    def from_config(cls, config: dict[str, Any]) -> "CrossEncoderReranker":
+    def from_config(cls, config: dict[str, Any]) -> CrossEncoderReranker:
         """Create reranker from configuration dict.
 
         Args:

@@ -12,11 +12,11 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Any, List
+from typing import Any
 
 
 def create_dspy_tuner(
-    train_examples: List[Any],
+    train_examples: list[Any],
     model: str = "gpt-4o-mini",
     max_bootstrapped_demos: int = 4,
 ) -> str:
@@ -97,7 +97,7 @@ def entity_extraction_metric(example: Any, prediction: Any, trace: Any = None) -
 def generate_training_examples(
     dataset_path: str,
     num_examples: int = 50,
-) -> List[Any]:
+) -> list[Any]:
     """Generate training examples from dataset.
 
     Args:
@@ -115,7 +115,7 @@ def generate_training_examples(
     examples = []
 
     # Load dataset (simplified - in practice would load from actual data)
-    with open(dataset_path, "r") as f:
+    with open(dataset_path) as f:
         data = json.load(f)
 
     for i, item in enumerate(data[:num_examples]):

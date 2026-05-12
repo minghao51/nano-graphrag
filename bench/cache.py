@@ -2,8 +2,9 @@
 
 import functools
 import os
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Any
 
 from nano_graphrag._storage import JsonKVStorage
 from nano_graphrag._utils import compute_args_hash
@@ -26,7 +27,7 @@ class BenchmarkLLMCache:
     hits: int = 0
     misses: int = 0
 
-    def _make_cache_key(self, prompt: str, model: str, system_prompt: Optional[str] = None) -> str:
+    def _make_cache_key(self, prompt: str, model: str, system_prompt: str | None = None) -> str:
         """Create a cache key from prompt, model, and system prompt."""
         args_hash = compute_args_hash(prompt, model, system_prompt)
         return f"{self.cache_name}:{args_hash}"
@@ -35,8 +36,8 @@ class BenchmarkLLMCache:
         self,
         prompt: str,
         model: str,
-        system_prompt: Optional[str] = None,
-    ) -> Optional[str]:
+        system_prompt: str | None = None,
+    ) -> str | None:
         """Get cached response if available.
 
         Args:
@@ -66,7 +67,7 @@ class BenchmarkLLMCache:
         prompt: str,
         model: str,
         response: str,
-        system_prompt: Optional[str] = None,
+        system_prompt: str | None = None,
     ) -> None:
         """Cache a response.
 
@@ -90,10 +91,10 @@ class BenchmarkLLMCache:
 
     async def get_batch(
         self,
-        prompts: List[str],
+        prompts: list[str],
         model: str,
-        system_prompts: Optional[List[Optional[str]]] = None,
-    ) -> List[Optional[str]]:
+        system_prompts: list[str | None] | None = None,
+    ) -> list[str | None]:
         """Get multiple cached responses.
 
         Args:
@@ -118,7 +119,7 @@ class BenchmarkLLMCache:
 
         cache_keys = [
             self._make_cache_key(prompt, model, sys_prompt)
-            for prompt, sys_prompt in zip(prompts, system_prompts)
+            for prompt, sys_prompt in zip(prompts, system_prompts, strict=False)
         ]
 
         results = await self.storage.get_by_ids(cache_keys)
@@ -126,10 +127,10 @@ class BenchmarkLLMCache:
 
     async def set_batch(
         self,
-        prompts: List[str],
+        prompts: list[str],
         model: str,
-        responses: List[str],
-        system_prompts: Optional[List[Optional[str]]] = None,
+        responses: list[str],
+        system_prompts: list[str | None] | None = None,
     ) -> None:
         """Cache multiple responses.
 
@@ -153,7 +154,7 @@ class BenchmarkLLMCache:
             )
 
         cache_data = {}
-        for prompt, response, sys_prompt in zip(prompts, responses, system_prompts):
+        for prompt, response, sys_prompt in zip(prompts, responses, system_prompts, strict=False):
             cache_key = self._make_cache_key(prompt, model, sys_prompt)
             cache_data[cache_key] = {
                 "response": response,
@@ -164,7 +165,7 @@ class BenchmarkLLMCache:
 
         await self.storage.upsert(cache_data)
 
-    async def stats(self) -> Dict[str, Any]:
+    async def stats(self) -> dict[str, Any]:
         """Get cache statistics.
 
         Returns:
@@ -229,8 +230,8 @@ class BenchmarkLLMCache:
         @functools.wraps(llm_func)
         async def wrapped(
             prompt: str,
-            model: Optional[str] = None,
-            system_prompt: Optional[str] = None,
+            model: str | None = None,
+            system_prompt: str | None = None,
             **kwargs,
         ) -> str:
             # Extract model and system_prompt from kwargs to avoid duplicates

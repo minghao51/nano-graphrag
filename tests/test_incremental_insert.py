@@ -300,6 +300,22 @@ def test_reverse_index_persists_across_restart():
     assert contribution["doc_ids"] == ["doc-1"]
 
 
+def test_insert_failure_restores_graph_and_cleans_snapshot(monkeypatch):
+    rag = build_incremental_rag()
+
+    async def fail_rebuild(*args, **kwargs):
+        raise RuntimeError("rebuild_failed_for_test")
+
+    monkeypatch.setattr("nano_graphrag.graphrag_insert.rebuild_knowledge_graph_for_documents", fail_rebuild)
+
+    with pytest.raises(RuntimeError, match="rebuild_failed_for_test"):
+        rag.insert_documents({"doc-1": "Charles Dickens wrote A Christmas Carol."})
+
+    snapshots_dir = os.path.join(WORKING_DIR, "snapshots")
+    if os.path.exists(snapshots_dir):
+        assert os.listdir(snapshots_dir) == []
+
+
 def test_entity_linking_exact_alias_match_reuses_canonical_entity_id():
     clean_working_dir()
 

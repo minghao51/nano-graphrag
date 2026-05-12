@@ -74,7 +74,7 @@ async def _enrich_phase(
     if text_chunks_kv is not None:
         all_chunk_keys = await text_chunks_kv.all_keys()
         chunks_raw = await text_chunks_kv.get_by_ids(all_chunk_keys)
-        for k, v in zip(all_chunk_keys, chunks_raw):
+        for k, v in zip(all_chunk_keys, chunks_raw, strict=False):
             if v is not None:
                 chunks_data[k] = v.get("content", "")
 

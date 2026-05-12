@@ -12,7 +12,7 @@ Example:
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 
 async def score_edges_by_confidence(
@@ -59,7 +59,7 @@ async def score_edges_by_confidence(
 
 async def get_edge_weight(
     graph_storage: Any, source_node_id: str, target_node_id: str
-) -> Optional[float]:
+) -> float | None:
     """Get the weighted confidence score for an edge.
 
     Args:

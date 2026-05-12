@@ -14,10 +14,12 @@ from nano_graphrag._ops.extraction import (
     _resolve_manifest_entity_link,
 )
 from nano_graphrag._ops.extraction_common import (
-    _build_extraction_system_prompt,
-    _build_temporal_instructions,
     _merge_results_into_manifest,
     _normalize_entity_name,
+)
+from nano_graphrag._ops.extraction_prompts import (
+    _build_extraction_system_prompt,
+    _build_temporal_instructions,
 )
 from nano_graphrag._ops.extraction_rebuild import (
     _append_doc_id,

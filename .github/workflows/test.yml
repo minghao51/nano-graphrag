@@ -31,6 +31,8 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --frozen --all-extras
+      - run: uv lock --check
+      - run: uv run python scripts/check_repo_consistency.py
       - uses: pre-commit/action@v3.0.1
 
   typecheck:
@@ -51,7 +53,7 @@ jobs:
     timeout-minutes: 10
     strategy:
       matrix:
-        python-version: ["3.9", "3.10", "3.11"]
+        python-version: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6

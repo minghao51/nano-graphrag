@@ -9,12 +9,12 @@ from .metrics import (
 from .token_tracker import TokenTracker, TokenUsage
 
 __all__ = [
+    "ExactMatchMetric",
     "Metric",
     "MetricSuite",
-    "ExactMatchMetric",
-    "TokenF1Metric",
     "NativeContextRecallMetric",
-    "get_baseline_suite",
+    "TokenF1Metric",
     "TokenTracker",
     "TokenUsage",
+    "get_baseline_suite",
 ]

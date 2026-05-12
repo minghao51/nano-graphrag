@@ -126,7 +126,7 @@ class HNSWVectorStorage(BaseVectorStorage):
         self._metadata.update(
             {
                 int(id_int): {k: v for k, v in d.items() if k in self.meta_fields or k == "id"}
-                for id_int, d in zip(ids, list_data)
+                for id_int, d in zip(ids, list_data, strict=False)
             }
         )
         self._index.add_items(data=embeddings, ids=ids, num_threads=self.num_threads)
@@ -171,7 +171,7 @@ class HNSWVectorStorage(BaseVectorStorage):
                     retry_k = max(1, retry_k // 2)
 
         results = []
-        for label, distance in zip(labels[0], distances[0]):
+        for label, distance in zip(labels[0], distances[0], strict=False):
             label_int = int(label)
             if label_int not in self._metadata:
                 continue

@@ -17,7 +17,7 @@ Example:
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from nano_graphrag import GraphRAG
 from nano_graphrag.base import QueryParam
@@ -46,8 +46,8 @@ class HybridRetriever:
 
     def __init__(
         self,
-        retrievers: List[str],
-        weights: Optional[List[float]] = None,
+        retrievers: list[str],
+        weights: list[float] | None = None,
         fusion: str = "weighted_avg",
         top_k: int = 20,
     ) -> None:
@@ -123,7 +123,7 @@ class HybridRetriever:
         else:  # reciprocal_rank or rrf
             return self._reciprocal_rank_fusion(valid_results)
 
-    def _weighted_avg_fusion(self, weighted_results: List[tuple[float, str]]) -> str:
+    def _weighted_avg_fusion(self, weighted_results: list[tuple[float, str]]) -> str:
         """Combine results using weighted average of passage scores.
 
         Args:
@@ -133,7 +133,7 @@ class HybridRetriever:
             Combined context string.
         """
         # Split each result into passages
-        all_passages: List[tuple[float, str]] = []
+        all_passages: list[tuple[float, str]] = []
 
         for weight, result in weighted_results:
             # Split by double newlines to get passages
@@ -147,7 +147,7 @@ class HybridRetriever:
 
         return "\n\n".join(p[1] for p in top_passages)
 
-    def _reciprocal_rank_fusion(self, weighted_results: List[tuple[float, str]]) -> str:
+    def _reciprocal_rank_fusion(self, weighted_results: list[tuple[float, str]]) -> str:
         """Combine results using reciprocal rank fusion (RRF).
 
         RRF assigns scores based on rank position: 1 / (k + rank)
@@ -162,7 +162,7 @@ class HybridRetriever:
         k = 60  # RRF constant
 
         # Split results into passages and calculate RRF scores
-        passage_scores: Dict[str, float] = {}
+        passage_scores: dict[str, float] = {}
 
         for weight, result in weighted_results:
             passages = [p.strip() for p in result.split("\n\n") if p.strip()]
@@ -181,7 +181,7 @@ class HybridRetriever:
         return "\n\n".join(p[0] for p in top_passages)
 
     @classmethod
-    def from_config(cls, config: dict[str, Any]) -> "HybridRetriever":
+    def from_config(cls, config: dict[str, Any]) -> HybridRetriever:
         """Create retriever from configuration dict.
 
         Args:

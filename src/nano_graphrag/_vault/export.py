@@ -150,7 +150,7 @@ async def _export_communities(
 
     reports = await community_reports_kv.get_by_ids(all_keys)
     index_lines = []
-    for key, report in zip(all_keys, reports):
+    for key, report in zip(all_keys, reports, strict=False):
         if report is None:
             continue
         title = report.get("report_json", {}).get("title", key)

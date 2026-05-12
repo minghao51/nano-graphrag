@@ -18,7 +18,7 @@ Example:
 from __future__ import annotations
 
 import re
-from typing import Any, List
+from typing import Any
 
 from nano_graphrag import GraphRAG
 from nano_graphrag.base import QueryParam
@@ -44,7 +44,7 @@ class AdaptiveRouter:
     """
 
     # Multi-hop query patterns
-    MULTIHOP_PATTERNS: List[str] = [
+    MULTIHOP_PATTERNS: list[str] = [
         r"\bwho.*also\b",
         r"\bboth.*and\b",
         r"\bconnect(?:ion|ed|s)?\b",
@@ -57,7 +57,7 @@ class AdaptiveRouter:
     ]
 
     # Global query patterns
-    GLOBAL_PATTERNS: List[str] = [
+    GLOBAL_PATTERNS: list[str] = [
         r"\bthemes?\b",
         r"\boverall\b",
         r"\bin general\b",
@@ -149,7 +149,7 @@ class AdaptiveRouter:
         return "local"
 
     @classmethod
-    def from_config(cls, config: dict[str, Any]) -> "AdaptiveRouter":
+    def from_config(cls, config: dict[str, Any]) -> AdaptiveRouter:
         """Create router from configuration dict.
 
         Args:

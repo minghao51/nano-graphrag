@@ -1,6 +1,6 @@
 """Plugin registry for swappable pipeline components."""
 
-from typing import Any, Optional, Protocol, TypeVar
+from typing import Any, Protocol, TypeVar
 
 from nano_graphrag import GraphRAG
 from nano_graphrag._ops import chunking_by_seperators, chunking_by_token_size
@@ -30,9 +30,9 @@ class EntityExtractor(Protocol):
         self,
         chunk: str,
         source_sub_graph: Any = None,
-        language: Optional[str] = None,
-        model: Optional[str] = None,
-        model_max_token_size: Optional[int] = None,
+        language: str | None = None,
+        model: str | None = None,
+        model_max_token_size: int | None = None,
         **kwargs,
     ) -> dict[str, Any]: ...
 
@@ -140,7 +140,7 @@ def list_registered(stage: str) -> list[str]:
     return list(_REGISTRY[stage].keys())
 
 
-def clear_registry(stage: Optional[str] = None) -> None:
+def clear_registry(stage: str | None = None) -> None:
     """Clear registry for a specific stage or all stages.
 
     Args:
@@ -328,7 +328,7 @@ class CrossEncoderRerankerWrapper:
         self,
         model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
         top_k: int = 20,
-        device: Optional[str] = None,
+        device: str | None = None,
         batch_size: int = 32,
     ):
         from .techniques.reranker import CrossEncoderReranker
@@ -409,8 +409,8 @@ class HybridRetrieverWrapper:
 
     def __init__(
         self,
-        retrievers: Optional[list[str]] = None,
-        weights: Optional[list[float]] = None,
+        retrievers: list[str] | None = None,
+        weights: list[float] | None = None,
         fusion: str = "weighted_avg",
         top_k: int = 20,
     ):

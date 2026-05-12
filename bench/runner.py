@@ -6,7 +6,7 @@ import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from nano_graphrag._config import FLAT_FIELD_TO_ENV_VAR
 from nano_graphrag.base import GraphRAGConfig, QueryParam
@@ -26,7 +26,7 @@ class MultiHopGraphRAG(GraphRAG):
         self,
         query: str,
         param: QueryParam = QueryParam(mode="local"),
-        injected_context: Optional[str] = None,
+        injected_context: str | None = None,
     ) -> str:
         """Query with optional injected context.
 
@@ -73,21 +73,21 @@ class BenchmarkConfig:
     # === Dataset ===
     dataset_name: str = ""
     dataset_path: str = ""
-    corpus_path: Optional[str] = None
+    corpus_path: str | None = None
     dataset_split: str = "test"
     max_samples: int = -1
     max_corpus_samples: int = -1
     auto_download: bool = False
 
     # === GraphRAG config ===
-    graphrag_config: Dict[str, Any] = field(default_factory=dict)
+    graphrag_config: dict[str, Any] = field(default_factory=dict)
 
     # === Query modes ===
-    query_modes: List[str] = field(default_factory=lambda: ["local", "global"])
-    query_params: Dict[str, Any] = field(default_factory=dict)
+    query_modes: list[str] = field(default_factory=lambda: ["local", "global"])
+    query_params: dict[str, Any] = field(default_factory=dict)
 
     # === Metrics ===
-    metrics: List[str] = field(default_factory=lambda: ["exact_match", "token_f1"])
+    metrics: list[str] = field(default_factory=lambda: ["exact_match", "token_f1"])
 
     # === Output ===
     output_dir: str = "./benchmark_results"
@@ -105,14 +105,14 @@ class BenchmarkConfig:
                 "PyYAML is required to load YAML configs. Install with: uv add pyyaml"
             )
 
-        with open(path, "r") as f:
+        with open(path) as f:
             data = yaml.safe_load(f)
 
         normalized = cls._normalize_config(data)
         return cls(**normalized)
 
     @classmethod
-    def _normalize_config(cls, data: Dict[str, Any]) -> Dict[str, Any]:
+    def _normalize_config(cls, data: dict[str, Any]) -> dict[str, Any]:
         """Normalize nested config schema to flat structure.
 
         Handles both:
@@ -187,13 +187,13 @@ class BenchmarkConfig:
         return normalized
 
     @classmethod
-    def from_dict(cls, config: Dict[str, Any]) -> "BenchmarkConfig":
+    def from_dict(cls, config: dict[str, Any]) -> "BenchmarkConfig":
         """Create config from dictionary."""
         normalized = cls._normalize_config(config)
         filtered = {k: v for k, v in normalized.items() if v is not None}
         return cls(**filtered)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert config to dictionary (nested schema)."""
         return {
             "name": self.experiment_name,
@@ -238,13 +238,13 @@ class ExperimentResult:
     experiment_name: str
     timestamp: str
     config: BenchmarkConfig
-    mode_results: Dict[str, Dict[str, float]]  # mode -> metric_scores
-    predictions: Dict[str, List[Dict[str, Any]]] = field(
+    mode_results: dict[str, dict[str, float]]  # mode -> metric_scores
+    predictions: dict[str, list[dict[str, Any]]] = field(
         default_factory=dict
     )  # mode -> list of {question, prediction, gold}
     duration_seconds: float = 0.0
-    cache_stats: Optional[Dict[str, Any]] = None
-    token_usage: Dict[str, Dict[str, Any]] = field(default_factory=dict)  # mode -> TokenUsage dict
+    cache_stats: dict[str, Any] | None = None
+    token_usage: dict[str, dict[str, Any]] = field(default_factory=dict)  # mode -> TokenUsage dict
 
     def save(self, output_dir: str) -> str:
         """Save results to JSON file.
@@ -287,9 +287,9 @@ class ExperimentRunner:
             config: Benchmark configuration
         """
         self.config = config
-        self._dataset: Optional[BenchmarkDataset] = None
-        self._rag: Optional[GraphRAG] = None
-        self._metric_suite: Optional[MetricSuite] = None
+        self._dataset: BenchmarkDataset | None = None
+        self._rag: GraphRAG | None = None
+        self._metric_suite: MetricSuite | None = None
         self._cache = self._create_cache()
 
     def _create_cache(self):
@@ -452,7 +452,7 @@ class ExperimentRunner:
         # Run queries for each mode
         mode_results = {}
         all_predictions = {}
-        all_token_usage: Dict[str, Dict[str, Any]] = {}
+        all_token_usage: dict[str, dict[str, Any]] = {}
         base_best_model_func = self._rag.best_model_func
         base_cheap_model_func = self._rag.cheap_model_func
 
@@ -564,7 +564,7 @@ class ExperimentRunner:
                 # Store predictions
                 all_predictions[mode] = [
                     {"question": qa.question, "prediction": pred, "gold": qa.answer}
-                    for qa, pred in zip(questions_list, predictions)
+                    for qa, pred in zip(questions_list, predictions, strict=False)
                 ]
 
                 print(f"[Query] {mode} results: {scores}")
@@ -621,13 +621,13 @@ class ABConfig:
     version: str = "1.0"
     description: str = ""
 
-    shared: Dict[str, Any] = field(default_factory=dict)
+    shared: dict[str, Any] = field(default_factory=dict)
 
     variant_a_label: str = "variant_a"
-    variant_a_config: Dict[str, Any] = field(default_factory=dict)
+    variant_a_config: dict[str, Any] = field(default_factory=dict)
 
     variant_b_label: str = "variant_b"
-    variant_b_config: Dict[str, Any] = field(default_factory=dict)
+    variant_b_config: dict[str, Any] = field(default_factory=dict)
 
     output_dir: str = "./benchmark_results"
 
@@ -640,12 +640,12 @@ class ABConfig:
             raise ImportError(
                 "PyYAML is required to load YAML configs. Install with: uv add pyyaml"
             )
-        with open(path, "r") as f:
+        with open(path) as f:
             data = yaml.safe_load(f)
         return cls.from_dict(data)
 
     @classmethod
-    def from_dict(cls, config: Dict[str, Any]) -> "ABConfig":
+    def from_dict(cls, config: dict[str, Any]) -> "ABConfig":
         """Create A/B config from dictionary."""
         shared = config.get("shared", {})
 
@@ -664,7 +664,7 @@ class ABConfig:
             output_dir=config.get("output", {}).get("results_dir", "./benchmark_results"),
         )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "name": self.experiment_name,

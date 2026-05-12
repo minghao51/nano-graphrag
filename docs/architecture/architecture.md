@@ -52,8 +52,7 @@ Operational logic is split by responsibility under `nano_graphrag._ops`:
 - `community.py`: community description packing and report generation
 - `query.py`: local/global/naive query context building and answer generation
 
-`nano_graphrag._op` is now a compatibility wrapper that re-exports the same public helpers.
-`nano_graphrag._ops.__init__` also keeps the old extraction helper imports stable so downstream code does not need to change when internal files move.
+`nano_graphrag._ops.__init__` keeps extraction helper imports stable so downstream code does not need to change when internal files move.
 
 ### Storage Interfaces
 

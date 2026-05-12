@@ -39,11 +39,10 @@ async def _flush_doc_progress(
     doc_id: str,
     doc: dict,
     manifest: dict,
-    all_chunks: dict,
+    doc_chunks: dict,
     all_docs: dict,
 ):
     """Flush a single doc's data to storage for progress visibility."""
-    doc_chunks = {cid: c for cid, c in all_chunks.items() if c.get("full_doc_id") == doc_id}
     if doc_chunks:
         await self.text_chunks.upsert(doc_chunks)
         if self.enable_naive_rag:
@@ -187,12 +186,12 @@ async def _ainsert_documents(
             docs_to_process = normalized_docs
             changed_doc_ids = [
                 doc_id
-                for doc_id, existing_doc in zip(normalized_docs.keys(), existing_docs)
+                for doc_id, existing_doc in zip(normalized_docs.keys(), existing_docs, strict=False)
                 if existing_doc is not None
             ]
         else:
             for doc_id, new_doc, existing_doc in zip(
-                normalized_docs.keys(), normalized_docs.values(), existing_docs
+                normalized_docs.keys(), normalized_docs.values(), existing_docs, strict=False
             ):
                 if (
                     existing_doc is None
@@ -209,7 +208,7 @@ async def _ainsert_documents(
             unchanged_ids = [d for d in normalized_docs if d not in docs_to_process]
             if unchanged_ids:
                 existing_manifests = await self.document_index.get_by_ids(unchanged_ids)
-                for doc_id, manifest in zip(unchanged_ids, existing_manifests):
+                for doc_id, manifest in zip(unchanged_ids, existing_manifests, strict=False):
                     if manifest is not None and manifest.get("extraction_hash") != current_hash:
                         docs_to_process[doc_id] = normalized_docs[doc_id]
                         changed_doc_ids.append(doc_id)
@@ -226,7 +225,7 @@ async def _ainsert_documents(
         old_manifests = await self.document_index.get_by_ids(changed_doc_ids)
         old_manifest_lookup = {
             doc_id: manifest
-            for doc_id, manifest in zip(changed_doc_ids, old_manifests)
+            for doc_id, manifest in zip(changed_doc_ids, old_manifests, strict=False)
             if manifest is not None
         }
 
@@ -289,7 +288,7 @@ async def _ainsert_documents(
                         doc_id,
                         doc,
                         manifest,
-                        inserting_chunks,
+                        chunks_by_doc.get(doc_id, {}),
                         normalized_docs,
                     )
                     logger.info(
@@ -428,9 +427,11 @@ async def _ainsert_documents(
             # Clean up snapshot on success
             if snapshot_path and os.path.exists(snapshot_path):
                 os.unlink(snapshot_path)
-        except Exception as e:
+        except Exception:
             if snapshot_path and self.chunk_entity_relation_graph is not None:
                 await self.chunk_entity_relation_graph._restore_graph(snapshot_path)
+            if snapshot_path and os.path.exists(snapshot_path):
+                os.unlink(snapshot_path)
             await self._rollback_insert_storages(
                 inserted_chunk_ids, inserted_doc_ids, inserted_entity_ids
             )
@@ -449,7 +450,7 @@ async def _ainsert_documents(
                     "rebuild_failed_rollback",
                     doc_count=len(staged_doc_ids),
                 )
-            raise e
+            raise
     finally:
         await self._insert_done()
 
@@ -491,7 +492,7 @@ async def _rebuild_graph_from_manifests(self):
         all_manifests = await self.document_index.get_by_ids(all_doc_keys)
         manifest_dict = {
             doc_id: manifest
-            for doc_id, manifest in zip(all_doc_keys, all_manifests)
+            for doc_id, manifest in zip(all_doc_keys, all_manifests, strict=False)
             if manifest is not None
         }
         if not manifest_dict:
@@ -533,9 +534,11 @@ async def _rebuild_graph_from_manifests(self):
             # Clean up snapshot on success
             if snapshot_path and os.path.exists(snapshot_path):
                 os.unlink(snapshot_path)
-        except Exception as e:
+        except Exception:
             if snapshot_path and self.chunk_entity_relation_graph is not None:
                 await self.chunk_entity_relation_graph._restore_graph(snapshot_path)
-            raise e
+            if snapshot_path and os.path.exists(snapshot_path):
+                os.unlink(snapshot_path)
+            raise
     finally:
         await self._insert_done()

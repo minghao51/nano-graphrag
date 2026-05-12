@@ -10,10 +10,10 @@ from .datasets import (
 
 __all__ = [
     "BenchmarkDataset",
-    "Passage",
-    "QAPair",
-    "MultiHopRAGDataset",
     "HotpotQADataset",
     "MuSiQueDataset",
+    "MultiHopRAGDataset",
+    "Passage",
+    "QAPair",
     "TwoWikiMultiHopQADataset",
 ]

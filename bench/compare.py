@@ -4,7 +4,7 @@ import argparse
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 
 @dataclass
@@ -13,12 +13,12 @@ class ComparisonResult:
 
     baseline: str
     challenger: str
-    deltas: Dict[str, Dict[str, Dict[str, float]]]
+    deltas: dict[str, dict[str, dict[str, float]]]
 
 
-def load_result(result_path: str) -> Dict[str, Any]:
+def load_result(result_path: str) -> dict[str, Any]:
     """Load experiment result from JSON file."""
-    with open(result_path, "r") as f:
+    with open(result_path) as f:
         return json.load(f)
 
 
@@ -165,7 +165,7 @@ def compute_statistical_significance(
     if not baseline_values:
         raise ValueError("Lists must not be empty")
 
-    deltas = [c - b for b, c in zip(baseline_values, challenger_values)]
+    deltas = [c - b for b, c in zip(baseline_values, challenger_values, strict=False)]
     n = len(deltas)
     mean_delta = sum(deltas) / n
 

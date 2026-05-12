@@ -73,7 +73,9 @@ async def _find_most_related_community_from_entities(
     )
     related_community_datas = {
         k: v
-        for k, v in zip(related_community_keys_counts.keys(), _related_community_datas)
+        for k, v in zip(
+            related_community_keys_counts.keys(), _related_community_datas, strict=False
+        )
         if v is not None
     }
     related_community_keys = sorted(
@@ -117,7 +119,7 @@ async def _find_most_related_text_unit_from_entities(
     all_one_hop_nodes_data = await knowledge_graph_inst.get_nodes_batch(all_one_hop_node_list)
     all_one_hop_text_units_lookup = {
         k: set(split_string_by_multi_markers(v["source_id"], [GRAPH_FIELD_SEP]))
-        for k, v in zip(all_one_hop_node_list, all_one_hop_nodes_data)
+        for k, v in zip(all_one_hop_node_list, all_one_hop_nodes_data, strict=False)
         if v is not None
     }
 
@@ -127,11 +129,13 @@ async def _find_most_related_text_unit_from_entities(
 
     all_chunk_data = await text_chunks_db.get_by_ids(list(all_chunk_ids))
     chunk_data_lookup = {
-        cid: data for cid, data in zip(all_chunk_ids, all_chunk_data) if data is not None
+        cid: data
+        for cid, data in zip(all_chunk_ids, all_chunk_data, strict=False)
+        if data is not None
     }
 
     all_text_units_lookup = {}
-    for index, (this_text_units, this_edges) in enumerate(zip(text_units, edges)):
+    for index, (this_text_units, this_edges) in enumerate(zip(text_units, edges, strict=False)):
         for c_id in this_text_units:
             if c_id in all_text_units_lookup:
                 continue
@@ -189,7 +193,7 @@ async def _find_most_related_edges_from_entities(
     related_nodes = await knowledge_graph_inst.get_nodes_batch(related_node_ids)
     node_name_lookup = {
         node_id: node_data.get("entity_name", node_id)
-        for node_id, node_data in zip(related_node_ids, related_nodes)
+        for node_id, node_data in zip(related_node_ids, related_nodes, strict=False)
         if node_data is not None
     }
     all_edges_data = [
@@ -200,7 +204,7 @@ async def _find_most_related_edges_from_entities(
             "rank": d,
             **v,
         }
-        for k, v, d in zip(all_edges, all_edges_pack, all_edges_degree)
+        for k, v, d in zip(all_edges, all_edges_pack, all_edges_degree, strict=False)
         if v is not None
     ]
     if query_param.time_range is not None:
@@ -238,7 +242,7 @@ async def _build_local_query_context(
     node_degrees = await knowledge_graph_inst.node_degrees_batch([r["id"] for r in results])
     node_datas: list[dict[Any, Any]] = [
         {**n, "id": k["id"], "entity_name": n.get("entity_name", k["entity_name"]), "rank": d}
-        for k, n, d in zip(results, node_datas_raw, node_degrees)
+        for k, n, d in zip(results, node_datas_raw, node_degrees, strict=False)
         if n is not None
     ]
     use_communities = await _find_most_related_community_from_entities(

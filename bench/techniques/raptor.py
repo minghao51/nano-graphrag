@@ -15,7 +15,7 @@ Example:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, List, Optional
+from typing import Any
 
 from nano_graphrag import GraphRAG
 from nano_graphrag.base import QueryParam
@@ -27,9 +27,9 @@ class RaptorNode:
 
     content: str
     level: int
-    children: List["RaptorNode"] | None = None
-    parent: "RaptorNode" | None = None
-    embedding: List[float] | None = None
+    children: list[RaptorNode] | None = None
+    parent: RaptorNode | None = None
+    embedding: list[float] | None = None
     node_id: str = ""
 
 
@@ -72,9 +72,9 @@ class RaptorRetriever:
         self._summary_model = summary_model
         self._chunk_size = chunk_size
         self._top_k = top_k
-        self._root: Optional[RaptorNode] = None
+        self._root: RaptorNode | None = None
 
-    async def build_tree(self, chunks: List[str], graph_rag: GraphRAG) -> None:
+    async def build_tree(self, chunks: list[str], graph_rag: GraphRAG) -> None:
         """Build the RAPTOR tree from chunks.
 
         Args:
@@ -93,7 +93,7 @@ class RaptorRetriever:
 
     async def _build_level(
         self,
-        nodes: List[RaptorNode],
+        nodes: list[RaptorNode],
         current_level: int,
         graph_rag: GraphRAG,
     ) -> RaptorNode:
@@ -132,9 +132,9 @@ class RaptorRetriever:
 
     async def _cluster_nodes(
         self,
-        nodes: List[RaptorNode],
+        nodes: list[RaptorNode],
         graph_rag: GraphRAG,
-    ) -> List[List[RaptorNode]]:
+    ) -> list[list[RaptorNode]]:
         """Cluster nodes by embedding similarity.
 
         Args:
@@ -159,9 +159,9 @@ class RaptorRetriever:
 
     async def _gmm_cluster(
         self,
-        nodes: List[RaptorNode],
-        embeddings: List[List[float]],
-    ) -> List[List[RaptorNode]]:
+        nodes: list[RaptorNode],
+        embeddings: list[list[float]],
+    ) -> list[list[RaptorNode]]:
         """Cluster using Gaussian Mixture Model.
 
         Args:
@@ -191,8 +191,8 @@ class RaptorRetriever:
         labels = gmm.fit_predict(X)
 
         # Group nodes by cluster
-        clusters: dict[int, List[RaptorNode]] = {}
-        for node, label in zip(nodes, labels):
+        clusters: dict[int, list[RaptorNode]] = {}
+        for node, label in zip(nodes, labels, strict=False):
             if label not in clusters:
                 clusters[label] = []
             clusters[label].append(node)
@@ -201,9 +201,9 @@ class RaptorRetriever:
 
     async def _kmeans_cluster(
         self,
-        nodes: List[RaptorNode],
-        embeddings: List[List[float]],
-    ) -> List[List[RaptorNode]]:
+        nodes: list[RaptorNode],
+        embeddings: list[list[float]],
+    ) -> list[list[RaptorNode]]:
         """Cluster using K-means.
 
         Args:
@@ -233,8 +233,8 @@ class RaptorRetriever:
         labels = kmeans.fit_predict(X)
 
         # Group nodes by cluster
-        clusters: dict[int, List[RaptorNode]] = {}
-        for node, label in zip(nodes, labels):
+        clusters: dict[int, list[RaptorNode]] = {}
+        for node, label in zip(nodes, labels, strict=False):
             if label not in clusters:
                 clusters[label] = []
             clusters[label].append(node)
@@ -243,7 +243,7 @@ class RaptorRetriever:
 
     async def _summarize_cluster(
         self,
-        nodes: List[RaptorNode],
+        nodes: list[RaptorNode],
         graph_rag: GraphRAG,
     ) -> RaptorNode:
         """Summarize a cluster of nodes into a single node.
@@ -281,7 +281,7 @@ Provide a clear, informative summary that captures the main points."""
 
     async def _merge_nodes(
         self,
-        nodes: List[RaptorNode],
+        nodes: list[RaptorNode],
         graph_rag: GraphRAG,
     ) -> RaptorNode:
         """Merge remaining nodes when max level is reached.
@@ -325,7 +325,7 @@ Provide a clear, informative summary that captures the main points."""
         self,
         query: str,
         graph_rag: GraphRAG,
-    ) -> List[str]:
+    ) -> list[str]:
         """Search the RAPTOR tree for relevant chunks.
 
         Args:
@@ -352,14 +352,14 @@ Provide a clear, informative summary that captures the main points."""
                 node_emb = node.embedding
 
             # Simple cosine similarity (dot product for normalized embeddings)
-            score = sum(q * e for q, e in zip(query_emb, node_emb))
+            score = sum(q * e for q, e in zip(query_emb, node_emb, strict=False))
             scored_nodes.append((score, node.content))
 
         # Sort by score and return top contents
         scored_nodes.sort(key=lambda x: x[0], reverse=True)
         return [content for _, content in scored_nodes]
 
-    def _collect_nodes(self, node: RaptorNode | None) -> List[RaptorNode]:
+    def _collect_nodes(self, node: RaptorNode | None) -> list[RaptorNode]:
         """Collect all nodes in the tree.
 
         Args:
@@ -378,7 +378,7 @@ Provide a clear, informative summary that captures the main points."""
         return nodes
 
     @classmethod
-    def from_config(cls, config: dict[str, Any]) -> "RaptorRetriever":
+    def from_config(cls, config: dict[str, Any]) -> RaptorRetriever:
         """Create retriever from configuration dict.
 
         Args:

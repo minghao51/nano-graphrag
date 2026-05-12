@@ -14,7 +14,7 @@ Example:
 
 from __future__ import annotations
 
-from typing import Any, List
+from typing import Any
 
 import networkx as nx
 
@@ -119,7 +119,7 @@ class HippoRAGRetriever:
         # Convert nodes to context
         return await self._nodes_to_context(top_nodes, graph_rag)
 
-    async def _find_seed_entities(self, query: str, graph_rag: GraphRAG) -> List[str]:
+    async def _find_seed_entities(self, query: str, graph_rag: GraphRAG) -> list[str]:
         """Find seed entities via query embedding similarity.
 
         Args:
@@ -144,7 +144,7 @@ class HippoRAGRetriever:
             # If vector query fails, return empty list
             return []
 
-    async def _nodes_to_context(self, nodes: List[str], graph_rag: GraphRAG) -> str:
+    async def _nodes_to_context(self, nodes: list[str], graph_rag: GraphRAG) -> str:
         """Convert graph nodes to context text.
 
         Args:
@@ -187,7 +187,7 @@ class HippoRAGRetriever:
         return dict(self._stats)
 
     @classmethod
-    def from_config(cls, config: dict[str, Any]) -> "HippoRAGRetriever":
+    def from_config(cls, config: dict[str, Any]) -> HippoRAGRetriever:
         """Create retriever from configuration dict.
 
         Args:

@@ -107,7 +107,8 @@ class NetworkXStorage(BaseGraphStorage):
             return self._graph.nodes.get(node_id)
 
     async def get_nodes_batch(self, node_ids: list[str]) -> list[dict | None]:
-        return await asyncio.gather(*[self.get_node(node_id) for node_id in node_ids])
+        async with self._graph_lock:
+            return [self._graph.nodes.get(node_id) for node_id in node_ids]
 
     async def node_degree(self, node_id: str) -> int:
         async with self._graph_lock:
@@ -116,7 +117,11 @@ class NetworkXStorage(BaseGraphStorage):
             return len(self._graph[node_id])
 
     async def node_degrees_batch(self, node_ids: list[str]) -> list[int]:
-        return await asyncio.gather(*[self.node_degree(node_id) for node_id in node_ids])
+        async with self._graph_lock:
+            return [
+                len(self._graph[node_id]) if self._graph.has_node(node_id) else 0
+                for node_id in node_ids
+            ]
 
     async def edge_degree(self, src_id: str, tgt_id: str) -> int:
         async with self._graph_lock:
@@ -125,9 +130,12 @@ class NetworkXStorage(BaseGraphStorage):
             )
 
     async def edge_degrees_batch(self, edge_pairs: list[tuple[str, str]]) -> list[int]:
-        return await asyncio.gather(
-            *[self.edge_degree(src_id, tgt_id) for src_id, tgt_id in edge_pairs]
-        )
+        async with self._graph_lock:
+            return [
+                (self._graph.degree(src_id) if self._graph.has_node(src_id) else 0)
+                + (self._graph.degree(tgt_id) if self._graph.has_node(tgt_id) else 0)
+                for src_id, tgt_id in edge_pairs
+            ]
 
     async def get_edge(self, source_node_id: str, target_node_id: str) -> dict | None:
         """Get edge data between two nodes.
@@ -194,47 +202,65 @@ class NetworkXStorage(BaseGraphStorage):
             return None
 
     async def get_nodes_edges_batch(self, node_ids: list[str]) -> list[list[tuple[str, str]]]:
-        return await asyncio.gather(*[self.get_node_edges(node_id) for node_id in node_ids])
+        async with self._graph_lock:
+            results = []
+            for node_id in node_ids:
+                if self._graph.has_node(node_id):
+                    results.append(
+                        list({(u, v) for u, v, k in self._graph.edges(node_id, keys=True)})
+                    )
+                else:
+                    results.append([])
+            return results
+
+    def _upsert_node_unsafe(self, node_id: str, node_data: dict[str, str]):
+        """Must be called with _graph_lock held."""
+        filtered = {k: v for k, v in node_data.items() if v is not None}
+        self._graph.add_node(node_id, **filtered)
+
+    def _upsert_edge_unsafe(
+        self, source_node_id: str, target_node_id: str, edge_data: dict[str, str]
+    ):
+        """Must be called with _graph_lock held."""
+        edge_data = {k: v for k, v in edge_data.items() if v is not None}
+        edge_key = edge_data.get("relationship_id")
+        if edge_key is None:
+            from .._utils import compute_sha256_id
+
+            edge_key = compute_sha256_id(
+                f"{source_node_id}|{target_node_id}|{edge_data.get('description', '')}",
+                prefix="edge_",
+            )
+            edge_data["relationship_id"] = edge_key
+        if self._graph.has_edge(source_node_id, target_node_id, key=edge_key):
+            existing = self._graph[source_node_id][target_node_id][edge_key]
+            existing.update(edge_data)
+        else:
+            self._graph.add_edge(source_node_id, target_node_id, key=edge_key, **edge_data)
 
     async def upsert_node(self, node_id: str, node_data: dict[str, str]):
         async with self._graph_lock:
-            node_data = {k: v for k, v in node_data.items() if v is not None}
-            self._graph.add_node(node_id, **node_data)
+            self._upsert_node_unsafe(node_id, node_data)
             self._community_schema_cache = None
 
     async def upsert_nodes_batch(self, nodes_data: list[tuple[str, dict[str, str]]]):
-        await asyncio.gather(
-            *[self.upsert_node(node_id, node_data) for node_id, node_data in nodes_data]
-        )
+        async with self._graph_lock:
+            for node_id, node_data in nodes_data:
+                self._upsert_node_unsafe(node_id, node_data)
+            self._community_schema_cache = None
 
     async def upsert_edge(
         self, source_node_id: str, target_node_id: str, edge_data: dict[str, str]
     ):
         async with self._graph_lock:
-            edge_data = {k: v for k, v in edge_data.items() if v is not None}
-            edge_key = edge_data.get("relationship_id", None)
-            if edge_key is None:
-                from .._utils import compute_sha256_id
-
-                edge_key = compute_sha256_id(
-                    f"{source_node_id}|{target_node_id}|{edge_data.get('description', '')}",
-                    prefix="edge_",
-                )
-                edge_data["relationship_id"] = edge_key
-            if self._graph.has_edge(source_node_id, target_node_id, key=edge_key):
-                existing = self._graph[source_node_id][target_node_id][edge_key]
-                existing.update(edge_data)
-            else:
-                self._graph.add_edge(source_node_id, target_node_id, key=edge_key, **edge_data)
+            self._upsert_edge_unsafe(source_node_id, target_node_id, edge_data)
             self._community_schema_cache = None
 
     async def upsert_edges_batch(self, edges_data: list[tuple[str, str, dict[str, str]]]):
-        await asyncio.gather(
-            *[
-                self.upsert_edge(source_node_id, target_node_id, edge_data)
-                for source_node_id, target_node_id, edge_data in edges_data
-            ]
-        )
+        async with self._graph_lock:
+            for source_node_id, target_node_id, edge_data in edges_data:
+                self._upsert_edge_unsafe(source_node_id, target_node_id, edge_data)
+            self._community_schema_cache = None
 
     async def delete_node(self, node_id: str):
         async with self._graph_lock:

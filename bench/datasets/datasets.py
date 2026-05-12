@@ -1,9 +1,10 @@
 """Dataset loaders for multi-hop RAG benchmarks."""
 
 import json
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Protocol
+from typing import Any, Protocol
 
 
 @dataclass
@@ -21,8 +22,8 @@ class QAPair:
     id: str
     question: str
     answer: str
-    supporting_facts: List[str] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    supporting_facts: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -117,7 +118,7 @@ class MultiHopRAGDataset:
 
     def questions(self, split: str = "test") -> Iterator[QAPair]:
         """Load questions from JSON file."""
-        with open(self.questions_path, "r", encoding="utf-8") as f:
+        with open(self.questions_path, encoding="utf-8") as f:
             data = json.load(f)
 
         # Apply max_samples limit
@@ -138,7 +139,7 @@ class MultiHopRAGDataset:
 
     def corpus(self) -> Iterator[Passage]:
         """Load corpus documents from JSON file."""
-        with open(self.corpus_path, "r", encoding="utf-8") as f:
+        with open(self.corpus_path, encoding="utf-8") as f:
             data = json.load(f)
 
         # Apply max_corpus_samples limit
@@ -182,7 +183,7 @@ class MultiHopRAGDataset:
         hf_dataset = load_dataset("yixuantt/MultiHopRAG", "MultiHopRAG", split="train")
 
         questions_data = []
-        corpus_by_title: Dict[str, Dict[str, str]] = {}  # title -> {id, title, content}
+        corpus_by_title: dict[str, dict[str, str]] = {}  # title -> {id, title, content}
 
         for item in hf_dataset:
             qa_id = item.get("id", f"multihoprag_{len(questions_data)}")
@@ -253,7 +254,7 @@ class HotpotQADataset:
 
     def questions(self, split: str = "test") -> Iterator[QAPair]:
         """Load questions from HotpotQA dataset."""
-        with open(self.data_path, "r", encoding="utf-8") as f:
+        with open(self.data_path, encoding="utf-8") as f:
             data = json.load(f)
 
         # Apply max_samples limit
@@ -280,7 +281,7 @@ class HotpotQADataset:
 
     def corpus(self) -> Iterator[Passage]:
         """Extract context documents as corpus."""
-        with open(self.data_path, "r", encoding="utf-8") as f:
+        with open(self.data_path, encoding="utf-8") as f:
             data = json.load(f)
 
         # Apply max_samples limit to questions for corpus extraction
@@ -336,7 +337,7 @@ class HotpotQADataset:
             if isinstance(context, dict) and "title" in context and "sentences" in context:
                 titles = context["title"]
                 sentences_list = context["sentences"]
-                for title, sents in zip(titles, sentences_list):
+                for title, sents in zip(titles, sentences_list, strict=False):
                     context_pairs.append(
                         [title, list(sents) if isinstance(sents, list) else [str(sents)]]
                     )
@@ -417,7 +418,7 @@ class MuSiQueDataset:
 
     def questions(self, split: str = "test") -> Iterator[QAPair]:
         """Load questions from MuSiQue dataset."""
-        with open(self.data_path, "r", encoding="utf-8") as f:
+        with open(self.data_path, encoding="utf-8") as f:
             data = json.load(f)
 
         # Apply max_samples limit
@@ -437,7 +438,7 @@ class MuSiQueDataset:
 
     def corpus(self) -> Iterator[Passage]:
         """Extract context documents as corpus."""
-        with open(self.data_path, "r", encoding="utf-8") as f:
+        with open(self.data_path, encoding="utf-8") as f:
             data = json.load(f)
 
         # Apply max_samples limit to questions for corpus extraction
@@ -557,7 +558,7 @@ class TwoWikiMultiHopQADataset:
 
     def questions(self, split: str = "test") -> Iterator[QAPair]:
         """Load questions from 2WikiMultiHopQA dataset."""
-        with open(self.data_path, "r", encoding="utf-8") as f:
+        with open(self.data_path, encoding="utf-8") as f:
             data = json.load(f)
 
         # Apply max_samples limit
@@ -580,7 +581,7 @@ class TwoWikiMultiHopQADataset:
         if not self.corpus_path:
             return
 
-        with open(self.corpus_path, "r", encoding="utf-8") as f:
+        with open(self.corpus_path, encoding="utf-8") as f:
             data = json.load(f)
 
         count = 0

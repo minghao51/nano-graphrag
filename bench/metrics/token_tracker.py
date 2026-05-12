@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import functools
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict
+from typing import Any
 
 
 @dataclass
@@ -25,7 +26,7 @@ class TokenUsage:
     def estimate_tokens(self, text: str) -> int:
         return max(1, len(text) // 4)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "prompt_tokens": self.prompt_tokens,
             "completion_tokens": self.completion_tokens,
@@ -34,7 +35,7 @@ class TokenUsage:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "TokenUsage":
+    def from_dict(cls, data: dict[str, Any]) -> TokenUsage:
         return cls(
             prompt_tokens=data.get("prompt_tokens", 0),
             completion_tokens=data.get("completion_tokens", 0),
@@ -42,7 +43,7 @@ class TokenUsage:
             llm_calls=data.get("llm_calls", 0),
         )
 
-    def __add__(self, other: "TokenUsage") -> "TokenUsage":
+    def __add__(self, other: TokenUsage) -> TokenUsage:
         return TokenUsage(
             prompt_tokens=self.prompt_tokens + other.prompt_tokens,
             completion_tokens=self.completion_tokens + other.completion_tokens,

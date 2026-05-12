@@ -86,7 +86,7 @@ dev = [
 target-version = "py311"
 line-length = 100
 src = ["src"]
-exclude = ["examples/**", "tests/**"]
+exclude = ["examples/**", "tests/**", "bench/**"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "C4", "RUF"]

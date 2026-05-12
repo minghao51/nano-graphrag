@@ -53,7 +53,7 @@ async def rebuild_graph_contribution_index(
         batch_ids = doc_ids[i : i + batch_size]
         manifests = await document_index.get_by_ids(batch_ids)
 
-        for doc_id, manifest in zip(batch_ids, manifests):
+        for doc_id, manifest in zip(batch_ids, manifests, strict=False):
             if manifest is None:
                 continue
             for entity_id, entity in manifest.get("entities", {}).items():
@@ -98,7 +98,7 @@ async def _propagate_entity_remap_to_all_documents(
     contrib_entries = await contribution_index.get_by_ids(contrib_keys_to_check)
 
     affected_doc_ids: set[str] = set()
-    for _contrib_key, entry in zip(contrib_keys_to_check, contrib_entries):
+    for _contrib_key, entry in zip(contrib_keys_to_check, contrib_entries, strict=False):
         if entry is not None:
             affected_doc_ids.update(entry.get("doc_ids", []))
 
@@ -110,7 +110,7 @@ async def _propagate_entity_remap_to_all_documents(
     docs_to_update: dict[str, dict] = {}
     contrib_updates: dict[str, dict | None] = {}
 
-    for doc_id, manifest in zip(sorted(affected_doc_ids), affected_manifests):
+    for doc_id, manifest in zip(sorted(affected_doc_ids), affected_manifests, strict=False):
         if manifest is None:
             continue
 
@@ -197,7 +197,8 @@ async def update_graph_contribution_index_for_documents(
 
     existing_entries = await contribution_index.get_by_ids(sorted(all_keys)) if all_keys else []
     existing_lookup = {
-        key: value or {"doc_ids": []} for key, value in zip(sorted(all_keys), existing_entries)
+        key: value or {"doc_ids": []}
+        for key, value in zip(sorted(all_keys), existing_entries, strict=False)
     }
 
     upserts: dict[str, dict] = {}
