@@ -222,7 +222,7 @@ class TokenizerWrapper:
         """Provides access to the underlying tokenizer object."""
         self._lazy_load_tokenizer()
         if self._tokenizer is None:
-            raise ImportError(
+            raise RuntimeError(
                 f"Tokenizer failed to load: type='{self.tokenizer_type}', name='{self.model_name}'"
             )
         return self._tokenizer
@@ -230,7 +230,7 @@ class TokenizerWrapper:
     def encode(self, text: str) -> list[int]:
         self._lazy_load_tokenizer()
         if self._tokenizer is None:
-            raise ImportError(
+            raise RuntimeError(
                 f"Tokenizer failed to load: type='{self.tokenizer_type}', name='{self.model_name}'"
             )
         if text in self._encode_cache:
@@ -245,7 +245,7 @@ class TokenizerWrapper:
     def decode(self, tokens: list[int]) -> str:
         self._lazy_load_tokenizer()
         if self._tokenizer is None:
-            raise ImportError(
+            raise RuntimeError(
                 f"Tokenizer failed to load: type='{self.tokenizer_type}', name='{self.model_name}'"
             )
         key = tuple(tokens)
@@ -261,7 +261,7 @@ class TokenizerWrapper:
     def decode_batch(self, tokens_list: list[list[int]]) -> list[str]:
         self._lazy_load_tokenizer()
         if self._tokenizer is None:
-            raise ImportError(
+            raise RuntimeError(
                 f"Tokenizer failed to load: type='{self.tokenizer_type}', name='{self.model_name}'"
             )
         if self.tokenizer_type == "tiktoken":

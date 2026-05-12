@@ -141,7 +141,7 @@ def supports_structured_output(model: str) -> bool:
     return provider in PROVIDERS_SUPPORTING_STRUCTURED_OUTPUT
 
 
-def _is_transient_llm_exception(exc: Exception) -> bool:
+def _is_transient_llm_exception(exc: BaseException) -> bool:
     transient_types = tuple(
         err
         for err in (
@@ -210,6 +210,37 @@ def build_provider_requirements(model: str) -> dict[str, Any] | None:
     if detect_provider(model) == "openrouter":
         return {"require_parameters": True}
     return None
+
+
+def _prepare_structured_output(
+    model: str,
+    response_format: type[BaseModel] | None,
+    messages: list,
+    has_system_prompt: bool,
+    use_native: bool,
+    litellm_kwargs: dict,
+) -> None:
+    """Configure structured output — modifies messages and litellm_kwargs in-place."""
+    if response_format is None or not supports_structured_output(model):
+        return
+
+    if is_gemma_model(model) or is_qwen_model(model):
+        _add_schema_instruction_to_messages(response_format, messages, has_system_prompt)
+        if is_qwen_model(model):
+            messages[:] = ensure_json_keyword_in_prompt(messages)
+            litellm_kwargs["response_format"] = {"type": "json_object"}
+        return
+
+    if use_native:
+        if isinstance(response_format, dict):
+            litellm_kwargs["response_format"] = response_format
+        else:
+            litellm_kwargs["response_format"] = build_json_schema_response_format(response_format)
+            provider_requirements = build_provider_requirements(model)
+            if provider_requirements is not None:
+                litellm_kwargs["provider"] = provider_requirements
+    else:
+        _add_schema_instruction_to_messages(response_format, messages, has_system_prompt)
 
 
 def is_qwen_model(model: str) -> bool:
@@ -352,31 +383,14 @@ async def litellm_completion(
     if api_key:
         litellm_kwargs["api_key"] = api_key
 
-    # Choose between native structured output or prompt-based schema guidance.
-    if response_format is not None and supports_structured_output(model):
-        # For Gemma models, use legacy route (schema in prompt)
-        # Gemma through OpenRouter doesn't support json_schema format properly
-        if is_gemma_model(model):
-            _add_schema_instruction_to_messages(response_format, messages, bool(system_prompt))
-        # For Qwen models, always use legacy route (schema in prompt) since
-        # json_object doesn't enforce schema - model returns any JSON structure
-        elif is_qwen_model(model):
-            _add_schema_instruction_to_messages(response_format, messages, bool(system_prompt))
-            messages = ensure_json_keyword_in_prompt(messages)
-            litellm_kwargs["response_format"] = {"type": "json_object"}
-        elif use_native_structured_output:
-            if isinstance(response_format, dict):
-                litellm_kwargs["response_format"] = response_format
-            else:
-                litellm_kwargs["response_format"] = build_json_schema_response_format(
-                    response_format
-                )
-                provider_requirements = build_provider_requirements(model)
-                if provider_requirements is not None:
-                    litellm_kwargs["provider"] = provider_requirements
-        else:
-            # Legacy route: Add schema to system prompt
-            _add_schema_instruction_to_messages(response_format, messages, bool(system_prompt))
+    _prepare_structured_output(
+        model,
+        response_format,
+        messages,
+        bool(system_prompt),
+        use_native_structured_output,
+        litellm_kwargs,
+    )
 
     async def _call_llm():
         try:

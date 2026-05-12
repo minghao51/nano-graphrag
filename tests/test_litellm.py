@@ -564,40 +564,40 @@ class TestEnvVarParsing:
     """Test environment variable parsing helpers."""
 
     def test_parse_bool_true(self, monkeypatch):
-        from nano_graphrag.base import _parse_bool
+        from nano_graphrag._config import _parse_bool_env as _parse_bool
 
         for value in ["true", "TRUE", "1", "yes", "YES", "on", "ON"]:
             monkeypatch.setenv("TEST_BOOL", value)
             assert _parse_bool("TEST_BOOL") is True
 
     def test_parse_bool_false(self, monkeypatch):
-        from nano_graphrag.base import _parse_bool
+        from nano_graphrag._config import _parse_bool_env as _parse_bool
 
         for value in ["false", "FALSE", "0", "no", "NO", "off", "OFF"]:
             monkeypatch.setenv("TEST_BOOL", value)
             assert _parse_bool("TEST_BOOL") is False
 
     def test_parse_bool_default(self, monkeypatch):
-        from nano_graphrag.base import _parse_bool
+        from nano_graphrag._config import _parse_bool_env as _parse_bool
 
         monkeypatch.delenv("TEST_BOOL", raising=False)
         assert _parse_bool("TEST_BOOL", default=True) is True
         assert _parse_bool("TEST_BOOL", default=False) is False
 
     def test_parse_int_valid(self, monkeypatch):
-        from nano_graphrag.base import _parse_int
+        from nano_graphrag._config import _parse_int_env as _parse_int
 
         monkeypatch.setenv("TEST_INT", "42")
         assert _parse_int("TEST_INT", default=10) == 42
 
     def test_parse_int_invalid(self, monkeypatch):
-        from nano_graphrag.base import _parse_int
+        from nano_graphrag._config import _parse_int_env as _parse_int
 
         monkeypatch.setenv("TEST_INT", "not_a_number")
         assert _parse_int("TEST_INT", default=10) == 10
 
     def test_parse_int_with_min_value(self, monkeypatch):
-        from nano_graphrag.base import _parse_int
+        from nano_graphrag._config import _parse_int_env as _parse_int
 
         monkeypatch.setenv("TEST_INT", "5")
         assert _parse_int("TEST_INT", default=10, min_value=10) == 10  # Below min

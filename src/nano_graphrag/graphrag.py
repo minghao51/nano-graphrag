@@ -128,6 +128,12 @@ class GraphRAG(_ConfigFields):
     addon_params: dict = field(default_factory=dict)
     convert_response_to_json_func: Callable[..., Any] = convert_response_to_json
 
+    # Runtime-attributed storage instances, set by _build_storages in __post_init__
+    chunk_entity_relation_graph: BaseGraphStorage | None = field(init=False, default=None)
+    entities_vdb: BaseVectorStorage | None = field(init=False, default=None)
+    text_chunks: BaseKVStorage | None = field(init=False, default=None)
+    community_reports: BaseKVStorage | None = field(init=False, default=None)
+
     @classmethod
     def from_config(cls, config: GraphRAGConfig) -> GraphRAG:
         config_dict = config.to_dict()
@@ -167,9 +173,12 @@ class GraphRAG(_ConfigFields):
         Includes callables and secrets since downstream consumers need them.
         Use _to_safe_log_dict() for logging instead.
         """
-        from dataclasses import asdict
-
-        return asdict(self)
+        result = {}
+        for f in fields(self):
+            if f.name in _RUNTIME_ATTRS:
+                continue
+            result[f.name] = getattr(self, f.name)
+        return result
 
     def _to_safe_log_dict(self) -> dict[str, Any]:
         """Serialize fields for safe logging — redacts secrets, omits callables."""
@@ -184,12 +193,15 @@ class GraphRAG(_ConfigFields):
                 result[f.name] = val
         return result
 
+    # Methods patched from graphrag_runtime.py (init helpers)
     _normalize_settings = _normalize_settings
     _configure_logging = _configure_logging
     _build_tokenizer = _build_tokenizer
     _configure_runtime = _configure_runtime
     _build_storages = _build_storages
     _runtime_config = _runtime_config
+
+    # Methods patched from graphrag_insert.py (document insertion pipeline)
     _legacy_custom_ainsert = _legacy_custom_ainsert
     _ainsert_documents = _ainsert_documents
     _flush_doc_progress = _flush_doc_progress
@@ -197,6 +209,8 @@ class GraphRAG(_ConfigFields):
     _insert_start = _insert_start
     _insert_done = _insert_done
     _rollback_insert_storages = _rollback_insert_storages
+
+    # Methods patched from graphrag_query.py (query interface)
     aquery = aquery
     _query_done = _query_done
     astream_query = astream_query
@@ -225,7 +239,7 @@ class GraphRAG(_ConfigFields):
         existing = await self.full_docs.get_by_ids(doc_ids)
         documents = {
             (doc_id if doc else compute_sha256_id(c, prefix="doc-")): c
-            for c, doc_id, doc in zip(normalized, doc_ids, existing)
+            for c, doc_id, doc in zip(normalized, doc_ids, existing, strict=False)
         }
         return await self._ainsert_documents(documents, allow_legacy_custom=True)
 
@@ -276,3 +290,15 @@ class GraphRAG(_ConfigFields):
     ) -> dict:
         loop = always_get_an_event_loop()
         return loop.run_until_complete(self.aexport_vault(path, include_communities))
+
+
+# Runtime-attributed storage instances, set by _build_storages in __post_init__.
+# Declared as dataclass fields (init=False) so mypy sees them as instance attributes.
+_RUNTIME_ATTRS = frozenset(
+    {
+        "chunk_entity_relation_graph",
+        "entities_vdb",
+        "text_chunks",
+        "community_reports",
+    }
+)

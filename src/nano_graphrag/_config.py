@@ -128,7 +128,7 @@ class GraphRAGSettings(BaseSettings):
     entity_filter: EntityFilterConfig = EntityFilterConfig()  # type: ignore[call-arg]
     features: FeatureFlags = FeatureFlags()
     logging: LoggingConfig = LoggingConfig()
-    refinement: RefinementConfig = RefinementConfig()
+    refinement: RefinementConfig = RefinementConfig()  # type: ignore[call-arg]
     vault: VaultConfig = VaultConfig()
 
     @classmethod
@@ -293,161 +293,144 @@ def _unflatten_data_if_flat(data: dict[str, Any]) -> dict[str, Any]:
     return _unflatten_data(data)
 
 
-def _is_nested_format(data: dict[str, Any]) -> bool:
-    nested_keys = {
-        "llm",
-        "embedding",
-        "extraction",
+# (flat_key, section_name, nested_key, env_var_name)
+_FIELD_SPECS: list[tuple[str, str, str, str | None]] = [
+    ("llm_model", "llm", "model", "LLM_MODEL"),
+    ("llm_cheap_model", "llm", "cheap_model", "LLM_CHEAP_MODEL"),
+    ("llm_api_base", "llm", "api_base", "LLM_API_BASE"),
+    ("llm_api_key", "llm", "api_key", "LLM_API_KEY"),
+    ("llm_max_async", "llm", "max_async", "LLM_MAX_ASYNC"),
+    ("llm_max_tokens", "llm", "max_tokens", "LLM_MAX_TOKENS"),
+    ("llm_timeout", "llm", "timeout", "LLM_TIMEOUT"),
+    ("embedding_model", "embedding", "model", "EMBEDDING_MODEL"),
+    ("embedding_api_base", "embedding", "api_base", "EMBEDDING_API_BASE"),
+    ("embedding_api_key", "embedding", "api_key", "EMBEDDING_API_KEY"),
+    ("embedding_dim", "embedding", "dim", "EMBEDDING_DIM"),
+    ("embedding_max_async", "embedding", "max_async", "EMBEDDING_MAX_ASYNC"),
+    ("embedding_batch_size", "embedding", "batch_size", "EMBEDDING_BATCH_SIZE"),
+    ("extraction_max_async", "extraction", "max_async", "EXTRACTION_MAX_ASYNC"),
+    ("extraction_batch_size", "extraction", "batch_size", "EXTRACTION_BATCH_SIZE"),
+    ("doc_extraction_max_async", "extraction", "doc_max_async", "DOC_EXTRACTION_MAX_ASYNC"),
+    ("doc_flush_batch_size", "extraction", "doc_flush_batch_size", "DOC_FLUSH_BATCH_SIZE"),
+    ("entity_extraction_quality", "extraction", "quality", "ENTITY_EXTRACTION_QUALITY"),
+    ("extraction_backend", "extraction", "backend", "EXTRACTION_BACKEND"),
+    ("graph_cluster_algorithm", "clustering", "algorithm", "GRAPH_CLUSTER_ALGORITHM"),
+    (
+        "max_incremental_updates_before_full",
         "clustering",
+        "max_incremental_updates_before_full",
+        "MAX_INCREMENTAL_UPDATES_BEFORE_FULL",
+    ),
+    ("alias_batch_size", "clustering", "alias_batch_size", "ALIAS_BATCH_SIZE"),
+    (
+        "alias_max_batches_in_flight",
+        "clustering",
+        "alias_max_batches_in_flight",
+        "ALIAS_MAX_BATCHES_IN_FLIGHT",
+    ),
+    ("enable_entity_linking", "entity_linking", "enabled", "ENABLE_ENTITY_LINKING"),
+    (
+        "entity_linking_use_neighborhood_evidence",
         "entity_linking",
+        "use_neighborhood_evidence",
+        "ENTITY_LINKING_USE_NEIGHBORHOOD_EVIDENCE",
+    ),
+    (
+        "entity_linking_similarity_threshold",
+        "entity_linking",
+        "similarity_threshold",
+        "ENTITY_LINKING_SIMILARITY_THRESHOLD",
+    ),
+    (
+        "entity_linking_max_candidates",
+        "entity_linking",
+        "max_candidates",
+        "ENTITY_LINKING_MAX_CANDIDATES",
+    ),
+    (
+        "entity_linking_iou_threshold",
+        "entity_linking",
+        "iou_threshold",
+        "ENTITY_LINKING_IOU_THRESHOLD",
+    ),
+    (
+        "entity_linking_min_common_neighbors",
+        "entity_linking",
+        "min_common_neighbors",
+        "ENTITY_LINKING_MIN_COMMON_NEIGHBORS",
+    ),
+    ("entity_count_min_ratio", "entity_filter", "count_min_ratio", "ENTITY_COUNT_MIN_RATIO"),
+    (
+        "entity_count_min_absolute",
         "entity_filter",
-        "features",
-        "logging",
+        "count_min_absolute",
+        "ENTITY_COUNT_MIN_ABSOLUTE",
+    ),
+    ("enable_node_embedding", "features", "node_embedding", "ENABLE_NODE_EMBEDDING"),
+    ("enable_local", "features", "local_search", "ENABLE_LOCAL"),
+    ("enable_naive_rag", "features", "naive_rag", "ENABLE_NAIVE_RAG"),
+    ("enable_llm_cache", "features", "llm_cache", "ENABLE_LLM_CACHE"),
+    ("enable_community_reports", "features", "community_reports", "ENABLE_COMMUNITY_REPORTS"),
+    ("enable_temporal_extraction", "features", "temporal_extraction", "ENABLE_TEMPORAL_EXTRACTION"),
+    ("log_level", "logging", "level", "LOG_LEVEL"),
+    ("log_file", "logging", "file", "LOG_FILE"),
+    ("enable_refinement", "refinement", "enabled", "ENABLE_REFINEMENT"),
+    ("refinement_merge_threshold", "refinement", "merge_threshold", "REFINEMENT_MERGE_THRESHOLD"),
+    (
+        "refinement_enrich_min_chars",
         "refinement",
-        "vault",
+        "enrich_min_chars",
+        "REFINEMENT_ENRICH_MIN_CHARS",
+    ),
+    (
+        "refinement_infer_confidence",
+        "refinement",
+        "infer_confidence",
+        "REFINEMENT_INFER_CONFIDENCE",
+    ),
+    ("refinement_batch_size", "refinement", "batch_size", "REFINEMENT_BATCH_SIZE"),
+    ("refinement_infer_hub_cap", "refinement", "infer_hub_cap", "REFINEMENT_INFER_HUB_CAP"),
+    (
+        "relationship_confidence_threshold",
+        "refinement",
+        "relationship_confidence_threshold",
+        "RELATIONSHIP_CONFIDENCE_THRESHOLD",
+    ),
+    ("vault_path", "vault", "path", "VAULT_PATH"),
+    ("vault_export_communities", "vault", "export_communities", "VAULT_EXPORT_COMMUNITIES"),
+]
+
+_UNFLATTEN_MAP: dict[str, tuple[str, str]] = {fk: (s, nk) for fk, s, nk, _ in _FIELD_SPECS}
+_FLATTEN_MAP: dict[tuple[str, str], str] = {(s, nk): fk for fk, s, nk, _ in _FIELD_SPECS}
+FLAT_FIELD_TO_ENV_VAR: dict[str, str] = {fk: ev for fk, _, _, ev in _FIELD_SPECS if ev is not None}
+FLAT_FIELD_TO_ENV_VAR.update(
+    {
+        "working_dir": "GRAPH_WORKING_DIR",
+        "api_key": "GRAPH_API_KEY",
+        "api_base": "GRAPH_API_BASE",
     }
-    return bool(set(data.keys()) & nested_keys)
+)
+
+_NESTED_KEYS: frozenset[str] = frozenset({s for _, s, _, _ in _FIELD_SPECS})
+
+
+def _is_nested_format(data: dict[str, Any]) -> bool:
+    return bool(set(data.keys()) & _NESTED_KEYS)
 
 
 def _unflatten_data(data: dict[str, Any]) -> dict[str, Any]:
-    mapping = {
-        "llm_model": ("llm", "model"),
-        "llm_cheap_model": ("llm", "cheap_model"),
-        "llm_api_base": ("llm", "api_base"),
-        "llm_api_key": ("llm", "api_key"),
-        "llm_max_async": ("llm", "max_async"),
-        "llm_max_tokens": ("llm", "max_tokens"),
-        "llm_timeout": ("llm", "timeout"),
-        "embedding_model": ("embedding", "model"),
-        "embedding_api_base": ("embedding", "api_base"),
-        "embedding_api_key": ("embedding", "api_key"),
-        "embedding_dim": ("embedding", "dim"),
-        "embedding_max_async": ("embedding", "max_async"),
-        "embedding_batch_size": ("embedding", "batch_size"),
-        "extraction_max_async": ("extraction", "max_async"),
-        "extraction_batch_size": ("extraction", "batch_size"),
-        "doc_extraction_max_async": ("extraction", "doc_max_async"),
-        "doc_flush_batch_size": ("extraction", "doc_flush_batch_size"),
-        "entity_extraction_quality": ("extraction", "quality"),
-        "extraction_backend": ("extraction", "backend"),
-        "graph_cluster_algorithm": ("clustering", "algorithm"),
-        "max_incremental_updates_before_full": (
-            "clustering",
-            "max_incremental_updates_before_full",
-        ),
-        "alias_batch_size": ("clustering", "alias_batch_size"),
-        "alias_max_batches_in_flight": ("clustering", "alias_max_batches_in_flight"),
-        "enable_entity_linking": ("entity_linking", "enabled"),
-        "entity_linking_use_neighborhood_evidence": ("entity_linking", "use_neighborhood_evidence"),
-        "entity_linking_similarity_threshold": ("entity_linking", "similarity_threshold"),
-        "entity_linking_max_candidates": ("entity_linking", "max_candidates"),
-        "entity_linking_iou_threshold": ("entity_linking", "iou_threshold"),
-        "entity_linking_min_common_neighbors": ("entity_linking", "min_common_neighbors"),
-        "entity_count_min_ratio": ("entity_filter", "count_min_ratio"),
-        "entity_count_min_absolute": ("entity_filter", "count_min_absolute"),
-        "enable_node_embedding": ("features", "node_embedding"),
-        "enable_local": ("features", "local_search"),
-        "enable_naive_rag": ("features", "naive_rag"),
-        "enable_llm_cache": ("features", "llm_cache"),
-        "enable_community_reports": ("features", "community_reports"),
-        "enable_temporal_extraction": ("features", "temporal_extraction"),
-        "log_level": ("logging", "level"),
-        "log_file": ("logging", "file"),
-        "enable_refinement": ("refinement", "enabled"),
-        "refinement_merge_threshold": ("refinement", "merge_threshold"),
-        "refinement_enrich_min_chars": ("refinement", "enrich_min_chars"),
-        "refinement_infer_confidence": ("refinement", "infer_confidence"),
-        "refinement_batch_size": ("refinement", "batch_size"),
-        "refinement_infer_hub_cap": ("refinement", "infer_hub_cap"),
-        "relationship_confidence_threshold": ("refinement", "relationship_confidence_threshold"),
-        "vault_path": ("vault", "path"),
-        "vault_export_communities": ("vault", "export_communities"),
-    }
     result: dict[str, Any] = {}
     used_keys: set = set()
-    for flat_key, (section, nested_key) in mapping.items():
+    for flat_key, (section, nested_key) in _UNFLATTEN_MAP.items():
         if flat_key in data:
             result.setdefault(section, {})[nested_key] = data[flat_key]
             used_keys.add(flat_key)
-    if "working_dir" in data:
-        result["working_dir"] = data["working_dir"]
-    if "api_key" in data:
-        result["api_key"] = data["api_key"]
-    if "api_base" in data:
-        result["api_base"] = data["api_base"]
+    for top_key in ("working_dir", "api_key", "api_base"):
+        if top_key in data:
+            result[top_key] = data[top_key]
     for k, v in data.items():
         if k not in used_keys and k not in ("working_dir", "api_key", "api_base"):
             result.setdefault("features", {})[k] = v
-    return result
-
-
-def _flatten_settings(settings: GraphRAGSettings) -> dict[str, Any]:
-    reverse_mapping = {
-        ("llm", "model"): "llm_model",
-        ("llm", "cheap_model"): "llm_cheap_model",
-        ("llm", "api_base"): "llm_api_base",
-        ("llm", "api_key"): "llm_api_key",
-        ("llm", "max_async"): "llm_max_async",
-        ("llm", "max_tokens"): "llm_max_tokens",
-        ("llm", "timeout"): "llm_timeout",
-        ("embedding", "model"): "embedding_model",
-        ("embedding", "api_base"): "embedding_api_base",
-        ("embedding", "api_key"): "embedding_api_key",
-        ("embedding", "dim"): "embedding_dim",
-        ("embedding", "max_async"): "embedding_max_async",
-        ("embedding", "batch_size"): "embedding_batch_size",
-        ("extraction", "max_async"): "extraction_max_async",
-        ("extraction", "batch_size"): "extraction_batch_size",
-        ("extraction", "doc_max_async"): "doc_extraction_max_async",
-        ("extraction", "doc_flush_batch_size"): "doc_flush_batch_size",
-        ("extraction", "quality"): "entity_extraction_quality",
-        ("extraction", "backend"): "extraction_backend",
-        ("clustering", "algorithm"): "graph_cluster_algorithm",
-        (
-            "clustering",
-            "max_incremental_updates_before_full",
-        ): "max_incremental_updates_before_full",
-        ("clustering", "alias_batch_size"): "alias_batch_size",
-        ("clustering", "alias_max_batches_in_flight"): "alias_max_batches_in_flight",
-        ("entity_linking", "enabled"): "enable_entity_linking",
-        ("entity_linking", "use_neighborhood_evidence"): "entity_linking_use_neighborhood_evidence",
-        ("entity_linking", "similarity_threshold"): "entity_linking_similarity_threshold",
-        ("entity_linking", "max_candidates"): "entity_linking_max_candidates",
-        ("entity_linking", "iou_threshold"): "entity_linking_iou_threshold",
-        ("entity_linking", "min_common_neighbors"): "entity_linking_min_common_neighbors",
-        ("entity_filter", "count_min_ratio"): "entity_count_min_ratio",
-        ("entity_filter", "count_min_absolute"): "entity_count_min_absolute",
-        ("features", "node_embedding"): "enable_node_embedding",
-        ("features", "local_search"): "enable_local",
-        ("features", "naive_rag"): "enable_naive_rag",
-        ("features", "llm_cache"): "enable_llm_cache",
-        ("features", "community_reports"): "enable_community_reports",
-        ("features", "temporal_extraction"): "enable_temporal_extraction",
-        ("logging", "level"): "log_level",
-        ("logging", "file"): "log_file",
-        ("refinement", "enabled"): "enable_refinement",
-        ("refinement", "merge_threshold"): "refinement_merge_threshold",
-        ("refinement", "enrich_min_chars"): "refinement_enrich_min_chars",
-        ("refinement", "infer_confidence"): "refinement_infer_confidence",
-        ("refinement", "batch_size"): "refinement_batch_size",
-        ("refinement", "infer_hub_cap"): "refinement_infer_hub_cap",
-        ("refinement", "relationship_confidence_threshold"): "relationship_confidence_threshold",
-        ("vault", "path"): "vault_path",
-        ("vault", "export_communities"): "vault_export_communities",
-    }
-    result: dict[str, Any] = {
-        "working_dir": settings.working_dir,
-        "api_key": _secret_str_value(settings.api_key),
-        "api_base": settings.api_base,
-    }
-    dump = settings.model_dump(mode="json")
-    for section, key in reverse_mapping:
-        section_data = dump.get(section, {})
-        if key in section_data:
-            val = section_data[key]
-            if key == "api_key" and val is not None:
-                val = _secret_str_value(getattr(settings, section).api_key)
-            result[reverse_mapping[(section, key)]] = val
     return result
 
 
@@ -457,59 +440,21 @@ def _secret_str_value(val: Any) -> str | None:
     return val
 
 
-FLAT_FIELD_TO_ENV_VAR: dict[str, str] = {
-    "working_dir": "GRAPH_WORKING_DIR",
-    "api_key": "GRAPH_API_KEY",
-    "api_base": "GRAPH_API_BASE",
-    "llm_model": "LLM_MODEL",
-    "llm_cheap_model": "LLM_CHEAP_MODEL",
-    "llm_api_base": "LLM_API_BASE",
-    "llm_api_key": "LLM_API_KEY",
-    "llm_max_async": "LLM_MAX_ASYNC",
-    "llm_max_tokens": "LLM_MAX_TOKENS",
-    "llm_timeout": "LLM_TIMEOUT",
-    "embedding_model": "EMBEDDING_MODEL",
-    "embedding_api_base": "EMBEDDING_API_BASE",
-    "embedding_api_key": "EMBEDDING_API_KEY",
-    "embedding_dim": "EMBEDDING_DIM",
-    "embedding_max_async": "EMBEDDING_MAX_ASYNC",
-    "embedding_batch_size": "EMBEDDING_BATCH_SIZE",
-    "extraction_max_async": "EXTRACTION_MAX_ASYNC",
-    "extraction_batch_size": "EXTRACTION_BATCH_SIZE",
-    "doc_extraction_max_async": "DOC_EXTRACTION_MAX_ASYNC",
-    "doc_flush_batch_size": "DOC_FLUSH_BATCH_SIZE",
-    "entity_extraction_quality": "ENTITY_EXTRACTION_QUALITY",
-    "extraction_backend": "EXTRACTION_BACKEND",
-    "graph_cluster_algorithm": "GRAPH_CLUSTER_ALGORITHM",
-    "max_incremental_updates_before_full": "MAX_INCREMENTAL_UPDATES_BEFORE_FULL",
-    "alias_batch_size": "ALIAS_BATCH_SIZE",
-    "alias_max_batches_in_flight": "ALIAS_MAX_BATCHES_IN_FLIGHT",
-    "enable_node_embedding": "ENABLE_NODE_EMBEDDING",
-    "enable_local": "ENABLE_LOCAL",
-    "enable_naive_rag": "ENABLE_NAIVE_RAG",
-    "enable_llm_cache": "ENABLE_LLM_CACHE",
-    "enable_entity_linking": "ENABLE_ENTITY_LINKING",
-    "entity_linking_use_neighborhood_evidence": "ENTITY_LINKING_USE_NEIGHBORHOOD_EVIDENCE",
-    "enable_community_reports": "ENABLE_COMMUNITY_REPORTS",
-    "enable_temporal_extraction": "ENABLE_TEMPORAL_EXTRACTION",
-    "entity_linking_similarity_threshold": "ENTITY_LINKING_SIMILARITY_THRESHOLD",
-    "entity_linking_max_candidates": "ENTITY_LINKING_MAX_CANDIDATES",
-    "entity_linking_iou_threshold": "ENTITY_LINKING_IOU_THRESHOLD",
-    "entity_linking_min_common_neighbors": "ENTITY_LINKING_MIN_COMMON_NEIGHBORS",
-    "entity_count_min_ratio": "ENTITY_COUNT_MIN_RATIO",
-    "entity_count_min_absolute": "ENTITY_COUNT_MIN_ABSOLUTE",
-    "log_level": "LOG_LEVEL",
-    "log_file": "LOG_FILE",
-    "enable_refinement": "ENABLE_REFINEMENT",
-    "refinement_merge_threshold": "REFINEMENT_MERGE_THRESHOLD",
-    "refinement_enrich_min_chars": "REFINEMENT_ENRICH_MIN_CHARS",
-    "refinement_infer_confidence": "REFINEMENT_INFER_CONFIDENCE",
-    "refinement_batch_size": "REFINEMENT_BATCH_SIZE",
-    "refinement_infer_hub_cap": "REFINEMENT_INFER_HUB_CAP",
-    "relationship_confidence_threshold": "RELATIONSHIP_CONFIDENCE_THRESHOLD",
-    "vault_path": "VAULT_PATH",
-    "vault_export_communities": "VAULT_EXPORT_COMMUNITIES",
-}
+def _flatten_settings(settings: GraphRAGSettings) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "working_dir": settings.working_dir,
+        "api_key": _secret_str_value(settings.api_key),
+        "api_base": settings.api_base,
+    }
+    dump = settings.model_dump(mode="json")
+    for (section, key), flat_key in _FLATTEN_MAP.items():
+        section_data = dump.get(section, {})
+        if key in section_data:
+            val = section_data[key]
+            if key == "api_key" and val is not None:
+                val = _secret_str_value(getattr(settings, section).api_key)
+            result[flat_key] = val
+    return result
 
 
 def _make_secret(value: str | None) -> SecretStr | None:

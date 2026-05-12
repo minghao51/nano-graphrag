@@ -12,8 +12,6 @@ from ._config import (
     DEFAULT_LLM_MODEL,
     SUPPORTED_GRAPH_CLUSTERING,  # noqa: F401 - re-exported for graphrag_runtime.py
     GraphRAGSettings,
-    _parse_bool_env,
-    _parse_int_env,
 )
 from ._utils import EmbeddingFunc
 
@@ -222,14 +220,6 @@ class BaseGraphStorage(StorageNameSpace):
 # =============================================================================
 # GraphRAG Configuration
 # =============================================================================
-
-
-def _parse_bool(env_var: str, default: bool = False) -> bool:
-    return _parse_bool_env(env_var, default)
-
-
-def _parse_int(env_var: str, default: int, min_value: int | None = None) -> int:
-    return _parse_int_env(env_var, default, min_value)
 
 
 @dataclass

@@ -4,7 +4,10 @@ import asyncio
 import json
 import time
 from collections import Counter
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .pipeline import RejectionCache
 
 from ..._schemas import normalize_relation_type
 from ..._utils import logger
@@ -58,7 +61,7 @@ async def _infer_phase(
     min_confidence: float = 0.80,
     hub_cap: int = 3,
     batch_size: int = 50,
-    rejection_cache: dict | None = None,
+    rejection_cache: RejectionCache | None = None,
 ) -> dict[str, Any]:
     stats = {"examined": 0, "inferred": 0, "rejected_by_llm": 0, "rejected_by_cache": 0}
 
@@ -88,14 +91,16 @@ async def _infer_phase(
     for _chunk_id, nodes in chunk_to_nodes.items():
         for i in range(len(nodes)):
             for j in range(i + 1, len(nodes)):
-                pair = tuple(sorted([nodes[i], nodes[j]]))
+                pair: tuple[str, str] = (
+                    (nodes[i], nodes[j]) if nodes[i] <= nodes[j] else (nodes[j], nodes[i])
+                )
                 co_occurrence[pair] = co_occurrence.get(pair, 0) + 1
 
     chunks_data = {}
     if text_chunks_kv is not None:
         all_chunk_keys = await text_chunks_kv.all_keys()
         chunks_raw = await text_chunks_kv.get_by_ids(all_chunk_keys)
-        for k, v in zip(all_chunk_keys, chunks_raw):
+        for k, v in zip(all_chunk_keys, chunks_raw, strict=False):
             if v is not None:
                 chunks_data[k] = v.get("content", "")
 
