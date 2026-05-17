@@ -46,6 +46,13 @@ src/nano_graphrag/       # Main package (src layout)
     community.py              # Community report generation
     chunking.py               # Document chunking strategies
     query.py                  # Query operation implementations
+    refinement/               # Knowledge graph refinement pipeline
+      pipeline.py             # Orchestrator + journal + rejection cache
+      merge.py                # Semantic duplicate merging (similarity >= 0.93)
+      enrich.py               # Description enrichment with 3-layer validation
+      infer.py                # Co-occurrence + LLM relationship inference
+  _vault/               # Obsidian vault export
+    export.py           # Markdown export with wiki-links, YAML frontmatter
   _storage/             # Storage backends
     kv_json.py           # JsonKVStorage (default KV)
     gdb_networkx.py      # NetworkXStorage (default graph)
@@ -81,6 +88,12 @@ experiments/            # Benchmark configs, scripts, and docs
 - **Concurrency:** Two-layer — doc-level semaphore (`doc_extraction_max_async=4`) × chunk-level semaphore (`extraction_max_async=16`) = max 64 concurrent LLM calls.
 - **Logging:** Logger `"nano-graphrag"` configured in `graphrag_runtime.py`. Format: `%(asctime)s - %(name)s - %(levelname)s - %(message)s`.
 
+- **Refinement Pipeline:** Callable via `await rag.arefine(phases=[...])`. Three phases: merge (semantic dedup, sim >= 0.93), enrich (thin description expansion, 3-layer validation), infer (co-occurrence + LLM validation, rejection cache). Journal + rejection cache persist in working dir. Not auto-triggered; must be called explicitly.
+
+- **Vault Export:** One-way graph → Obsidian. `await rag.aexport_vault()` produces per-entity `.md` with `[[wiki-links]]`, YAML frontmatter, per-type `_index.md`, and community reports.
+
+- **Typed Relations:** `_schemas.py` defines `RELATION_VOCABULARY` (40+ types), `RELATION_ALIASES`, and `normalize_relation_type()`. `ExtractedRelationship` includes `relation_type` and `confidence` fields. Query-time filtering via `relationship_confidence_threshold`.
+
 ## 7. Commands
 
 ```bash
@@ -111,7 +124,7 @@ uv sync
 
 ## 8. Conventions
 
-- **Python 3.9** target (pyproject + ruff config). No walrus operator, no `str | None` (use `Optional[str]`).
+- **Python 3.11** target (pyproject + ruff config).
 - **Ruff:** line-length 100, select E/F/W/I, ignore E501.
 - **Pydantic v2** for all schemas (`_schemas.py`). Use `Field()` with descriptions.
 - **Async-first:** All I/O uses `async/await`. No sync wrappers around async code.

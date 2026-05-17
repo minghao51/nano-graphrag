@@ -15,8 +15,8 @@ The minimal core favors:
 
 - LiteLLM for provider access
 - `networkx` for graph storage
-- `nano-vectordb` for vector storage
-- file-backed JSON/GraphML persistence in the working directory
+- `hnswlib` for vector storage
+- SQLite for KV persistence in the working directory
 
 ## Main Runtime Pieces
 
@@ -65,7 +65,7 @@ The core storage contracts live in `nano_graphrag.base`:
 Built-in implementations:
 
 - KV: SQLite-backed key/value files
-- Vector: `nano-vectordb`, optional `hnswlib`
+- Vector: `hnswlib`, optional `nano-vectordb`
 - Graph: `networkx`, `sqlite`, optional Neo4j
 
 The `networkx` backend now separates concerns internally:
