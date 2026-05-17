@@ -22,6 +22,12 @@ from ..base import (
 from ..prompt import GRAPH_FIELD_SEP, PROMPTS
 
 
+async def _get_structural_features(knowledge_graph_inst, document_index=None):
+    from .structural_features import ensure_structural_features
+
+    return await ensure_structural_features(knowledge_graph_inst, document_index)
+
+
 def _normalize_date_str(s):
     if not s:
         return ""
@@ -105,16 +111,40 @@ async def _find_most_related_text_unit_from_entities(
     text_chunks_db: BaseKVStorage[TextChunkSchema],
     knowledge_graph_inst: BaseGraphStorage,
     tokenizer_wrapper,
+    query: str | None = None,
 ):
     text_units = [
         split_string_by_multi_markers(dp["source_id"], [GRAPH_FIELD_SEP]) for dp in node_datas
     ]
     edges = await knowledge_graph_inst.get_nodes_edges_batch([dp["id"] for dp in node_datas])
+
+    # Phase 3: Multi-hop neighbor expansion
+    current_node_ids = {dp["id"] for dp in node_datas if dp.get("id")}
+    all_expanded_nodes: set[str] = set()
+    expanded_node_edges = list(edges)
+
+    for _ in range(1, query_param.propagation_hops):
+        next_nodes: set[str] = set()
+        for this_edges in expanded_node_edges:
+            if not this_edges:
+                continue
+            for e in this_edges:
+                if e[1] not in current_node_ids and e[1] not in all_expanded_nodes:
+                    next_nodes.add(e[1])
+        if not next_nodes:
+            break
+        all_expanded_nodes.update(next_nodes)
+        current_node_ids = next_nodes
+        next_node_list = list(next_nodes)
+        new_edges = await knowledge_graph_inst.get_nodes_edges_batch(next_node_list)
+        expanded_node_edges = new_edges
+
     all_one_hop_nodes: set[str] = set()
     for this_edges in edges:
         if not this_edges:
             continue
         all_one_hop_nodes.update([e[1] for e in this_edges])
+    all_one_hop_nodes.update(all_expanded_nodes)
     all_one_hop_node_list: list[str] = list(all_one_hop_nodes)
     all_one_hop_nodes_data = await knowledge_graph_inst.get_nodes_batch(all_one_hop_node_list)
     all_one_hop_text_units_lookup = {
@@ -157,6 +187,12 @@ async def _find_most_related_text_unit_from_entities(
         logger.warning("text_chunks_missing")
     all_text_units = [{"id": k, **v} for k, v in all_text_units_lookup.items() if v is not None]
     all_text_units = sorted(all_text_units, key=lambda x: (x["order"], -int(x["relation_counts"])))  # type: ignore[call-overload]
+
+    # Phase 3: Query-conditioned subgraph pruning
+    if query_param.subgraph_prune_ratio > 0 and query:
+        cutoff = max(1, int(len(all_text_units) * (1 - query_param.subgraph_prune_ratio)))
+        all_text_units = all_text_units[:cutoff]
+
     all_text_units = truncate_list_by_token_size(
         all_text_units,
         key=lambda x: x["data"]["content"],
@@ -172,6 +208,7 @@ async def _find_most_related_edges_from_entities(
     knowledge_graph_inst: BaseGraphStorage,
     tokenizer_wrapper,
     global_config: dict | None = None,
+    hop: int = 1,
 ):
     all_related_edges = await knowledge_graph_inst.get_nodes_edges_batch(
         [dp["id"] for dp in node_datas]
@@ -196,17 +233,36 @@ async def _find_most_related_edges_from_entities(
         for node_id, node_data in zip(related_node_ids, related_nodes, strict=False)
         if node_data is not None
     }
-    all_edges_data = [
-        {
+
+    structural_features = await _get_structural_features(knowledge_graph_inst)
+
+    all_edges_data = []
+    for k, v, d in zip(all_edges, all_edges_pack, all_edges_degree, strict=False):
+        if v is None:
+            continue
+        src_pagerank = 0.5
+        tgt_pagerank = 0.5
+        if structural_features:
+            src_pagerank = structural_features.get(k[0], {}).get("pagerank", 0.5)
+            tgt_pagerank = structural_features.get(k[1], {}).get("pagerank", 0.5)
+        confidence = v.get("confidence", 0.8)
+        weight = v.get("weight", 1.0)
+        gate_score = confidence * (weight / 10.0) * ((src_pagerank + tgt_pagerank) / 2)
+        gate_threshold = query_param.edge_gate_threshold * (
+            query_param.edge_gate_decay ** (hop - 1)
+        )
+        if gate_score < gate_threshold:
+            continue
+        entry = {
             "src_tgt": k,
             "src_entity_name": node_name_lookup.get(k[0], k[0]),
             "tgt_entity_name": node_name_lookup.get(k[1], k[1]),
             "rank": d,
             **v,
         }
-        for k, v, d in zip(all_edges, all_edges_pack, all_edges_degree, strict=False)
-        if v is not None
-    ]
+        entry["_gate_score"] = gate_score
+        all_edges_data.append(entry)
+
     if query_param.time_range is not None:
         all_edges_data = [e for e in all_edges_data if _edge_matches_time_range(e, query_param)]
     confidence_threshold = (global_config or {}).get("relationship_confidence_threshold", 0.0)
@@ -232,24 +288,88 @@ async def _build_local_query_context(
     query_param: QueryParam,
     tokenizer_wrapper,
     global_config: dict | None = None,
+    document_index=None,
 ):
     results = await entities_vdb.query(query, top_k=query_param.top_k)
     if not len(results):
         return None
+
     node_datas_raw = await knowledge_graph_inst.get_nodes_batch([r["id"] for r in results])
+
+    # Phase 1: Structured Query Planning — re-rank with soft entity mask
+    soft_mask = None
+    if query_param.enable_query_planning and global_config:
+        from .._query_planner import _analyze_query, build_soft_entity_mask, compute_final_scores
+
+        analysis = await _analyze_query(query, global_config)
+        if analysis and analysis.entities:
+            all_entity_names = {}
+            entity_name_to_id = {}
+            entity_id_to_aliases = {}
+            for r in results:
+                eid = r["id"]
+                ename = r.get("entity_name", "")
+                all_entity_names[eid] = ename
+                entity_name_to_id[ename.lower()] = eid
+            for r, nd in zip(results, node_datas_raw, strict=False):
+                if nd:
+                    aliases_raw = nd.get("aliases", "[]")
+                    if isinstance(aliases_raw, str):
+                        try:
+                            aliases = json.loads(aliases_raw)
+                        except Exception:
+                            aliases = []
+                    else:
+                        aliases = aliases_raw or []
+                    entity_id_to_aliases[r["id"]] = aliases
+                    for a in aliases:
+                        entity_name_to_id[a.lower()] = r["id"]
+            soft_mask = build_soft_entity_mask(
+                analysis, all_entity_names, entity_name_to_id, entity_id_to_aliases
+            )
+            if soft_mask.scores:
+                scored = compute_final_scores(results, soft_mask)
+                results = [item[0] for item in scored[: query_param.top_k]]
+                node_datas_raw = await knowledge_graph_inst.get_nodes_batch(
+                    [r["id"] for r in results]
+                )
+
     if not all(n is not None for n in node_datas_raw):
         logger.warning("some_nodes_missing")
-    node_degrees = await knowledge_graph_inst.node_degrees_batch([r["id"] for r in results])
-    node_datas: list[dict[Any, Any]] = [
-        {**n, "id": k["id"], "entity_name": n.get("entity_name", k["entity_name"]), "rank": d}
-        for k, n, d in zip(results, node_datas_raw, node_degrees, strict=False)
-        if n is not None
-    ]
+
+    structural_features = await _get_structural_features(knowledge_graph_inst, document_index)
+
+    if structural_features:
+        from .structural_features import compute_composite_rank
+
+        weights = query_param.structural_feature_weights
+        node_datas: list[dict[Any, Any]] = [
+            {
+                **n,
+                "id": k["id"],
+                "entity_name": n.get("entity_name", k["entity_name"]),
+                "rank": compute_composite_rank(structural_features.get(k["id"]), weights),
+            }
+            for k, n in zip(results, node_datas_raw, strict=False)
+            if n is not None
+        ]
+    else:
+        node_degrees = await knowledge_graph_inst.node_degrees_batch([r["id"] for r in results])
+        node_datas = [
+            {**n, "id": k["id"], "entity_name": n.get("entity_name", k["entity_name"]), "rank": d}
+            for k, n, d in zip(results, node_datas_raw, node_degrees, strict=False)
+            if n is not None
+        ]
     use_communities = await _find_most_related_community_from_entities(
         node_datas, query_param, community_reports, tokenizer_wrapper
     )
     use_text_units = await _find_most_related_text_unit_from_entities(
-        node_datas, query_param, text_chunks_db, knowledge_graph_inst, tokenizer_wrapper
+        node_datas,
+        query_param,
+        text_chunks_db,
+        knowledge_graph_inst,
+        tokenizer_wrapper,
+        query=query,
     )
     use_relations = await _find_most_related_edges_from_entities(
         node_datas,
@@ -257,6 +377,7 @@ async def _build_local_query_context(
         knowledge_graph_inst,
         tokenizer_wrapper,
         global_config=global_config,
+        hop=query_param.propagation_hops,
     )
     logger.info(
         "local_query_context",
@@ -349,6 +470,7 @@ async def local_query(
         query_param,
         tokenizer_wrapper,
         global_config=global_config,
+        document_index=global_config.get("document_index"),
     )
     if query_param.only_need_context:
         return context
@@ -379,6 +501,7 @@ async def local_query_stream(
         query_param,
         tokenizer_wrapper,
         global_config=global_config,
+        document_index=global_config.get("document_index"),
     )
     if query_param.only_need_context:
         if context is not None:
@@ -582,7 +705,11 @@ async def _build_naive_query_context(
     if not len(results):
         return None
     chunks_ids = [r["id"] for r in results]
-    chunks = await text_chunks_db.get_by_ids(chunks_ids)
+    chunks_raw = await text_chunks_db.get_by_ids(chunks_ids)
+    chunks = [c for c in chunks_raw if c is not None and c.get("content")]
+    if not chunks:
+        logger.warning("naive_query_chunks_missing", requested=len(chunks_ids))
+        return None
     maybe_trun_chunks = truncate_list_by_token_size(
         chunks,
         key=lambda x: x["content"],

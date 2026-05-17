@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-import json
+import re
 from typing import Any
 
-from ..._utils import logger
+from ..._utils import _safe_json_loads, get_all_nodes_safe, logger
 
 DREAM_ENRICH_PROMPT = """You are a knowledge-graph curator. An entity has a thin description that needs to be
 enriched using evidence from source documents.
@@ -53,7 +53,7 @@ async def _enrich_phase(
         logger.warning("refinement_enrich_skipped", reason="missing_llm_func")
         return stats
 
-    all_nodes = await _get_all_nodes_safe(knowledge_graph_inst)
+    all_nodes = await get_all_nodes_safe(knowledge_graph_inst)
     if not all_nodes:
         return stats
 
@@ -70,13 +70,17 @@ async def _enrich_phase(
     logger.info("refinement_enrich_start", thin_count=len(thin_entities))
 
     semaphore = asyncio.Semaphore(global_config.get("extraction_max_async", 16))
-    chunks_data = {}
-    if text_chunks_kv is not None:
-        all_chunk_keys = await text_chunks_kv.all_keys()
-        chunks_raw = await text_chunks_kv.get_by_ids(all_chunk_keys)
-        for k, v in zip(all_chunk_keys, chunks_raw, strict=False):
-            if v is not None:
-                chunks_data[k] = v.get("content", "")
+
+    async def _fetch_chunk_excerpts(source_ids: list[str]) -> list[str]:
+        if not source_ids or text_chunks_kv is None:
+            return []
+        sids = source_ids[:5]
+        raw = await text_chunks_kv.get_by_ids(sids)
+        excerpts = []
+        for _sid, chunk in zip(sids, raw, strict=False):
+            if chunk is not None:
+                excerpts.append(chunk.get("content", ""))
+        return excerpts
 
     async def _enrich_one(node_id: str, node_data: dict) -> bool:
         async with semaphore:
@@ -84,16 +88,9 @@ async def _enrich_phase(
             entity_type = node_data.get("entity_type", "UNKNOWN")
             current_desc = node_data.get("description", "")
 
-            source_ids_raw = node_data.get("source_id", "[]")
-            try:
-                source_ids = json.loads(source_ids_raw) if isinstance(source_ids_raw, str) else []
-            except (json.JSONDecodeError, TypeError):
-                source_ids = []
+            source_ids = _safe_json_loads(node_data.get("source_id", "[]"), [])
 
-            excerpts = []
-            for sid in source_ids[:5]:
-                if sid in chunks_data:
-                    excerpts.append(chunks_data[sid])
+            excerpts = await _fetch_chunk_excerpts(source_ids)
             if not excerpts:
                 stats["skipped"] += 1
                 return False
@@ -152,16 +149,34 @@ def _validate_enrichment(entity_name: str, original: str, enriched: str) -> bool
         overlap = len(original_words & enriched_words) / len(original_words)
         if overlap < _MIN_WORD_OVERLAP_RATIO:
             return False
+    if not _validate_entity_subject(entity_name, enriched):
+        return False
     return True
 
 
-async def _get_all_nodes_safe(knowledge_graph_inst) -> dict[str, dict]:
-    if hasattr(knowledge_graph_inst, "get_all_nodes"):
-        return await knowledge_graph_inst.get_all_nodes()
-    if hasattr(knowledge_graph_inst, "_graph"):
-        graph = knowledge_graph_inst._graph
-        result = {}
-        for node_id in graph.nodes():
-            result[node_id] = dict(graph.nodes[node_id])
-        return result
-    return {}
+def _validate_entity_subject(entity_name: str, text: str) -> bool:
+    name_lower = entity_name.lower()
+    name_parts = set(name_lower.split())
+    sentences = re.split(r"(?<=[.!?])\s+", text.strip())
+    pronouns = {"it", "he", "she", "they", "this", "these", "the", "its", "their"}
+
+    for sentence in sentences:
+        s = sentence.strip()
+        if not s or len(s) < 10:
+            continue
+        s_lower = s.lower()
+        if name_lower in s_lower:
+            continue
+        first_words = s_lower.split()[:4]
+        if any(w in pronouns for w in first_words):
+            continue
+        proper_nouns = [w for w in first_words if w[0].isupper() and w not in pronouns]
+        if proper_nouns and not (name_parts & set(first_words)):
+            logger.debug(
+                "enrich_identity_skip",
+                entity=entity_name,
+                suspicious=s[:80],
+            )
+            return False
+
+    return True

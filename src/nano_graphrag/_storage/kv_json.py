@@ -140,7 +140,6 @@ class SQLiteKVStorage(BaseKVStorage):
             self._conn.executemany(
                 "INSERT OR REPLACE INTO kv_store (key, value) VALUES (?, ?)", rows
             )
-            self._conn.commit()
 
         await asyncio.to_thread(_upsert_sync)
 
@@ -151,14 +150,12 @@ class SQLiteKVStorage(BaseKVStorage):
 
         def _delete_sync():
             self._conn.execute(f"DELETE FROM kv_store WHERE key IN ({placeholders})", ids)
-            self._conn.commit()
 
         await asyncio.to_thread(_delete_sync)
 
     async def drop(self):
         def _drop_sync():
             self._conn.execute("DELETE FROM kv_store")
-            self._conn.commit()
 
         await asyncio.to_thread(_drop_sync)
 

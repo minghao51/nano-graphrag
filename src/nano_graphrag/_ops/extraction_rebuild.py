@@ -478,11 +478,12 @@ async def rebuild_knowledge_graph_for_documents(
         try:
             await entity_vdb.upsert(entity_vdb_batch)
         except Exception as e:
-            logger.warning(
+            logger.error(
                 "entity_vdb_upsert_failed",
                 entity_count=len(entity_vdb_batch),
                 error=str(e),
             )
+            raise
 
     relationship_ids_to_refresh = set(affected_relationship_ids).union(
         combined_relationships.keys()
@@ -538,6 +539,7 @@ async def rebuild_knowledge_graph_for_documents(
                 "order": combined["order"],
                 "relationship_id": relationship_id,
                 "relation_type": combined["relation_type"],
+                "confidence": combined.get("confidence", 0.8),
             },
         )
 

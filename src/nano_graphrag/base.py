@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import abc
 from dataclasses import dataclass, field, fields
 from typing import Any, Generic, Literal, TypedDict, TypeVar
 
@@ -44,6 +45,31 @@ class QueryParam:
     # temporal search
     time_range: tuple[str, str] | None = None
     temporal_mode: str = "any"
+    # Phase 1: Structured Query Planning
+    enable_query_planning: bool = False
+    # Phase 2: Topological Structural Features
+    structural_feature_weights: list[float] = field(default_factory=lambda: [0.5, 0.2, 0.1, 0.2])
+    edge_gate_threshold: float = 0.0
+    # Phase 3: Structurally-Gated Propagation
+    propagation_hops: int = 1
+    subgraph_prune_ratio: float = 0.0
+    edge_gate_decay: float = 1.0
+
+    @classmethod
+    def from_config(cls, config, **overrides):
+        params = {k: getattr(config, k) for k in _SAGE_QUERY_FIELDS if hasattr(config, k)}
+        params.update(overrides)
+        return cls(**params)
+
+
+_SAGE_QUERY_FIELDS = (
+    "enable_query_planning",
+    "structural_feature_weights",
+    "edge_gate_threshold",
+    "propagation_hops",
+    "subgraph_prune_ratio",
+    "edge_gate_decay",
+)
 
 
 class ResponseType:
@@ -82,19 +108,19 @@ T = TypeVar("T")
 
 
 @dataclass
-class StorageNameSpace:
+class StorageNameSpace(abc.ABC):
     namespace: str
     global_config: dict
 
-    async def index_start_callback(self):
+    async def index_start_callback(self):  # noqa: B027
         """commit the storage operations after indexing"""
         pass
 
-    async def index_done_callback(self):
+    async def index_done_callback(self):  # noqa: B027
         """commit the storage operations after indexing"""
         pass
 
-    async def query_done_callback(self):
+    async def query_done_callback(self):  # noqa: B027
         """commit the storage operations after querying"""
         pass
 
@@ -104,113 +130,140 @@ class BaseVectorStorage(StorageNameSpace):
     embedding_func: EmbeddingFunc
     meta_fields: set = field(default_factory=set)
 
+    @abc.abstractmethod
     async def query(self, query: str, top_k: int) -> list[dict]:
         raise NotImplementedError
 
+    @abc.abstractmethod
     async def upsert(self, data: dict[str, dict]):
-        """Use 'content' field from value for embedding, use key as id.
-        If embedding_func is None, use 'embedding' field from value
-        """
         raise NotImplementedError
 
+    @abc.abstractmethod
     async def delete(self, ids: list[str]):
         raise NotImplementedError
 
 
 @dataclass
 class BaseKVStorage(Generic[T], StorageNameSpace):
+    @abc.abstractmethod
     async def all_keys(self) -> list[str]:
         raise NotImplementedError
 
+    @abc.abstractmethod
     async def get_by_id(self, id: str) -> T | None:
         raise NotImplementedError
 
+    @abc.abstractmethod
     async def get_by_ids(self, ids: list[str], fields: set[str] | None = None) -> list[T | None]:
         raise NotImplementedError
 
+    @abc.abstractmethod
     async def filter_keys(self, data: list[str]) -> set[str]:
-        """return un-exist keys"""
         raise NotImplementedError
 
+    @abc.abstractmethod
     async def upsert(self, data: dict[str, T]):
         raise NotImplementedError
 
+    @abc.abstractmethod
     async def delete(self, ids: list[str]):
         raise NotImplementedError
 
+    @abc.abstractmethod
     async def drop(self):
         raise NotImplementedError
 
 
 @dataclass
 class BaseGraphStorage(StorageNameSpace):
+    @abc.abstractmethod
     async def has_node(self, node_id: str) -> bool:
         raise NotImplementedError
 
+    @abc.abstractmethod
     async def has_edge(self, source_node_id: str, target_node_id: str) -> bool:
         raise NotImplementedError
 
+    @abc.abstractmethod
     async def node_degree(self, node_id: str) -> int:
         raise NotImplementedError
 
+    @abc.abstractmethod
     async def node_degrees_batch(self, node_ids: list[str]) -> list[int]:
         raise NotImplementedError
 
+    @abc.abstractmethod
     async def edge_degree(self, src_id: str, tgt_id: str) -> int:
         raise NotImplementedError
 
+    @abc.abstractmethod
     async def edge_degrees_batch(self, edge_pairs: list[tuple[str, str]]) -> list[int]:
         raise NotImplementedError
 
+    @abc.abstractmethod
     async def get_node(self, node_id: str) -> dict | None:
         raise NotImplementedError
 
+    @abc.abstractmethod
     async def get_nodes_batch(self, node_ids: list[str]) -> list[dict | None]:
         raise NotImplementedError
 
+    @abc.abstractmethod
     async def get_edge(self, source_node_id: str, target_node_id: str) -> dict | None:
         raise NotImplementedError
 
+    @abc.abstractmethod
     async def get_edges_batch(self, edge_pairs: list[tuple[str, str]]) -> list[dict | None]:
         raise NotImplementedError
 
+    @abc.abstractmethod
     async def get_node_edges(self, source_node_id: str) -> list[tuple[str, str]] | None:
         raise NotImplementedError
 
+    @abc.abstractmethod
     async def get_nodes_edges_batch(self, node_ids: list[str]) -> list[list[tuple[str, str]]]:
         raise NotImplementedError
 
+    @abc.abstractmethod
     async def upsert_node(self, node_id: str, node_data: dict[str, Any]):
         raise NotImplementedError
 
+    @abc.abstractmethod
     async def upsert_nodes_batch(self, nodes_data: list[tuple[str, dict[str, Any]]]):
         raise NotImplementedError
 
+    @abc.abstractmethod
     async def upsert_edge(
         self, source_node_id: str, target_node_id: str, edge_data: dict[str, Any]
     ):
         raise NotImplementedError
 
+    @abc.abstractmethod
     async def upsert_edges_batch(self, edges_data: list[tuple[str, str, dict[str, Any]]]):
         raise NotImplementedError
 
+    @abc.abstractmethod
     async def delete_node(self, node_id: str):
         raise NotImplementedError
 
+    @abc.abstractmethod
     async def delete_nodes_batch(self, node_ids: list[str]):
         raise NotImplementedError
 
+    @abc.abstractmethod
     async def delete_edge(self, source_node_id: str, target_node_id: str):
         raise NotImplementedError
 
+    @abc.abstractmethod
     async def delete_edges_batch(self, edge_pairs: list[tuple[str, str]]):
         raise NotImplementedError
 
+    @abc.abstractmethod
     async def clustering(self, algorithm: str, affected_node_ids: set[str] | None = None):
         raise NotImplementedError
 
+    @abc.abstractmethod
     async def community_schema(self) -> dict[str, SingleCommunitySchema]:
-        """Return the community representation with report and nodes"""
         raise NotImplementedError
 
     async def embed_nodes(self, algorithm: str) -> tuple[np.ndarray, list[str]]:
@@ -272,7 +325,7 @@ class _ConfigFields:
     enable_entity_linking: bool = False
     entity_linking_use_neighborhood_evidence: bool = True
     enable_community_reports: bool = True
-    enable_temporal_extraction: bool = True
+    enable_temporal_extraction: bool = False
     entity_linking_similarity_threshold: float = 0.92
     entity_linking_max_candidates: int = 3
     entity_linking_iou_threshold: float = 0.3
@@ -284,6 +337,7 @@ class _ConfigFields:
     # === Logging ===
     log_level: str = "INFO"
     log_file: str | None = None
+    log_query_text: bool = False
 
     # === Refinement Pipeline ===
     enable_refinement: bool = False
@@ -297,6 +351,16 @@ class _ConfigFields:
     # === Vault Export ===
     vault_path: str = "./vault"
     vault_export_communities: bool = True
+
+    # === SAGE-Inspired Improvements (Phases 1-4) ===
+    enable_query_planning: bool = True
+    structural_feature_weights: list[float] = field(default_factory=lambda: [0.5, 0.2, 0.1, 0.2])
+    edge_gate_threshold: float = 0.0
+    propagation_hops: int = 1
+    subgraph_prune_ratio: float = 0.0
+    edge_gate_decay: float = 1.0
+    enable_retrieval_feedback: bool = False
+    re_extraction_recall_threshold: float = 0.5
 
 
 @dataclass

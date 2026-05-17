@@ -83,6 +83,7 @@ class FeatureFlags(BaseModel):
 class LoggingConfig(BaseModel):
     level: str = "INFO"
     file: str | None = None
+    log_query_text: bool = False
 
     @field_validator("level")
     @classmethod
@@ -230,6 +231,7 @@ class GraphRAGSettings(BaseSettings):
             logging=LoggingConfig(
                 level=os.getenv("LOG_LEVEL", "INFO"),
                 file=os.getenv("LOG_FILE"),
+                log_query_text=_parse_bool_env("LOG_QUERY_TEXT", False),
             ),
             refinement=RefinementConfig(
                 enabled=_parse_bool_env("ENABLE_REFINEMENT", False),
@@ -374,6 +376,7 @@ _FIELD_SPECS: list[tuple[str, str, str, str | None]] = [
     ("enable_temporal_extraction", "features", "temporal_extraction", "ENABLE_TEMPORAL_EXTRACTION"),
     ("log_level", "logging", "level", "LOG_LEVEL"),
     ("log_file", "logging", "file", "LOG_FILE"),
+    ("log_query_text", "logging", "log_query_text", "LOG_QUERY_TEXT"),
     ("enable_refinement", "refinement", "enabled", "ENABLE_REFINEMENT"),
     ("refinement_merge_threshold", "refinement", "merge_threshold", "REFINEMENT_MERGE_THRESHOLD"),
     (

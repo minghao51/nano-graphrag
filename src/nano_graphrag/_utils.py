@@ -373,9 +373,8 @@ def list_of_list_to_csv(data: list[list]):
 # https://github.com/microsoft/graphrag
 def clean_str(input: Any) -> str:
     """Clean an input string by removing HTML escapes, control characters, and other unwanted characters."""
-    # If we get non-string input, just give it back
     if not isinstance(input, str):
-        return input
+        return ""
 
     result = html.unescape(input.strip())
     # https://stackoverflow.com/questions/4324790/removing-control-characters-from-a-string-in-python
@@ -418,6 +417,13 @@ def wrap_embedding_func_with_attrs(**kwargs):
     return final_decro
 
 
+def _safe_json_loads(value, default=None):
+    try:
+        return json.loads(value) if isinstance(value, str) else default
+    except (json.JSONDecodeError, TypeError):
+        return default
+
+
 def serialize_source_ids(source_ids: list[str]) -> str:
     """Serialize source IDs to a JSON array string."""
     return json.dumps(sorted(set(source_ids)))
@@ -440,3 +446,81 @@ def deserialize_source_ids(source_id_str: str) -> list[str]:
         if GRAPH_FIELD_SEP in source_id_str
         else [source_id_str]
     )
+
+
+async def get_all_nodes_safe(knowledge_graph_inst) -> dict[str, dict]:
+    if hasattr(knowledge_graph_inst, "get_all_nodes"):
+        return await knowledge_graph_inst.get_all_nodes()
+    if hasattr(knowledge_graph_inst, "_graph"):
+        graph = knowledge_graph_inst._graph
+        result = {}
+        for node_id in graph.nodes():
+            result[node_id] = dict(graph.nodes[node_id])
+        return result
+    return {}
+
+
+class AsyncRWLock:
+    """Async read-write lock with writer-preference (no writer starvation)."""
+
+    def __init__(self):
+        self._lock = asyncio.Condition(asyncio.Lock())
+        self._readers = 0
+        self._pending_writers = 0
+
+    async def acquire_read(self):
+        async with self._lock:
+            while self._pending_writers > 0:
+                await self._lock.wait()
+            self._readers += 1
+
+    async def release_read(self):
+        async with self._lock:
+            self._readers -= 1
+            if self._readers == 0:
+                self._lock.notify_all()
+
+    async def acquire_write(self):
+        await self._lock.acquire()
+        self._pending_writers += 1
+        while self._readers > 0:
+            await self._lock.wait()
+
+    async def release_write(self):
+        self._pending_writers -= 1
+        self._lock.notify_all()
+        self._lock.release()
+
+    def read_lock(self):
+        return _RWReadContext(self)
+
+    def write_lock(self):
+        return _RWWriteContext(self)
+
+
+class _RWReadContext:
+    __slots__ = ("_lock",)
+
+    def __init__(self, lock: AsyncRWLock):
+        self._lock = lock
+
+    async def __aenter__(self):
+        await self._lock.acquire_read()
+        return self._lock
+
+    async def __aexit__(self, *args):
+        await self._lock.release_read()
+
+
+class _RWWriteContext:
+    __slots__ = ("_lock",)
+
+    def __init__(self, lock: AsyncRWLock):
+        self._lock = lock
+
+    async def __aenter__(self):
+        await self._lock.acquire_write()
+        return self._lock
+
+    async def __aexit__(self, *args):
+        await self._lock.release_write()

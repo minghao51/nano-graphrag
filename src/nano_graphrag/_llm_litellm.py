@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
 import litellm
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from tenacity import (
     retry,
     retry_if_exception,
@@ -30,11 +31,6 @@ PROVIDERS_SUPPORTING_STRUCTURED_OUTPUT = {
     "google_genai",
     "google_vertex_ai",
     "cohere",
-}
-
-# Models that should use prompt-based schema instead of native structured output
-MODELS_REQUIRE_PROMPT_SCHEMA = {
-    "gemma",  # Gemma models work better with schema in prompt
 }
 
 # Model name prefixes for provider detection
@@ -261,21 +257,9 @@ def is_gemma_model(model: str) -> bool:
     model_lower = model.lower()
     if "gemma" not in model_lower:
         return False
-    # Gemma 4+ has native structured output support
-    # Match patterns: gemma-4, gemma4, gemma_4
-    import re
-
     if re.search(r"gemma[\s_-]?4", model_lower):
         return False
     return True
-
-
-def build_qwen_response_format(response_format: type[BaseModel]) -> dict[str, Any]:
-    """Build Qwen-compatible json_object response format.
-
-    Qwen requires {"type": "json_object"} instead of json_schema.
-    """
-    return {"type": "json_object"}
 
 
 def ensure_json_keyword_in_prompt(messages: list) -> list:
@@ -443,7 +427,7 @@ async def litellm_completion(
         if isinstance(result, str):
             try:
                 result = response_format.model_validate_json(result)
-            except Exception as e:
+            except (ValidationError, json.JSONDecodeError, AttributeError) as e:
                 logger.warning("structured_output_parse_failed", model=model, error=str(e))
                 if use_native_structured_output:
                     logger.info("structured_output_fallback_to_text", model=model)

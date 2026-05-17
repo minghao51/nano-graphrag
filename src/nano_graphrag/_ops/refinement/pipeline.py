@@ -5,7 +5,7 @@ import os
 import time
 from typing import Any
 
-from ..._utils import logger
+from ..._utils import get_all_nodes_safe, logger
 from .enrich import _enrich_phase
 from .infer import _infer_phase
 from .merge import _merge_phase
@@ -31,13 +31,17 @@ class RefinementJournal:
         if os.path.exists(self.path):
             try:
                 with open(self.path) as f:
-                    self.entries = json.load(f)
+                    for line in f:
+                        line = line.strip()
+                        if line:
+                            self.entries.append(json.loads(line))
             except (json.JSONDecodeError, OSError):
                 self.entries = []
 
     def save(self):
         with open(self.path, "w") as f:
-            json.dump(self.entries[-_MAX_JOURNAL_ENTRIES:], f, indent=2)
+            for entry in self.entries[-_MAX_JOURNAL_ENTRIES:]:
+                f.write(json.dumps(entry) + "\n")
 
     def add(self, phase: str, stats: dict[str, Any]):
         self.entries.append(
@@ -87,10 +91,17 @@ async def arefine(
     global_config: dict,
     phases: list[str] | None = None,
 ) -> dict[str, dict[str, Any]]:
+    if not global_config.get("enable_refinement", False):
+        logger.info("refinement_skipped", reason="enable_refinement=False")
+        return {"skipped": {"reason": "enable_refinement is disabled"}}
+
     all_phases = ["merge", "enrich", "infer"]
     if phases is None:
         phases = all_phases
     phases = [p for p in phases if p in all_phases]
+
+    if not phases:
+        return {"skipped": {"reason": "no valid phases specified"}}
 
     working_dir = global_config.get("working_dir", "./nano_graphrag")
     journal = RefinementJournal(os.path.join(working_dir, "refinement_journal.jsonl"))
@@ -102,7 +113,7 @@ async def arefine(
     infer_hub_cap = global_config.get("refinement_infer_hub_cap", 3)
     batch_size = global_config.get("refinement_batch_size", 50)
 
-    all_nodes = await _get_all_nodes_safe(knowledge_graph_inst)
+    all_nodes = await get_all_nodes_safe(knowledge_graph_inst)
     graph_size = len(all_nodes)
     ttl = _get_rejection_ttl(graph_size)
     rejection_cache.prune(ttl)
@@ -151,15 +162,3 @@ async def arefine(
     journal.save()
     rejection_cache.save()
     return results
-
-
-async def _get_all_nodes_safe(knowledge_graph_inst) -> dict[str, dict]:
-    if hasattr(knowledge_graph_inst, "get_all_nodes"):
-        return await knowledge_graph_inst.get_all_nodes()
-    if hasattr(knowledge_graph_inst, "_graph"):
-        graph = knowledge_graph_inst._graph
-        result = {}
-        for node_id in graph.nodes():
-            result[node_id] = dict(graph.nodes[node_id])
-        return result
-    return {}

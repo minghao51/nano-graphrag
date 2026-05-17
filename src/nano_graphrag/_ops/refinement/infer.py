@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import random
 import time
 from collections import Counter
 from typing import TYPE_CHECKING, Any
@@ -10,7 +11,7 @@ if TYPE_CHECKING:
     from .pipeline import RejectionCache
 
 from ..._schemas import normalize_relation_type
-from ..._utils import logger
+from ..._utils import _safe_json_loads, generate_stable_relationship_id, get_all_nodes_safe, logger
 
 DREAM_INFER_PROMPT = """You are a knowledge-graph curator with high standards. Two entities co-occur in
 {co_occurrence_count} source document(s) but have no edge in the graph. Determine whether
@@ -63,24 +64,25 @@ async def _infer_phase(
     batch_size: int = 50,
     rejection_cache: RejectionCache | None = None,
 ) -> dict[str, Any]:
-    stats = {"examined": 0, "inferred": 0, "rejected_by_llm": 0, "rejected_by_cache": 0}
+    stats = {
+        "examined": 0,
+        "inferred": 0,
+        "rejected_by_llm": 0,
+        "rejected_by_cache": 0,
+    }
 
     use_llm_func = global_config.get("cheap_model_func")
     if use_llm_func is None:
         logger.warning("refinement_infer_skipped", reason="missing_llm_func")
         return stats
 
-    all_nodes = await _get_all_nodes_safe(knowledge_graph_inst)
+    all_nodes = await get_all_nodes_safe(knowledge_graph_inst)
     if len(all_nodes) < 2:
         return stats
 
     node_to_chunks: dict[str, set[str]] = {}
     for node_id, node_data in all_nodes.items():
-        source_ids_raw = node_data.get("source_id", "[]")
-        try:
-            sids = json.loads(source_ids_raw) if isinstance(source_ids_raw, str) else []
-        except (json.JSONDecodeError, TypeError):
-            sids = []
+        sids = _safe_json_loads(node_data.get("source_id", "[]"), [])
         node_to_chunks[node_id] = set(sids)
 
     co_occurrence: dict[tuple[str, str], int] = {}
@@ -96,14 +98,6 @@ async def _infer_phase(
                 )
                 co_occurrence[pair] = co_occurrence.get(pair, 0) + 1
 
-    chunks_data = {}
-    if text_chunks_kv is not None:
-        all_chunk_keys = await text_chunks_kv.all_keys()
-        chunks_raw = await text_chunks_kv.get_by_ids(all_chunk_keys)
-        for k, v in zip(all_chunk_keys, chunks_raw, strict=False):
-            if v is not None:
-                chunks_data[k] = v.get("content", "")
-
     candidate_pairs = []
     for (n_a, n_b), count in co_occurrence.items():
         if count < 2:
@@ -112,13 +106,25 @@ async def _infer_phase(
             continue
         candidate_pairs.append((n_a, n_b, count))
 
+    if not candidate_pairs:
+        return stats
+
     candidate_pairs.sort(key=lambda x: x[2], reverse=True)
-    candidate_pairs = candidate_pairs[:batch_size]
+    selected_pairs = _select_candidates_weighted(candidate_pairs, batch_size)
 
     semaphore = asyncio.Semaphore(global_config.get("extraction_max_async", 16))
     hub_counter: dict[str, int] = Counter()
 
+    async def _fetch_chunk_excerpt(chunk_ids: set[str]) -> str:
+        if not chunk_ids or text_chunks_kv is None:
+            return ""
+        cid = next(iter(chunk_ids))
+        raw = await text_chunks_kv.get_by_ids([cid])
+        chunk = raw[0] if raw else None
+        return (chunk.get("content", "") if chunk else "")[:2000]
+
     async def _evaluate_pair(n_a: str, n_b: str, co_count: int) -> None:
+        nonlocal hub_counter
         async with semaphore:
             if hub_counter.get(n_a, 0) >= hub_cap or hub_counter.get(n_b, 0) >= hub_cap:
                 return
@@ -135,11 +141,7 @@ async def _infer_phase(
                 return
 
             shared_chunks = node_to_chunks.get(n_a, set()) & node_to_chunks.get(n_b, set())
-            excerpt = ""
-            for cid in list(shared_chunks)[:1]:
-                if cid in chunks_data:
-                    excerpt = chunks_data[cid][:2000]
-                    break
+            excerpt = await _fetch_chunk_excerpt(shared_chunks)
 
             prompt = DREAM_INFER_PROMPT.format(
                 co_occurrence_count=co_count,
@@ -192,8 +194,6 @@ async def _infer_phase(
             else:
                 src_id, tgt_id = n_a, n_b
 
-            from ..._utils import generate_stable_relationship_id
-
             rel_id = generate_stable_relationship_id(src_id, tgt_id, rel_type)
             edge_data = {
                 "description": result.get("evidence", ""),
@@ -217,18 +217,26 @@ async def _infer_phase(
                 confidence=round(confidence, 2),
             )
 
-    await asyncio.gather(*[_evaluate_pair(a, b, c) for a, b, c in candidate_pairs])
+    await asyncio.gather(*[_evaluate_pair(a, b, c) for a, b, c in selected_pairs])
     logger.info("refinement_infer_done", **stats)
     return stats
 
 
-async def _get_all_nodes_safe(knowledge_graph_inst) -> dict[str, dict]:
-    if hasattr(knowledge_graph_inst, "get_all_nodes"):
-        return await knowledge_graph_inst.get_all_nodes()
-    if hasattr(knowledge_graph_inst, "_graph"):
-        graph = knowledge_graph_inst._graph
-        result = {}
-        for node_id in graph.nodes():
-            result[node_id] = dict(graph.nodes[node_id])
-        return result
-    return {}
+def _select_candidates_weighted(
+    candidate_pairs: list[tuple[str, str, int]], batch_size: int
+) -> list[tuple[str, str, int]]:
+    if len(candidate_pairs) <= batch_size:
+        return candidate_pairs
+
+    top_count = int(batch_size * 0.8)
+    explore_count = batch_size - top_count
+
+    top_pairs = candidate_pairs[:top_count]
+    rest_pairs = candidate_pairs[top_count:]
+
+    if explore_count > 0 and rest_pairs:
+        explore_pairs = random.sample(rest_pairs, min(explore_count, len(rest_pairs)))
+    else:
+        explore_pairs = []
+
+    return top_pairs + explore_pairs

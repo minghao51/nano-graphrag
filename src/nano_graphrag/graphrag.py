@@ -103,7 +103,7 @@ class GraphRAG(_ConfigFields):
     )
 
     embedding_func: EmbeddingFunc | None = None
-    embedding_batch_num: int = 32
+    embedding_batch_num: int = 32  # deprecated — use embedding_batch_size
     embedding_func_max_async: int = 16
 
     best_model_func: Callable[..., Any] | None = None
@@ -227,7 +227,7 @@ class GraphRAG(_ConfigFields):
 
     def query(self, query: str, param: QueryParam | None = None):
         if param is None:
-            param = QueryParam()
+            param = QueryParam.from_config(self)
         loop = always_get_an_event_loop()
         return loop.run_until_complete(self.aquery(query, param))
 

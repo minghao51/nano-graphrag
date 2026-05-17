@@ -1,18 +1,17 @@
 from __future__ import annotations
 
-import asyncio
 import json
+import re
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any
 
 from neo4j import AsyncGraphDatabase
+from neo4j.exceptions import DriverError, ServiceUnavailable
 
 from .._utils import logger
 from ..base import BaseGraphStorage, SingleCommunitySchema
 from ..prompt import GRAPH_FIELD_SEP
-
-neo4j_lock = asyncio.Lock()
 
 
 def make_path_idable(path):
@@ -27,6 +26,21 @@ def make_path_idable(path):
         .replace("'", "")
     )
     return sanitized
+
+
+def sanitize_neo4j_label(label: str) -> str:
+    """Allow only Neo4j-safe label characters and normalize invalid input."""
+    safe = re.sub(r"[^A-Za-z0-9_]", "_", str(label))
+    safe = re.sub(r"_+", "_", safe).strip("_")
+    if not safe:
+        return "UNKNOWN"
+    if safe[0].isdigit():
+        safe = f"L_{safe}"
+    return safe
+
+
+def _canonical_pair(left: str, right: str) -> tuple[str, str]:
+    return tuple(sorted((left, right)))  # type: ignore[return-value]
 
 
 @dataclass
@@ -110,6 +124,7 @@ class Neo4jStorage(BaseGraphStorage):
             return record["exists"] if record else False
 
     async def has_edge(self, source_node_id: str, target_node_id: str) -> bool:
+        source_id, target_id = _canonical_pair(source_node_id, target_node_id)
         async with self.async_driver.session() as session:
             result = await session.run(
                 f"""
@@ -117,10 +132,10 @@ class Neo4jStorage(BaseGraphStorage):
                 WHERE s.id = $source_id
                 MATCH (t:`{self.namespace}`)
                 WHERE t.id = $target_id
-                RETURN EXISTS((s)-[]->(t)) AS exists
+                RETURN EXISTS((s)-[]-(t)) AS exists
                 """,
-                source_id=source_node_id,
-                target_id=target_node_id,
+                source_id=source_id,
+                target_id=target_id,
             )
 
             record = await result.single()
@@ -192,12 +207,12 @@ class Neo4jStorage(BaseGraphStorage):
                     tgt_id = record["tgt_id"]
                     degree = record["degree"]
 
-                    # 更新结果字典
+                    # Update result dict
                     edge_pair = (src_id, tgt_id)
                     result_dict[edge_pair] = degree
 
             return [result_dict[tuple(edge_pair)] for edge_pair in edge_pairs]
-        except Exception as e:
+        except (DriverError, ServiceUnavailable) as e:
             logger.error("neo4j_edge_degree_error", error=str(e))
             return [0] * len(edge_pairs)
 
@@ -259,19 +274,22 @@ class Neo4jStorage(BaseGraphStorage):
         if not edge_pairs:
             return []
 
-        result_dict: dict[tuple[str, ...], dict[str, Any] | None] = {
-            tuple(edge_pair): None for edge_pair in edge_pairs
-        }
-
-        edges_params = [{"source_id": src, "target_id": tgt} for src, tgt in edge_pairs]
+        canonical_pairs = [_canonical_pair(src, tgt) for src, tgt in edge_pairs]
+        result_dict: dict[tuple[str, str], dict[str, Any] | None] = dict.fromkeys(
+            canonical_pairs, None
+        )
+        edges_params = [{"source_id": src, "target_id": tgt} for src, tgt in canonical_pairs]
 
         try:
             async with self.async_driver.session() as session:
                 result = await session.run(
                     f"""
                     UNWIND $edges AS edge
-                    MATCH (s:`{self.namespace}`)-[r]->(t:`{self.namespace}`)
-                    WHERE s.id = edge.source_id AND t.id = edge.target_id
+                    MATCH (s:`{self.namespace}`)-[r]-(t:`{self.namespace}`)
+                    WHERE
+                        (s.id = edge.source_id AND t.id = edge.target_id)
+                        OR
+                        (s.id = edge.target_id AND t.id = edge.source_id)
                     RETURN s.id AS source_id, t.id AS target_id, collect(properties(r)) AS edges_data
                     """,
                     edges=edges_params,
@@ -282,7 +300,7 @@ class Neo4jStorage(BaseGraphStorage):
                     target_id = record["target_id"]
                     edges_data = record["edges_data"]
 
-                    edge_pair = (source_id, target_id)
+                    edge_pair = _canonical_pair(source_id, target_id)
                     if len(edges_data) == 1:
                         result_dict[edge_pair] = edges_data[0]
                     elif len(edges_data) > 1:
@@ -320,8 +338,8 @@ class Neo4jStorage(BaseGraphStorage):
                         combined["order"] = 1
                         result_dict[edge_pair] = combined
 
-            return [result_dict[tuple(edge_pair)] for edge_pair in edge_pairs]
-        except Exception as e:
+            return [result_dict[pair] for pair in canonical_pairs]
+        except (DriverError, ServiceUnavailable) as e:
             logger.error("neo4j_edge_retrieval_error", error=str(e))
             return [None] * len(edge_pairs)
 
@@ -340,9 +358,9 @@ class Neo4jStorage(BaseGraphStorage):
                 result = await session.run(
                     f"""
                     UNWIND $node_ids AS node_id
-                    MATCH (s:`{self.namespace}`)-[r]->(t:`{self.namespace}`)
-                    WHERE s.id = node_id
-                    RETURN s.id AS source_id, t.id AS target_id
+                    MATCH (n:`{self.namespace}`)-[r]-(m:`{self.namespace}`)
+                    WHERE n.id = node_id
+                    RETURN n.id AS source_id, m.id AS target_id
                     """,
                     node_ids=node_ids,
                 )
@@ -352,10 +370,10 @@ class Neo4jStorage(BaseGraphStorage):
                     target_id = record["target_id"]
 
                     if source_id in result_dict:
-                        result_dict[source_id].append((source_id, target_id))
+                        result_dict[source_id].append(_canonical_pair(source_id, target_id))
 
-            return [result_dict[node_id] for node_id in node_ids]
-        except Exception as e:
+            return [sorted(set(result_dict[node_id])) for node_id in node_ids]
+        except (DriverError, ServiceUnavailable) as e:
             logger.error("neo4j_node_edges_error", error=str(e))
             return [[] for _ in node_ids]
 
@@ -368,7 +386,7 @@ class Neo4jStorage(BaseGraphStorage):
 
         nodes_by_type: dict[str, list[tuple[str, dict[str, str]]]] = {}
         for node_id, node_data in nodes_data:
-            node_type = node_data.get("entity_type", "UNKNOWN").strip('"')
+            node_type = sanitize_neo4j_label(node_data.get("entity_type", "UNKNOWN").strip('"'))
             if node_type not in nodes_by_type:
                 nodes_by_type[node_type] = []
             nodes_by_type[node_type].append((node_id, node_data))
@@ -397,14 +415,15 @@ class Neo4jStorage(BaseGraphStorage):
 
         edges_params = []
         for source_id, target_id, edge_data in edges_data:
+            canonical_source, canonical_target = _canonical_pair(source_id, target_id)
             edge_data_copy: dict[str, Any] = edge_data.copy()
             edge_data_copy.setdefault("weight", 0.0)
             relationship_id = edge_data_copy.get("relationship_id", "")
 
             edges_params.append(
                 {
-                    "source_id": source_id,
-                    "target_id": target_id,
+                    "source_id": canonical_source,
+                    "target_id": canonical_target,
                     "edge_data": edge_data_copy,
                     "rel_id": relationship_id,
                 }
@@ -459,12 +478,19 @@ class Neo4jStorage(BaseGraphStorage):
     async def delete_edges_batch(self, edge_pairs: list[tuple[str, str]]):
         if not edge_pairs:
             return
-        edges_params = [{"source_id": src, "target_id": tgt} for src, tgt in edge_pairs]
+        edges_params = []
+        for src, tgt in edge_pairs:
+            left, right = _canonical_pair(src, tgt)
+            edges_params.append({"source_id": left, "target_id": right})
         async with self.async_driver.session() as session:
             await session.run(
                 f"""
                 UNWIND $edges AS edge
-                MATCH (s:`{self.namespace}` {{id: edge.source_id}})-[r]->(t:`{self.namespace}` {{id: edge.target_id}})
+                MATCH (s:`{self.namespace}`)-[r]-(t:`{self.namespace}`)
+                WHERE
+                    (s.id = edge.source_id AND t.id = edge.target_id)
+                    OR
+                    (s.id = edge.target_id AND t.id = edge.source_id)
                 DELETE r
                 """,
                 edges=edges_params,
@@ -596,7 +622,7 @@ class Neo4jStorage(BaseGraphStorage):
         return dict(results)  # type: ignore[arg-type]
 
     async def index_done_callback(self):
-        await self.async_driver.close()
+        pass
 
     async def _debug_delete_all_node_edges(self):
         async with self.async_driver.session() as session:

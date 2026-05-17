@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 from hashlib import sha256
 
 from ._ops import (
@@ -12,8 +13,6 @@ from ._ops import (
     rebuild_knowledge_graph_for_documents,
 )
 from ._utils import compute_sha256_id, logger
-
-BUILTIN_EXTRACTORS = (extract_entities,)
 
 
 def _compute_extraction_hash(global_config: dict, extraction_func) -> str:
@@ -27,11 +26,15 @@ def _compute_extraction_hash(global_config: dict, extraction_func) -> str:
 
 
 def _is_builtin_extractor(func) -> bool:
-    if func in BUILTIN_EXTRACTORS:
-        return True
-    if hasattr(func, "__module__") and "nano_graphrag" in func.__module__:
-        return True
-    return False
+    return hasattr(func, "__module__") and "nano_graphrag" in func.__module__
+
+
+def _split_staged_doc_ids(
+    staged_doc_ids: set[str], existing_doc_ids: set[str]
+) -> tuple[list[str], list[str]]:
+    new_doc_ids = sorted(staged_doc_ids - existing_doc_ids)
+    changed_existing_doc_ids = sorted(staged_doc_ids & existing_doc_ids)
+    return new_doc_ids, changed_existing_doc_ids
 
 
 async def _flush_doc_progress(
@@ -53,6 +56,7 @@ async def _flush_doc_progress(
 
 async def _legacy_custom_ainsert(self, documents: dict[str, str]):
     await self._insert_start()
+    success = False
     try:
         new_docs = {
             doc_id: {
@@ -113,8 +117,10 @@ async def _legacy_custom_ainsert(self, documents: dict[str, str]):
 
         await self.full_docs.upsert(new_docs)
         await self.text_chunks.upsert(inserting_chunks)
+        success = True
     finally:
-        await self._insert_done()
+        if success:
+            await self._insert_done()
 
 
 async def _rollback_insert_storages(
@@ -165,6 +171,7 @@ async def _ainsert_documents(
             "insert_documents requires the built-in extract_entities pipeline."
         )
 
+    success = False
     await self._insert_start()
     try:
         normalized_docs = {
@@ -212,8 +219,50 @@ async def _ainsert_documents(
                     if manifest is not None and manifest.get("extraction_hash") != current_hash:
                         docs_to_process[doc_id] = normalized_docs[doc_id]
                         changed_doc_ids.append(doc_id)
+
+            # Phase 4: Re-extraction trigger based on retrieval feedback
+            if self.enable_retrieval_feedback and unchanged_ids:
+                try:
+                    stats_raw = await self.document_index.get_by_id("feedback_stats")
+                    if isinstance(stats_raw, dict):
+                        feedback_stats = stats_raw
+                        threshold = self.re_extraction_recall_threshold
+                        now = time.time()
+                        for doc_id in unchanged_ids:
+                            doc_stat = feedback_stats.get(doc_id)
+                            if not doc_stat:
+                                continue
+                            if doc_stat.get("total_queries", 0) <= 3:
+                                continue
+                            if doc_stat.get("avg_recall", 1.0) >= threshold:
+                                continue
+                            last_extracted = doc_stat.get("last_re_extracted_at", 0)
+                            if now - last_extracted < 3600:
+                                logger.debug(
+                                    "re_extraction_rate_limited",
+                                    doc_id=doc_id,
+                                    seconds_remaining=3600 - (now - last_extracted),
+                                )
+                                continue
+                            if doc_id not in docs_to_process:
+                                docs_to_process[doc_id] = normalized_docs[doc_id]
+                                changed_doc_ids.append(doc_id)
+                                feedback_stats[doc_id] = {
+                                    **doc_stat,
+                                    "last_re_extracted_at": now,
+                                }
+                                logger.info(
+                                    "re_extraction_triggered",
+                                    doc_id=doc_id,
+                                    avg_recall=doc_stat["avg_recall"],
+                                    total_queries=doc_stat["total_queries"],
+                                )
+                        await self.document_index.upsert({"feedback_stats": feedback_stats})
+                except Exception as e:
+                    logger.debug("re_extraction_check_failed", error=str(e))
         if not docs_to_process:
             logger.warning("all_docs_unchanged")
+            success = True
             return
 
         logger.info(
@@ -333,6 +382,8 @@ async def _ainsert_documents(
             if manifest is not None
             for entity_id in manifest.get("entities", {}).keys()
         }
+        # Write manifests to document_index before graph rebuild — rebuild
+        # reads from document_index to combine contributions across documents
         await self.document_index.upsert(new_document_index_entries)
 
         logger.info("graph_rebuild_start")
@@ -394,6 +445,31 @@ async def _ainsert_documents(
                         self.graph_cluster_algorithm,
                         affected_node_ids=affected_entity_ids,
                     )
+                # Phase 2: Compute structural features for edge gating and ranking
+                graph_features = None
+                if hasattr(self.chunk_entity_relation_graph, "_graph"):
+                    try:
+                        from ._ops.structural_features import compute_structural_features
+
+                        nx_graph = self.chunk_entity_relation_graph._graph
+                        if nx_graph is not None and nx_graph.number_of_nodes() > 0:
+                            graph_features = await compute_structural_features(nx_graph)
+                            nx_graph._structural_features = graph_features
+                            logger.debug(
+                                "structural_features_computed",
+                                nodes=len(graph_features),
+                            )
+                    except Exception:
+                        logger.debug("structural_features_failed", exc_info=True)
+                # Persist to document_index for cross-session access
+                if graph_features is not None and self.document_index is not None:
+                    try:
+                        await self.document_index.upsert(
+                            {"structural_features_payload": graph_features}
+                        )
+                    except Exception:
+                        logger.debug("structural_features_persist_failed", exc_info=True)
+
             elif docs_with_entities == 0:
                 await self.community_reports.drop()
                 logger.warning("no_entities_found_in_documents")
@@ -427,6 +503,7 @@ async def _ainsert_documents(
             # Clean up snapshot on success
             if snapshot_path and os.path.exists(snapshot_path):
                 os.unlink(snapshot_path)
+            success = True
         except Exception:
             if snapshot_path and self.chunk_entity_relation_graph is not None:
                 await self.chunk_entity_relation_graph._restore_graph(snapshot_path)
@@ -435,24 +512,29 @@ async def _ainsert_documents(
             await self._rollback_insert_storages(
                 inserted_chunk_ids, inserted_doc_ids, inserted_entity_ids
             )
+            # Roll back document_index changes made before rebuild
             staged_doc_ids = set(new_document_index_entries.keys())
             existing_doc_ids = set(old_manifest_lookup.keys())
-            new_doc_ids = sorted(staged_doc_ids - existing_doc_ids)
-            changed_existing_doc_ids = sorted(staged_doc_ids & existing_doc_ids)
+            new_doc_ids, changed_existing_doc_ids = _split_staged_doc_ids(
+                staged_doc_ids, existing_doc_ids
+            )
             if new_doc_ids:
                 await self.document_index.delete(new_doc_ids)
             if changed_existing_doc_ids:
                 await self.document_index.upsert(
                     {doc_id: old_manifest_lookup[doc_id] for doc_id in changed_existing_doc_ids}
                 )
-            if staged_doc_ids:
-                logger.warning(
-                    "rebuild_failed_rollback",
-                    doc_count=len(staged_doc_ids),
-                )
+            logger.warning(
+                "rebuild_failed_rollback",
+                doc_count=len(new_document_index_entries),
+            )
             raise
     finally:
-        await self._insert_done()
+        if success:
+            await self._insert_done()
+        else:
+            if self.chunk_entity_relation_graph is not None:
+                await self.chunk_entity_relation_graph.index_done_callback()
 
 
 async def _insert_start(self):
@@ -467,6 +549,7 @@ async def _insert_done(self):
         self.text_chunks,
         self.document_index,
         self.llm_response_cache,
+        self.graph_contribution_index,
         self.community_reports,
         self.entities_vdb,
         self.chunks_vdb,
@@ -484,6 +567,7 @@ async def _insert_done(self):
 async def _rebuild_graph_from_manifests(self):
     """Rebuild entire knowledge graph from existing document manifests without re-extraction."""
     await self._insert_start()
+    success = False
     try:
         all_doc_keys = await self.document_index.all_keys()
         if not all_doc_keys:
@@ -531,9 +615,21 @@ async def _rebuild_graph_from_manifests(self):
                     self.graph_cluster_algorithm,
                     affected_node_ids=None,
                 )
+            if hasattr(self.chunk_entity_relation_graph, "_graph"):
+                try:
+                    from ._ops.structural_features import compute_structural_features
+
+                    nx_graph = self.chunk_entity_relation_graph._graph
+                    if nx_graph is not None and nx_graph.number_of_nodes() > 0:
+                        features = await compute_structural_features(nx_graph)
+                        nx_graph._structural_features = features
+                        logger.debug("structural_features_computed", nodes=len(features))
+                except Exception:
+                    logger.debug("structural_features_failed", exc_info=True)
             # Clean up snapshot on success
             if snapshot_path and os.path.exists(snapshot_path):
                 os.unlink(snapshot_path)
+            success = True
         except Exception:
             if snapshot_path and self.chunk_entity_relation_graph is not None:
                 await self.chunk_entity_relation_graph._restore_graph(snapshot_path)
@@ -541,4 +637,8 @@ async def _rebuild_graph_from_manifests(self):
                 os.unlink(snapshot_path)
             raise
     finally:
-        await self._insert_done()
+        if success:
+            await self._insert_done()
+        else:
+            if self.chunk_entity_relation_graph is not None:
+                await self.chunk_entity_relation_graph.index_done_callback()

@@ -132,7 +132,7 @@ async def _pack_single_community_describe(
         if (edge[0], edge[1]) in contain_edges:
             continue
         edge_data = data or {}
-        temporal = edge_data.get("temporal_context", "")
+        temporal = edge_data.get("temporal_context") or ""
         valid_from = edge_data.get("valid_from", "")
         valid_to = edge_data.get("valid_to", "")
         if valid_from or valid_to:

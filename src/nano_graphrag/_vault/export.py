@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from .._utils import logger
+from .._utils import _safe_json_loads, get_all_nodes_safe, logger
 
 _SPARSE_ENTITY_MIN_CHARS = 20
 
@@ -18,7 +18,7 @@ async def aexport_vault(
     vault_path = path or global_config.get("vault_path", "./vault")
     stats = {"entities": 0, "communities": 0, "sparse_rolled_up": 0}
 
-    all_nodes = await _get_all_nodes_safe(knowledge_graph_inst)
+    all_nodes = await get_all_nodes_safe(knowledge_graph_inst)
     if not all_nodes:
         logger.warning("vault_export_no_nodes")
         return stats
@@ -77,22 +77,13 @@ async def _write_entity_markdown(
     node_data: dict,
     knowledge_graph_inst,
 ) -> None:
-    import json
     from datetime import datetime
 
     entity_name = node_data.get("entity_name", node_id)
     entity_type = node_data.get("entity_type", "UNKNOWN")
     description = node_data.get("description", "")
-    aliases_raw = node_data.get("aliases", "[]")
-    try:
-        aliases = json.loads(aliases_raw) if isinstance(aliases_raw, str) else aliases_raw
-    except (json.JSONDecodeError, TypeError):
-        aliases = []
-    source_ids_raw = node_data.get("source_id", "[]")
-    try:
-        source_ids = json.loads(source_ids_raw) if isinstance(source_ids_raw, str) else []
-    except (json.JSONDecodeError, TypeError):
-        source_ids = []
+    aliases = _safe_json_loads(node_data.get("aliases", "[]"), [])
+    source_ids = _safe_json_loads(node_data.get("source_id", "[]"), [])
 
     edges = await knowledge_graph_inst.get_node_edges(node_id)
     connections = []
@@ -110,6 +101,10 @@ async def _write_entity_markdown(
 
     safe_name = _safe_filename(entity_name)
     filepath = os.path.join(type_dir, f"{safe_name}.md")
+    counter = 1
+    while os.path.exists(filepath):
+        filepath = os.path.join(type_dir, f"{safe_name}_{counter}.md")
+        counter += 1
 
     frontmatter = _yaml_frontmatter(
         {
@@ -219,26 +214,32 @@ def _yaml_frontmatter(data: dict) -> str:
         if isinstance(v, list):
             lines.append(f"{k}:")
             for item in v:
-                lines.append(f"  - {item}")
+                lines.append(f"  - {_yaml_quote(item)}")
         elif isinstance(v, float):
             lines.append(f"{k}: {v:.2f}")
+        elif isinstance(v, str) and _needs_yaml_quoting(v):
+            lines.append(f'{k}: "{v}"')
         else:
             lines.append(f"{k}: {v}")
     lines.append("---")
     return "\n".join(lines)
 
 
+def _needs_yaml_quoting(v: str) -> bool:
+    return any(c in v for c in ":#[]{}&*%@|>!,'\"`") or v != v.strip()
+
+
+def _yaml_quote(v: str) -> str:
+    if _needs_yaml_quoting(v):
+        return f'"{v}"'
+    return v
+
+
 def _safe_filename(name: str) -> str:
-    return "".join(c if c.isalnum() or c in " ._-" else "_" for c in name).strip(". ")
-
-
-async def _get_all_nodes_safe(knowledge_graph_inst) -> dict[str, dict]:
-    if hasattr(knowledge_graph_inst, "get_all_nodes"):
-        return await knowledge_graph_inst.get_all_nodes()
-    if hasattr(knowledge_graph_inst, "_graph"):
-        graph = knowledge_graph_inst._graph
-        result = {}
-        for node_id in graph.nodes():
-            result[node_id] = dict(graph.nodes[node_id])
-        return result
-    return {}
+    result = "".join(c if c.isalnum() or c in " ._-" else "_" for c in name).strip(" ._")
+    if not result:
+        result = "_unnamed_"
+    result = result.strip()
+    if result.lower() in {"_index", "index"}:
+        result = f"_{result}"
+    return result

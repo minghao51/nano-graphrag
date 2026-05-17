@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from hashlib import sha256
 
 from ._entity_grounded_query import EntityGroundedQuery
 from ._ops.query import (
@@ -41,11 +42,42 @@ def _build_entity_grounded_query(self, param, runtime):
     return entity_query
 
 
+def _query_log_payload(query: str, runtime: dict) -> dict:
+    if runtime.get("log_query_text", False):
+        return {"query": query[:100] if query else ""}
+    query_hash = sha256((query or "").encode("utf-8")).hexdigest()[:16]
+    return {"query_hash": query_hash, "query_chars": len(query or "")}
+
+
+async def _collect_feedback_context(self, query: str):
+    context_chunks = []
+    doc_ids_retrieved = []
+    if self.chunks_vdb is None:
+        return None, []
+    chunk_results = await self.chunks_vdb.query(query, top_k=20)
+    chunk_ids = [r["id"] for r in chunk_results]
+    if not chunk_ids:
+        return None, []
+    chunk_datas = await self.text_chunks.get_by_ids(chunk_ids)
+    for c in chunk_datas:
+        if c is None:
+            continue
+        content = c.get("content", "")
+        if content:
+            context_chunks.append(content)
+        fid = c.get("full_doc_id")
+        if fid:
+            doc_ids_retrieved.append(fid)
+    if not context_chunks:
+        return None, doc_ids_retrieved
+    return "\n\n".join(context_chunks), doc_ids_retrieved
+
+
 async def aquery(self, query, param):
     bind_run_context(mode=param.mode)
     _check_mode_permissions(param.mode, self.enable_local, self.enable_naive_rag)
     runtime = self._runtime_config()
-    logger.info("query_start", query=query[:100] if query else "")
+    logger.info("query_start", **_query_log_payload(query, runtime))
 
     start_time = time.monotonic()
     response = ""
@@ -89,6 +121,28 @@ async def aquery(self, query, param):
             raise ValueError(f"Unknown mode {param.mode}")
         elapsed = (time.monotonic() - start_time) * 1000
         logger.info("query_complete", latency_ms=round(elapsed, 1), answer_chars=len(response))
+
+        if self.enable_retrieval_feedback and param.mode in ("local", "naive"):
+            try:
+                from ._ops.retrieval_feedback import (
+                    compute_retrieval_feedback,
+                    log_retrieval_feedback,
+                )
+
+                context_text, doc_ids_retrieved = await _collect_feedback_context(self, query)
+                if not context_text:
+                    logger.debug("retrieval_feedback_skipped", reason="no_retrieved_context")
+                    return response
+                feedback = await compute_retrieval_feedback(
+                    query=query,
+                    context_text=context_text,
+                    global_config=runtime,
+                    doc_ids_retrieved=doc_ids_retrieved,
+                )
+                await log_retrieval_feedback(feedback, self.document_index, runtime)
+            except Exception:
+                logger.debug("retrieval_feedback_failed", exc_info=True)
+
         return response
     finally:
         await self._query_done()
@@ -98,7 +152,7 @@ async def astream_query(self, query, param):
     bind_run_context(mode=param.mode)
     _check_mode_permissions(param.mode, self.enable_local, self.enable_naive_rag)
     runtime = self._runtime_config()
-    logger.info("query_start", query=query[:100] if query else "")
+    logger.info("query_start", **_query_log_payload(query, runtime))
     start_time = time.monotonic()
 
     if param.mode == "local":

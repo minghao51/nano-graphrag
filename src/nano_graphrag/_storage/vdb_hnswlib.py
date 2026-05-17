@@ -45,10 +45,7 @@ class HNSWVectorStorage(BaseVectorStorage):
         self._metadata_file_name = os.path.join(
             self.global_config["working_dir"], f"{self.namespace}_hnsw_metadata.mpk"
         )
-        self._embedding_batch_num = self.global_config.get(
-            "embedding_batch_size",
-            self.global_config.get("embedding_batch_num", 100),
-        )
+        self._embedding_batch_num = self.global_config.get("embedding_batch_size", 100)
 
         hnsw_params = self.global_config.get("vector_db_storage_cls_kwargs", {})
         self.ef_construction = hnsw_params.get("ef_construction", self.ef_construction)

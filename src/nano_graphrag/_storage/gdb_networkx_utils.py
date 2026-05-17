@@ -14,6 +14,34 @@ def load_nx_graph(file_name) -> nx.MultiGraph | None:
     return None
 
 
+def _sanitize_value(v):
+    """Drop non-primitive values for GraphML compatibility."""
+    if v is None:
+        return ""
+    if isinstance(v, str | int | float | bool):
+        return v
+    return ""
+
+
+def _sanitize_graph(graph: nx.Graph) -> nx.Graph:
+    """Return a copy with all node/edge attribute values as primitives."""
+    g = graph.copy()
+    for _node, data in g.nodes(data=True):
+        for k, v in list(data.items()):
+            data[k] = _sanitize_value(v)
+    for _u, _v, data in g.edges(data=True):
+        for k, v in list(data.items()):
+            data[k] = _sanitize_value(v)
+    _GRAPHML_META_KEYS = {"node_default", "edge_default", "node_default_type", "edge_default_type"}
+    if g.graph:
+        for k in list(g.graph.keys()):
+            if k in _GRAPHML_META_KEYS:
+                del g.graph[k]
+            else:
+                g.graph[k] = _sanitize_value(g.graph[k])
+    return g
+
+
 def write_nx_graph(graph: nx.Graph, file_name):
     logger.info(
         "graph_write",
@@ -21,7 +49,8 @@ def write_nx_graph(graph: nx.Graph, file_name):
         edges=graph.number_of_edges(),
     )
     tmp_file = f"{file_name}.tmp"
-    nx.write_graphml(graph, tmp_file)
+    sanitized = _sanitize_graph(graph)
+    nx.write_graphml(sanitized, tmp_file)
     os.replace(tmp_file, file_name)
 
 

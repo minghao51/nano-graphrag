@@ -132,7 +132,7 @@ async def _process_single_chunk(
             response_format=EntityExtractionOutput,
         )
         return _parse_single_result(result, chunk_key)
-    except Exception as e:
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
         logger.warning("structured_extraction_failed", chunk_key=chunk_key, error=str(e))
         if fallback_to_parsing:
             logger.info("fallback_to_legacy_parsing", chunk_key=chunk_key)
@@ -188,7 +188,7 @@ async def _process_batch_chunks(
                 )
             output.append((ents, rels))
         return output
-    except Exception as e:
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
         logger.warning("batch_extraction_failed", batch_size=len(batch), error=str(e))
         if fallback_to_parsing:
             # Fall back to individual extraction

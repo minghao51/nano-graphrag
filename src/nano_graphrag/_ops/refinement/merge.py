@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
-from ..._utils import logger
+import numpy as np
+
+from ..._utils import _safe_json_loads, get_all_nodes_safe, logger
 
 DREAM_MERGE_PROMPT = """You are a knowledge-graph curator. Two entities of type "{entity_type}" have been detected
 as near-duplicates and need to be merged into one.
@@ -18,6 +21,8 @@ Do not lose any facts. Be concise but complete. Write in factual, third-person,
 knowledge-base style.
 
 Return ONLY the merged description text. No preamble, no explanation."""
+
+_ANN_K = 50
 
 
 async def _merge_phase(
@@ -36,12 +41,11 @@ async def _merge_phase(
         logger.warning("refinement_merge_skipped", reason="missing_llm_or_embedding_func")
         return stats
 
-    all_nodes = await _get_all_nodes_safe(knowledge_graph_inst)
+    all_nodes = await get_all_nodes_safe(knowledge_graph_inst)
     if len(all_nodes) < 2:
         return stats
 
     entity_descriptions = {}
-    entity_vectors = {}
     for node_id, node_data in all_nodes.items():
         desc = node_data.get("description", "")
         if desc:
@@ -54,30 +58,18 @@ async def _merge_phase(
     node_ids = list(entity_descriptions.keys())
     try:
         vectors = await embedding_func(text_list)
-    except Exception as e:
+    except (RuntimeError, ValueError) as e:
         logger.error("refinement_merge_embedding_failed", error=str(e))
         return stats
 
+    entity_vectors = {}
     for i, node_id in enumerate(node_ids):
         entity_vectors[node_id] = vectors[i]
 
-    import numpy as np
-
-    merge_candidates = []
-    node_ids_list = list(entity_vectors.keys())
-    for i in range(len(node_ids_list)):
-        for j in range(i + 1, len(node_ids_list)):
-            nid_a = node_ids_list[i]
-            nid_b = node_ids_list[j]
-            nd_a = all_nodes[nid_a]
-            nd_b = all_nodes[nid_b]
-            if nd_a.get("entity_type") != nd_b.get("entity_type"):
-                continue
-            va = entity_vectors[nid_a]
-            vb = entity_vectors[nid_b]
-            sim = float(np.dot(va, vb) / (np.linalg.norm(va) * np.linalg.norm(vb) + 1e-8))
-            if sim >= merge_threshold:
-                merge_candidates.append((nid_a, nid_b, sim))
+    vector_dim = vectors.shape[1] if len(vectors.shape) > 1 else len(vectors)
+    merge_candidates = _find_merge_candidates_ann(
+        all_nodes, entity_vectors, node_ids, vector_dim, merge_threshold
+    )
 
     merge_candidates.sort(key=lambda x: x[2], reverse=True)
 
@@ -87,9 +79,9 @@ async def _merge_phase(
         if hub_counter.get(nid_a, 0) >= hub_cap or hub_counter.get(nid_b, 0) >= hub_cap:
             stats["skipped"] += 1
             continue
-        if not await knowledge_graph_inst.has_node(nid_a) or not knowledge_graph_inst.has_node(
-            nid_b
-        ):
+        if not await knowledge_graph_inst.has_node(
+            nid_a
+        ) or not await knowledge_graph_inst.has_node(nid_b):
             continue
 
         nd_a = await knowledge_graph_inst.get_node(nid_a)
@@ -124,21 +116,28 @@ async def _merge_phase(
             "description": merged_desc,
             "source_id": keeper_data.get("source_id", ""),
         }
-        aliases_a = nd_a.get("aliases", "[]")
-        aliases_b = nd_b.get("aliases", "[]")
-        import json
-
-        try:
-            a_aliases = json.loads(aliases_a) if isinstance(aliases_a, str) else aliases_a
-        except (json.JSONDecodeError, TypeError):
-            a_aliases = []
-        try:
-            b_aliases = json.loads(aliases_b) if isinstance(aliases_b, str) else aliases_b
-        except (json.JSONDecodeError, TypeError):
-            b_aliases = []
+        a_aliases = _safe_json_loads(nd_a.get("aliases", "[]"), [])
+        b_aliases = _safe_json_loads(nd_b.get("aliases", "[]"), [])
         absorbed_name = nd_b.get("entity_name") if keeper == nid_a else nd_a.get("entity_name")
         merged_aliases = sorted(set(a_aliases + b_aliases + [absorbed_name]))
         merged_data["aliases"] = json.dumps(merged_aliases)
+
+        # VDB-first: update vector DB before graph mutation so failures don't corrupt graph
+        vdb_ok = True
+        if entity_vdb is not None:
+            try:
+                await entity_vdb.delete([absorbed])
+                content = merged_data["entity_name"] + " - " + merged_desc
+                await entity_vdb.upsert(
+                    {keeper: {"content": content, "entity_name": merged_data["entity_name"]}}
+                )
+            except Exception as e:
+                logger.debug("refinement_merge_vdb_update_failed", error=str(e))
+                vdb_ok = False
+
+        if not vdb_ok:
+            stats["skipped"] += 1
+            continue
 
         await knowledge_graph_inst.upsert_node(keeper, merged_data)
 
@@ -156,16 +155,6 @@ async def _merge_phase(
                     await knowledge_graph_inst.upsert_edge(new_src, new_tgt, edge_data)
             await knowledge_graph_inst.delete_node(absorbed)
 
-        if entity_vdb is not None:
-            try:
-                await entity_vdb.delete([absorbed])
-                content = merged_data["entity_name"] + " - " + merged_desc
-                await entity_vdb.upsert(
-                    {keeper: {"content": content, "entity_name": merged_data["entity_name"]}}
-                )
-            except Exception as e:
-                logger.debug("refinement_merge_vdb_update_failed", error=str(e))
-
         hub_counter[nid_a] = hub_counter.get(nid_a, 0) + 1
         hub_counter[nid_b] = hub_counter.get(nid_b, 0) + 1
         stats["merged"] += 1
@@ -179,14 +168,85 @@ async def _merge_phase(
     return stats
 
 
-async def _get_all_nodes_safe(knowledge_graph_inst) -> dict[str, dict]:
-    if hasattr(knowledge_graph_inst, "get_all_nodes"):
-        return await knowledge_graph_inst.get_all_nodes()
-    if hasattr(knowledge_graph_inst, "_graph"):
-        graph = knowledge_graph_inst._graph
-        result = {}
-        for node_id in graph.nodes():
-            result[node_id] = dict(graph.nodes[node_id])
-        return result
-    logger.warning("refinement_cannot_list_nodes")
-    return {}
+def _find_merge_candidates_ann(
+    all_nodes: dict,
+    entity_vectors: dict,
+    node_ids: list[str],
+    vector_dim: int,
+    merge_threshold: float,
+) -> list[tuple[str, str, float]]:
+    n = len(node_ids)
+    if n < 500:
+        return _find_merge_candidates_brute_force(
+            all_nodes, entity_vectors, node_ids, merge_threshold
+        )
+
+    try:
+        import hnswlib
+    except ImportError:
+        return _find_merge_candidates_brute_force(
+            all_nodes, entity_vectors, node_ids, merge_threshold
+        )
+
+    index = hnswlib.Index(space="cosine", dim=vector_dim)
+    index.init_index(max_elements=n, ef_construction=200, M=16)
+    index.set_ef(_ANN_K * 2)
+
+    node_id_to_idx = {}
+    vectors_array = np.zeros((n, vector_dim), dtype=np.float32)
+    for i, nid in enumerate(node_ids):
+        vec = np.asarray(entity_vectors[nid], dtype=np.float32)
+        vectors_array[i] = vec
+        node_id_to_idx[nid] = i
+    index.add_items(vectors_array)
+
+    idx_to_node_id = {v: k for k, v in node_id_to_idx.items()}
+
+    merge_candidates = []
+    seen_pairs: set[tuple[str, str]] = set()
+
+    for nid in node_ids:
+        idx = node_id_to_idx[nid]
+        labels, distances = index.knn_query(vectors_array[idx : idx + 1], k=min(_ANN_K, n))
+        for label, dist in zip(labels[0], distances[0], strict=False):
+            other_nid = idx_to_node_id.get(int(label))
+            if other_nid is None or other_nid == nid:
+                continue
+            pair = (nid, other_nid) if nid < other_nid else (other_nid, nid)
+            if pair in seen_pairs:
+                continue
+            seen_pairs.add(pair)
+
+            nd_a = all_nodes[pair[0]]
+            nd_b = all_nodes[pair[1]]
+            if nd_a.get("entity_type") != nd_b.get("entity_type"):
+                continue
+
+            sim = 1.0 - float(dist)
+            if sim >= merge_threshold:
+                merge_candidates.append((pair[0], pair[1], sim))
+
+    return merge_candidates
+
+
+def _find_merge_candidates_brute_force(
+    all_nodes: dict,
+    entity_vectors: dict,
+    node_ids: list[str],
+    merge_threshold: float,
+) -> list[tuple[str, str, float]]:
+    merge_candidates = []
+    for i in range(len(node_ids)):
+        for j in range(i + 1, len(node_ids)):
+            nid_a = node_ids[i]
+            nid_b = node_ids[j]
+            nd_a = all_nodes[nid_a]
+            nd_b = all_nodes[nid_b]
+            if nd_a.get("entity_type") != nd_b.get("entity_type"):
+                continue
+            va = entity_vectors[nid_a]
+            vb = entity_vectors[nid_b]
+            sim = float(np.dot(va, vb) / (np.linalg.norm(va) * np.linalg.norm(vb) + 1e-8))
+            if sim >= merge_threshold:
+                merge_candidates.append((nid_a, nid_b, sim))
+    return merge_candidates

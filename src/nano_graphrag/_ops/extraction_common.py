@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import time
 from collections import Counter
 from collections.abc import Callable
 from typing import Any
@@ -255,6 +256,8 @@ async def _merge_edges_then_upsert(
     already_temporal_context = None
     already_valid_from = None
     already_valid_to = None
+    already_relation_type = "related_to"
+    already_confidence = 0.8
     if await knowledge_graph_inst.has_edge(src_id, tgt_id):
         already_edge = await knowledge_graph_inst.get_edge(src_id, tgt_id)
         if already_edge is not None:
@@ -267,6 +270,8 @@ async def _merge_edges_then_upsert(
             already_temporal_context = already_edge.get("temporal_context")
             already_valid_from = already_edge.get("valid_from")
             already_valid_to = already_edge.get("valid_to")
+            already_relation_type = already_edge.get("relation_type", "related_to")
+            already_confidence = already_edge.get("confidence", 0.8)
 
     order = min([dp.get("order", 1) for dp in edges_data] + already_order)
     weight = sum(dp["weight"] for dp in edges_data) + sum(already_weights)
@@ -324,13 +329,13 @@ async def _merge_edges_then_upsert(
         for dp in edges_data
         if dp.get("relation_type", "related_to") != "related_to"
     ]
+    if already_relation_type != "related_to":
+        relation_types.append(already_relation_type)
     if relation_types:
-        from collections import Counter as _Counter
-
-        edge_data["relation_type"] = _Counter(relation_types).most_common(1)[0][0]
+        edge_data["relation_type"] = Counter(relation_types).most_common(1)[0][0]
     else:
         edge_data["relation_type"] = "related_to"
-    confidences = [dp.get("confidence", 0.8) for dp in edges_data]
+    confidences = [dp.get("confidence", 0.8) for dp in edges_data] + [already_confidence]
     if confidences:
         edge_data["confidence"] = max(confidences)
     await knowledge_graph_inst.upsert_edge(src_id, tgt_id, edge_data=edge_data)
@@ -623,16 +628,16 @@ class _ExtractionProgress:
         self.processed = 0
         self.entities = 0
         self.relations = 0
-        self._start = None
+        self._start: float | None = None
 
     def update(self, num_entities: int, num_relations: int):
         if self._start is None:
-            self._start = __import__("time").time()
+            self._start = time.time()
         self.processed += 1
         self.entities += num_entities
         self.relations += num_relations
         if self.processed % 10 == 0 or self.processed >= self.total:
-            elapsed = __import__("time").time() - self._start if self._start else 0
+            elapsed = time.time() - self._start if self._start else 0
             logger.info(
                 "extraction_chunk_progress",
                 processed=self.processed,
