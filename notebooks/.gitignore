@@ -1,7 +1,3 @@
-/.quarto/
 /_cache/
-/_freeze/
-/**/*.quarto_ipynb
+/**/*.ipynb_checkpoints/
 *.png
-
-**/*.quarto_ipynb

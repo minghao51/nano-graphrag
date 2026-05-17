@@ -4,6 +4,7 @@ repo_url: https://github.com/minghao51/nano-graphrag
 repo_name: minghao51/nano-graphrag
 theme:
   name: material
+  custom_dir: overrides
   palette:
     - scheme: default
       primary: indigo
@@ -23,14 +24,16 @@ theme:
     - navigation.expand
     - search.suggest
     - search.highlight
+    - content.code.copy
 nav:
   - Home: index.md
   - Notebooks:
       - Overview: notebooks/index.md
-      - Quick Start: notebooks/quick-start.md
-      - Query Modes: notebooks/query-modes.md
-      - Configuration: notebooks/configuration.md
-      - Storage & Extraction: notebooks/storage-extraction.md
+      - Quick Start: notebooks/01_quick_start.ipynb
+      - Query Modes: notebooks/02_query_modes.ipynb
+      - Configuration: notebooks/03_configuration.ipynb
+      - Storage & Extraction: notebooks/04_storage_and_extraction.ipynb
+      - Refinement & Vault: notebooks/05_refinement_and_vault.ipynb
   - Architecture:
       - System Design: architecture/architecture.md
       - Pipeline: pipeline.md
@@ -52,10 +55,17 @@ markdown_extensions:
       permalink: true
 plugins:
   - search
+  - mkdocs-jupyter:
+      execute: false
+      theme: light
+      include: ["*.ipynb"]
+      allow_errors: true
+      include_source: true
+      ignore_h1_titles: true
 extra_css:
-  - stylesheets/notebooks.css
+  - stylesheets/jupyter-fix.css
 extra_javascript:
-  - javascripts/notebooks.js
+  - javascripts/jupyter-theme-bridge.js
 extra:
   social:
     - icon: fontawesome/brands/github
