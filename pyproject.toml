@@ -80,6 +80,7 @@ dev = [
     "jupyter>=1.1.1",
     "pip>=26.1",
     "pygments>=2.20.0",
+    "mkdocs-jupyter>=0.26.3",
 ]
 
 [tool.ruff]
