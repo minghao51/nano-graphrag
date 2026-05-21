@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from nano_graphrag import GraphRAG, QueryParam
-from nano_graphrag._entity_grounded_query import QueryResult
+from nano_graphrag._schemas import QueryResult
 from nano_graphrag._utils import (
     compute_mdhash_id,
     compute_sha256_id,
@@ -254,8 +254,8 @@ def test_local_query_context_uses_human_readable_names():
     context = rag.query("Dickens", param=QueryParam(mode="local", only_need_context=True))
     dickens_id = generate_stable_entity_id("CHARLES DICKENS", "PERSON")
 
-    assert "CHARLES DICKENS" in context
-    assert dickens_id not in context
+    assert "CHARLES DICKENS" in str(context)
+    assert dickens_id not in str(context)
 
 
 def test_incremental_rebuild_uses_reverse_index_without_full_manifest_scan(monkeypatch):
@@ -306,7 +306,9 @@ def test_insert_failure_restores_graph_and_cleans_snapshot(monkeypatch):
     async def fail_rebuild(*args, **kwargs):
         raise RuntimeError("rebuild_failed_for_test")
 
-    monkeypatch.setattr("nano_graphrag.graphrag_insert.rebuild_knowledge_graph_for_documents", fail_rebuild)
+    monkeypatch.setattr(
+        "nano_graphrag.graphrag_insert.rebuild_knowledge_graph_for_documents", fail_rebuild
+    )
 
     with pytest.raises(RuntimeError, match="rebuild_failed_for_test"):
         rag.insert_documents({"doc-1": "Charles Dickens wrote A Christmas Carol."})
@@ -459,16 +461,19 @@ def test_entity_grounded_query_returns_answer_string(monkeypatch):
     async def fake_query(self, question, top_k=30, mode="local"):
         return QueryResult(
             answer="CHARLES DICKENS",
-            entity_ids=["entity_1"],
-            canonical_entities=["CHARLES DICKENS"],
-            confidence=1.0,
+            mode="entity_grounded",
+            metadata={
+                "entity_ids": ["entity_1"],
+                "canonical_entities": ["CHARLES DICKENS"],
+                "confidence": 1.0,
+            },
         )
 
     monkeypatch.setattr("nano_graphrag.graphrag_query.EntityGroundedQuery.query", fake_query)
 
     result = rag.query("Who wrote it?", param=QueryParam(mode="entity_grounded"))
 
-    assert result == "CHARLES DICKENS"
+    assert str(result) == "CHARLES DICKENS"
 
 
 # --- Fix 1: VDB upsert resilience ---
@@ -538,9 +543,7 @@ def test_manifests_rolled_back_on_rebuild_failure(monkeypatch):
     assert raised
 
     # Manifests should be rolled back — document_index should NOT have the doc
-    manifest = asyncio.get_event_loop().run_until_complete(
-        rag.document_index.get_by_id("doc-1")
-    )
+    manifest = asyncio.get_event_loop().run_until_complete(rag.document_index.get_by_id("doc-1"))
     assert manifest is None, "Manifest should have been rolled back after rebuild failure"
 
 
@@ -618,9 +621,7 @@ def test_extraction_hash_triggers_re_extraction(monkeypatch):
     rag.insert_documents({"doc-1": "Charles Dickens wrote A Christmas Carol."})
 
     # Verify manifest has extraction_hash
-    manifest = asyncio.get_event_loop().run_until_complete(
-        rag.document_index.get_by_id("doc-1")
-    )
+    manifest = asyncio.get_event_loop().run_until_complete(rag.document_index.get_by_id("doc-1"))
     assert "extraction_hash" in manifest, "Manifest should contain extraction_hash"
 
     # Patch _compute_extraction_hash to return a different hash
@@ -641,9 +642,7 @@ def test_extraction_hash_triggers_re_extraction(monkeypatch):
         extraction_count["n"] += 1
         return await original_extract(*args, **kwargs)
 
-    monkeypatch.setattr(
-        graphrag_insert, "extract_document_entity_relationships", counting_extract
-    )
+    monkeypatch.setattr(graphrag_insert, "extract_document_entity_relationships", counting_extract)
 
     rag.insert_documents({"doc-1": "Charles Dickens wrote A Christmas Carol."})
 
@@ -664,9 +663,7 @@ def test_force_rebuild_re_extracts_unchanged_docs():
     )
 
     # force_rebuild with same content
-    rag.insert_documents(
-        {"doc-1": "Charles Dickens wrote A Christmas Carol."}, force_rebuild=True
-    )
+    rag.insert_documents({"doc-1": "Charles Dickens wrote A Christmas Carol."}, force_rebuild=True)
 
     # Should still have the entity
     assert asyncio.get_event_loop().run_until_complete(

@@ -26,9 +26,7 @@ FAKE_COMMUNITY_REPORT = json.dumps(
         "summary": "A small test community around Dickens and his novel.",
         "rating": 1,
         "rating_explanation": "Low impact test fixture.",
-        "findings": [
-            {"summary": "Dickens wrote the novel", "explanation": "Fixture data only."}
-        ],
+        "findings": [{"summary": "Dickens wrote the novel", "explanation": "Fixture data only."}],
     }
 )
 
@@ -54,7 +52,9 @@ async def fake_json_model(prompt, system_prompt=None, history_messages=None, **k
     return FAKE_COMMUNITY_REPORT
 
 
-async def invalid_structured_model(prompt, system_prompt=None, history_messages=None, **kwargs) -> str:
+async def invalid_structured_model(
+    prompt, system_prompt=None, history_messages=None, **kwargs
+) -> str:
     if system_prompt is not None:
         return "{not-json"
     if prompt == "continue_prompt" or "MANY entities were missed" in prompt:
@@ -243,19 +243,19 @@ def test_insert():
 def test_local_query():
     rag = build_query_rag(best_model_func=fake_model)
     result = rag.query("Dickens", param=QueryParam(mode="local"))
-    assert result == FAKE_RESPONSE
+    assert str(result) == FAKE_RESPONSE
 
 
 def test_global_query():
     rag = build_query_rag(best_model_func=fake_json_model)
     result = rag.query("Dickens")
-    assert result == FAKE_JSON
+    assert str(result) == FAKE_JSON
 
 
 def test_naive_query():
     rag = build_query_rag(best_model_func=fake_model, enable_naive_rag=True)
     result = rag.query("Dickens", param=QueryParam(mode="naive"))
-    assert result == FAKE_RESPONSE
+    assert str(result) == FAKE_RESPONSE
 
 
 def test_aquery_calls_query_done_on_failure(monkeypatch):
@@ -353,10 +353,14 @@ def test_structured_extraction_can_disable_legacy_fallback():
 
 
 async def _collect_stream(stream):
+    from nano_graphrag._schemas import StreamComplete
+
     chunks = []
     async for chunk in stream:
+        if isinstance(chunk, StreamComplete):
+            continue
         chunks.append(chunk)
-    return "".join(chunks)
+    return "".join(str(c) for c in chunks)
 
 
 def test_astream_query_local_matches_aquery():
@@ -364,7 +368,7 @@ def test_astream_query_local_matches_aquery():
     streamed = asyncio.get_event_loop().run_until_complete(
         _collect_stream(rag.astream_query("Dickens", QueryParam(mode="local")))
     )
-    assert streamed == rag.query("Dickens", param=QueryParam(mode="local"))
+    assert streamed == str(rag.query("Dickens", param=QueryParam(mode="local")))
 
 
 def test_astream_query_global_matches_aquery():
@@ -372,7 +376,7 @@ def test_astream_query_global_matches_aquery():
     streamed = asyncio.get_event_loop().run_until_complete(
         _collect_stream(rag.astream_query("Dickens", QueryParam(mode="global")))
     )
-    assert streamed == rag.query("Dickens")
+    assert streamed == str(rag.query("Dickens"))
 
 
 def test_astream_query_naive_matches_aquery():
@@ -380,4 +384,76 @@ def test_astream_query_naive_matches_aquery():
     streamed = asyncio.get_event_loop().run_until_complete(
         _collect_stream(rag.astream_query("Dickens", QueryParam(mode="naive")))
     )
-    assert streamed == rag.query("Dickens", param=QueryParam(mode="naive"))
+    assert streamed == str(rag.query("Dickens", param=QueryParam(mode="naive")))
+
+
+def test_entity_grounded_query_sources_callback_and_stream_ref(monkeypatch):
+    from nano_graphrag._schemas import QueryResult, StreamSourceRef
+
+    class CaptureSources:
+        def __init__(self):
+            self.sources = []
+
+        async def on_start(self, query: str, mode: str) -> None:
+            return None
+
+        async def on_sources_found(self, sources) -> None:
+            self.sources.append(sources)
+
+        async def on_complete(self, result) -> None:
+            return None
+
+    async def fake_query(self, question, top_k=30, mode="local"):
+        return QueryResult(
+            answer="CHARLES DICKENS",
+            mode="entity_grounded",
+            metadata={"entity_ids": ["entity_1"]},
+        )
+
+    async def fake_retrieve(self, question, top_k, mode):
+        return ["entity_1"]
+
+    async def fake_build_context(self, entity_ids):
+        return {"entity_1": {"canonical_name": "CHARLES DICKENS", "description": "Author"}}
+
+    async def fake_generate_stream(self, question, entity_context):
+        yield "CHARLES DICKENS"
+
+    tracker = CaptureSources()
+    rag = GraphRAG(
+        working_dir=WORKING_DIR,
+        best_model_func=fake_model,
+        cheap_model_func=fake_model,
+        embedding_func=local_embedding,
+        callbacks=[tracker],
+    )
+
+    monkeypatch.setattr("nano_graphrag.graphrag_query.EntityGroundedQuery.query", fake_query)
+    monkeypatch.setattr(
+        "nano_graphrag.graphrag_query.EntityGroundedQuery._retrieve_entities", fake_retrieve
+    )
+    monkeypatch.setattr(
+        "nano_graphrag.graphrag_query.EntityGroundedQuery._build_entity_context", fake_build_context
+    )
+    monkeypatch.setattr(
+        "nano_graphrag.graphrag_query.EntityGroundedQuery.generate_answer_stream",
+        fake_generate_stream,
+    )
+
+    result = rag.query("Who wrote it?", param=QueryParam(mode="entity_grounded"))
+    assert result.metadata["entity_ids"] == ["entity_1"]
+    assert any(s and s[0].id == "entity_1" for s in tracker.sources)
+
+    chunks = asyncio.get_event_loop().run_until_complete(
+        _collect_stream(rag.astream_query("Who wrote it?", QueryParam(mode="entity_grounded")))
+    )
+    assert "CHARLES DICKENS" in chunks
+
+    all_chunks = []
+
+    async def _collect_all():
+        async for c in rag.astream_query("Who wrote it?", QueryParam(mode="entity_grounded")):
+            all_chunks.append(c)
+
+    asyncio.get_event_loop().run_until_complete(_collect_all())
+    assert any(isinstance(c, StreamSourceRef) for c in all_chunks)

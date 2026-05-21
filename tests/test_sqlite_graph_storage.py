@@ -191,7 +191,7 @@ async def test_clustering_persists_clusters(setup_teardown):
     for i in range(6):
         await storage.upsert_node(f"NODE{i}", {"source_id": f"chunk{i}"})
     for i in range(5):
-        await storage.upsert_edge(f"NODE{i}", f"NODE{i+1}", {"weight": 1.0})
+        await storage.upsert_edge(f"NODE{i}", f"NODE{i + 1}", {"weight": 1.0})
 
     await storage.clustering("leiden")
     community_schema = await storage.community_schema()
@@ -282,5 +282,5 @@ def test_graphrag_sqlite_storage_smoke_query(setup_teardown):
 
     dickens_id = generate_stable_entity_id("CHARLES DICKENS", "PERSON")
     context = rag.query("Dickens", param=QueryParam(mode="local", only_need_context=True))
-    assert "CHARLES DICKENS" in context
-    assert dickens_id not in context
+    assert "CHARLES DICKENS" in str(context)
+    assert dickens_id not in str(context)

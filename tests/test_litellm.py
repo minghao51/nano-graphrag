@@ -1,4 +1,5 @@
 """Tests for LiteLLM integration."""
+
 import asyncio
 import warnings
 from unittest.mock import AsyncMock, patch, MagicMock
@@ -10,6 +11,7 @@ from nano_graphrag._llm_litellm import (
     build_json_schema_response_format,
     litellm_completion_stream,
     litellm_completion,
+    litellm_embedding,
     detect_provider,
     should_fallback_without_structured_output,
     supports_structured_output,
@@ -64,7 +66,9 @@ class TestDetectProvider:
 
     def test_unknown_model_raises(self):
         with patch("nano_graphrag._llm_litellm.logger") as mock_logger:
-            with pytest.raises(ValueError, match="Unable to detect provider"):
+            from nano_graphrag._exceptions import ConfigError
+
+            with pytest.raises(ConfigError, match="Unable to detect provider"):
                 detect_provider("unknown-model-x")
             mock_logger.error.assert_called_once()
 
@@ -176,6 +180,23 @@ class TestLiteLLMCompletion:
             call_kwargs = mock_completion.call_args[1]
             assert call_kwargs["timeout"] == 300
 
+    async def test_completion_emits_llm_callback(self):
+        dispatcher = AsyncMock()
+        with patch("nano_graphrag._llm_litellm.litellm.acompletion") as mock_completion:
+            mock_response = MagicMock()
+            mock_response.choices = [MagicMock()]
+            mock_response.choices[0].message.content = "Test response"
+            mock_response.usage = MagicMock(prompt_tokens=10, completion_tokens=5, total_tokens=15)
+            mock_completion.return_value = mock_response
+
+            await litellm_completion(
+                model="gpt-4o",
+                prompt="Test prompt",
+                callback_dispatcher=dispatcher,
+            )
+
+            dispatcher.llm_call.assert_awaited()
+
     async def test_completion_with_api_key(self):
         """Test LiteLLM with custom API key."""
         with patch("nano_graphrag._llm_litellm.litellm.acompletion") as mock_completion:
@@ -198,8 +219,12 @@ class TestLiteLLMCompletion:
         """Structured-output rejection should retry without response_format."""
         bad_request = type("BadRequestError", (Exception,), {})
 
-        with patch("nano_graphrag._llm_litellm.UNSUPPORTED_STRUCTURED_OUTPUT_ERRORS", (bad_request,)):
-            with patch("nano_graphrag._llm_litellm.litellm.acompletion", new_callable=AsyncMock) as mock_completion:
+        with patch(
+            "nano_graphrag._llm_litellm.UNSUPPORTED_STRUCTURED_OUTPUT_ERRORS", (bad_request,)
+        ):
+            with patch(
+                "nano_graphrag._llm_litellm.litellm.acompletion", new_callable=AsyncMock
+            ) as mock_completion:
                 mock_response = MagicMock()
                 mock_response.choices = [MagicMock()]
                 mock_response.choices[0].message.content = '{"entities": [], "relationships": []}'
@@ -223,7 +248,9 @@ class TestLiteLLMCompletion:
 
     async def test_completion_does_not_retry_non_transient_errors(self):
         """Non-transient errors should fail fast without extra retries."""
-        with patch("nano_graphrag._llm_litellm.litellm.acompletion", new_callable=AsyncMock) as mock_completion:
+        with patch(
+            "nano_graphrag._llm_litellm.litellm.acompletion", new_callable=AsyncMock
+        ) as mock_completion:
             mock_completion.side_effect = ValueError("invalid request schema")
             with pytest.raises(ValueError, match="invalid request schema"):
                 await litellm_completion(
@@ -234,9 +261,36 @@ class TestLiteLLMCompletion:
 
     async def test_should_fallback_without_structured_output(self):
         """Fallback detection should be message-based for LiteLLM compatibility."""
-        assert should_fallback_without_structured_output(Exception("response_format unsupported")) is True
-        assert should_fallback_without_structured_output(Exception("structured output is not available")) is True
-        assert should_fallback_without_structured_output(Exception("authentication failed")) is False
+        assert (
+            should_fallback_without_structured_output(Exception("response_format unsupported"))
+            is True
+        )
+        assert (
+            should_fallback_without_structured_output(
+                Exception("structured output is not available")
+            )
+            is True
+        )
+
+
+class TestLiteLLMEmbedding:
+    async def test_embedding_emits_llm_callback(self):
+        dispatcher = AsyncMock()
+        with patch("nano_graphrag._llm_litellm.litellm.aembedding") as mock_embedding:
+            mock_response = MagicMock()
+            mock_response.data = [{"embedding": [0.1, 0.2]}]
+            mock_response.usage = MagicMock(prompt_tokens=3, completion_tokens=0, total_tokens=3)
+            mock_embedding.return_value = mock_response
+
+            vectors = await litellm_embedding(
+                texts=["hello"], model="text-embedding-3-small", callback_dispatcher=dispatcher
+            )
+
+            assert vectors.shape[0] == 1
+            dispatcher.llm_call.assert_awaited()
+        assert (
+            should_fallback_without_structured_output(Exception("authentication failed")) is False
+        )
 
     async def test_build_json_schema_response_format(self):
         """Structured output payload should use the strict json_schema shape."""
@@ -333,10 +387,12 @@ class TestGraphRAGConfig:
 
     def test_from_dict(self):
         """Test creating config from dict."""
-        config = GraphRAGConfig.from_dict({
-            "llm_model": "gpt-4o",
-            "llm_api_base": "http://localhost:11434",
-        })
+        config = GraphRAGConfig.from_dict(
+            {
+                "llm_model": "gpt-4o",
+                "llm_api_base": "http://localhost:11434",
+            }
+        )
 
         assert config.llm_model == "gpt-4o"
         assert config.llm_api_base == "http://localhost:11434"
@@ -423,13 +479,11 @@ class TestGraphRAGConfig:
         assert merged.llm_max_async == 32  # Preserved
 
     def test_invalid_cluster_algorithm_rejected(self):
-        """Test that invalid graph_cluster_algorithm in GraphRAG raises ValueError."""
-        # Note: This test is for GraphRAG (not GraphRAGConfig)
-        # GraphRAG has its own validation in _normalize_runtime_settings
-        import pytest
+        """Test that invalid graph_cluster_algorithm in GraphRAG raises ConfigError."""
         from nano_graphrag import GraphRAG
+        from nano_graphrag._exceptions import ConfigError
 
-        with pytest.raises(ValueError, match="Unsupported graph_cluster_algorithm"):
+        with pytest.raises(ConfigError, match="Unsupported graph_cluster_algorithm"):
             GraphRAG(
                 working_dir="./test_cache",
                 graph_cluster_algorithm="invalid_algo",
@@ -642,11 +696,12 @@ class TestGraphRAGConfigValidation:
             assert config.graph_cluster_algorithm == algo
 
     def test_invalid_log_level_raises_error(self):
-        """Test that invalid log_level raises ValueError."""
+        """Test that invalid log_level raises ConfigError."""
         import pytest
+        from nano_graphrag._exceptions import ConfigError
         from nano_graphrag.base import GraphRAGConfig
 
-        with pytest.raises(ValueError, match="log_level|level"):
+        with pytest.raises(ConfigError, match="log_level|level"):
             GraphRAGConfig(log_level="invalid")
 
     def test_valid_log_levels_accepted(self):

@@ -132,7 +132,7 @@ async def test_clustering(networkx_storage, algorithm):
         await networkx_storage.upsert_node(f"NODE{i}", {"source_id": f"chunk{i}"})
 
     for i in range(9):
-        await networkx_storage.upsert_edge(f"NODE{i}", f"NODE{i+1}", {})
+        await networkx_storage.upsert_edge(f"NODE{i}", f"NODE{i + 1}", {})
 
     assert networkx_storage._graph.number_of_nodes() > 0
     assert networkx_storage._graph.number_of_edges() > 0
@@ -157,7 +157,7 @@ async def test_leiden_clustering_consistency(networkx_storage, algorithm):
     for i in range(10):
         await networkx_storage.upsert_node(f"NODE{i}", {"source_id": f"chunk{i}"})
     for i in range(9):
-        await networkx_storage.upsert_edge(f"NODE{i}", f"NODE{i+1}", {})
+        await networkx_storage.upsert_edge(f"NODE{i}", f"NODE{i + 1}", {})
 
     results = []
     for _ in range(3):
@@ -165,7 +165,9 @@ async def test_leiden_clustering_consistency(networkx_storage, algorithm):
         community_schema = await networkx_storage.community_schema()
         results.append(community_schema)
 
-    assert all(len(r) == len(results[0]) for r in results), "Number of communities should be consistent"
+    assert all(len(r) == len(results[0]) for r in results), (
+        "Number of communities should be consistent"
+    )
 
 
 @pytest.mark.parametrize("algorithm", ["leiden"])
@@ -174,8 +176,8 @@ async def test_leiden_clustering_community_structure(networkx_storage, algorithm
         await networkx_storage.upsert_node(f"A{i}", {"source_id": f"chunkA{i}"})
         await networkx_storage.upsert_node(f"B{i}", {"source_id": f"chunkB{i}"})
     for i in range(9):
-        await networkx_storage.upsert_edge(f"A{i}", f"A{i+1}", {})
-        await networkx_storage.upsert_edge(f"B{i}", f"B{i+1}", {})
+        await networkx_storage.upsert_edge(f"A{i}", f"A{i + 1}", {})
+        await networkx_storage.upsert_edge(f"B{i}", f"B{i + 1}", {})
 
     await networkx_storage.clustering(algorithm=algorithm)
     community_schema = await networkx_storage.community_schema()
@@ -183,24 +185,42 @@ async def test_leiden_clustering_community_structure(networkx_storage, algorithm
     assert len(community_schema) >= 2, "Should have at least two communities"
 
     communities = list(community_schema.values())
-    a_nodes = set(node for node in communities[0]['nodes'] if node.startswith('A'))
-    b_nodes = set(node for node in communities[0]['nodes'] if node.startswith('B'))
-    assert len(a_nodes) == 0 or len(b_nodes) == 0, "Nodes from different groups should be in different communities"
+    a_nodes = set(node for node in communities[0]["nodes"] if node.startswith("A"))
+    b_nodes = set(node for node in communities[0]["nodes"] if node.startswith("B"))
+    assert len(a_nodes) == 0 or len(b_nodes) == 0, (
+        "Nodes from different groups should be in different communities"
+    )
 
 
 @pytest.mark.parametrize("algorithm", ["leiden"])
 async def test_leiden_clustering_hierarchical_structure(networkx_storage, algorithm):
-    await networkx_storage.upsert_node("NODE1", {"source_id": "chunk1", "clusters": json.dumps([{"level": 0, "cluster": "0"}, {"level": 1, "cluster": "1"}])})
-    await networkx_storage.upsert_node("NODE2", {"source_id": "chunk2", "clusters": json.dumps([{"level": 0, "cluster": "0"}, {"level": 1, "cluster": "2"}])})
+    await networkx_storage.upsert_node(
+        "NODE1",
+        {
+            "source_id": "chunk1",
+            "clusters": json.dumps([{"level": 0, "cluster": "0"}, {"level": 1, "cluster": "1"}]),
+        },
+    )
+    await networkx_storage.upsert_node(
+        "NODE2",
+        {
+            "source_id": "chunk2",
+            "clusters": json.dumps([{"level": 0, "cluster": "0"}, {"level": 1, "cluster": "2"}]),
+        },
+    )
     await networkx_storage.upsert_edge("NODE1", "NODE2", {})
     await networkx_storage.clustering(algorithm=algorithm)
     community_schema = await networkx_storage.community_schema()
 
-    levels = set(community['level'] for community in community_schema.values())
+    levels = set(community["level"] for community in community_schema.values())
     assert len(levels) >= 1, "Should have at least one level in the hierarchy"
 
-    communities_per_level = {level: sum(1 for c in community_schema.values() if c['level'] == level) for level in levels}
-    assert communities_per_level[0] >= communities_per_level.get(max(levels), 0), "Lower levels should have more or equal number of communities"
+    communities_per_level = {
+        level: sum(1 for c in community_schema.values() if c["level"] == level) for level in levels
+    }
+    assert communities_per_level[0] >= communities_per_level.get(max(levels), 0), (
+        "Lower levels should have more or equal number of communities"
+    )
 
 
 async def test_persistence(setup_teardown):
@@ -237,11 +257,11 @@ async def test_embed_nodes(networkx_storage):
         await networkx_storage.upsert_node(f"node{i}", {"id": f"node{i}"})
 
     for i in range(4):
-        await networkx_storage.upsert_edge(f"node{i}", f"node{i+1}", {})
+        await networkx_storage.upsert_edge(f"node{i}", f"node{i + 1}", {})
 
     embeddings, node_ids = await networkx_storage.embed_nodes("node2vec")
 
-    assert embeddings.shape == (5, networkx_storage.global_config['node2vec_params']['dimensions'])
+    assert embeddings.shape == (5, networkx_storage.global_config["node2vec_params"]["dimensions"])
     assert len(node_ids) == 5
     assert all(f"node{i}" in node_ids for i in range(5))
 
@@ -277,7 +297,7 @@ async def test_stable_largest_connected_component_self_loops_and_parallel_edges(
     G.add_edges_from([("A", "B"), ("B", "C"), ("C", "A"), ("A", "A"), ("B", "B"), ("A", "B")])
     result = NetworkXStorage.stable_largest_connected_component(G)
     assert sorted(result.nodes()) == ["A", "B", "C"]
-    assert sorted(result.edges()) == [('A', 'A'), ('A', 'B'), ('A', 'C'), ('B', 'B'), ('B', 'C')]
+    assert sorted(result.edges()) == [("A", "A"), ("A", "B"), ("A", "C"), ("B", "B"), ("B", "C")]
 
 
 async def test_community_schema_with_no_clusters(networkx_storage):
@@ -290,8 +310,20 @@ async def test_community_schema_with_no_clusters(networkx_storage):
 
 
 async def test_community_schema_multiple_levels(networkx_storage):
-    await networkx_storage.upsert_node("node1", {"source_id": "chunk1", "clusters": json.dumps([{"level": 0, "cluster": "0"}, {"level": 1, "cluster": "1"}])})
-    await networkx_storage.upsert_node("node2", {"source_id": "chunk2", "clusters": json.dumps([{"level": 0, "cluster": "0"}, {"level": 1, "cluster": "2"}])})
+    await networkx_storage.upsert_node(
+        "node1",
+        {
+            "source_id": "chunk1",
+            "clusters": json.dumps([{"level": 0, "cluster": "0"}, {"level": 1, "cluster": "1"}]),
+        },
+    )
+    await networkx_storage.upsert_node(
+        "node2",
+        {
+            "source_id": "chunk2",
+            "clusters": json.dumps([{"level": 0, "cluster": "0"}, {"level": 1, "cluster": "2"}]),
+        },
+    )
     await networkx_storage.upsert_edge("node1", "node2", {})
 
     community_schema = await networkx_storage.community_schema()
@@ -304,9 +336,16 @@ async def test_community_schema_multiple_levels(networkx_storage):
 
 
 async def test_community_schema_occurrence(networkx_storage):
-    await networkx_storage.upsert_node("node1", {"source_id": "chunk1,chunk2", "clusters": json.dumps([{"level": 0, "cluster": "0"}])})
-    await networkx_storage.upsert_node("node2", {"source_id": "chunk3", "clusters": json.dumps([{"level": 0, "cluster": "0"}])})
-    await networkx_storage.upsert_node("node3", {"source_id": "chunk4", "clusters": json.dumps([{"level": 0, "cluster": "1"}])})
+    await networkx_storage.upsert_node(
+        "node1",
+        {"source_id": "chunk1,chunk2", "clusters": json.dumps([{"level": 0, "cluster": "0"}])},
+    )
+    await networkx_storage.upsert_node(
+        "node2", {"source_id": "chunk3", "clusters": json.dumps([{"level": 0, "cluster": "0"}])}
+    )
+    await networkx_storage.upsert_node(
+        "node3", {"source_id": "chunk4", "clusters": json.dumps([{"level": 0, "cluster": "1"}])}
+    )
 
     community_schema = await networkx_storage.community_schema()
     assert len(community_schema) == 2
@@ -315,9 +354,27 @@ async def test_community_schema_occurrence(networkx_storage):
 
 
 async def test_community_schema_sub_communities(networkx_storage):
-    await networkx_storage.upsert_node("node1", {"source_id": "chunk1", "clusters": json.dumps([{"level": 0, "cluster": "0"}, {"level": 1, "cluster": "1"}])})
-    await networkx_storage.upsert_node("node2", {"source_id": "chunk2", "clusters": json.dumps([{"level": 0, "cluster": "0"}, {"level": 1, "cluster": "2"}])})
-    await networkx_storage.upsert_node("node3", {"source_id": "chunk3", "clusters": json.dumps([{"level": 0, "cluster": "3"}, {"level": 1, "cluster": "4"}])})
+    await networkx_storage.upsert_node(
+        "node1",
+        {
+            "source_id": "chunk1",
+            "clusters": json.dumps([{"level": 0, "cluster": "0"}, {"level": 1, "cluster": "1"}]),
+        },
+    )
+    await networkx_storage.upsert_node(
+        "node2",
+        {
+            "source_id": "chunk2",
+            "clusters": json.dumps([{"level": 0, "cluster": "0"}, {"level": 1, "cluster": "2"}]),
+        },
+    )
+    await networkx_storage.upsert_node(
+        "node3",
+        {
+            "source_id": "chunk3",
+            "clusters": json.dumps([{"level": 0, "cluster": "3"}, {"level": 1, "cluster": "4"}]),
+        },
+    )
 
     community_schema = await networkx_storage.community_schema()
     assert len(community_schema) == 5
@@ -333,10 +390,7 @@ async def test_concurrent_operations(networkx_storage):
         for i in range(start, end):
             await networkx_storage.upsert_node(f"node{i}", {"value": i})
 
-    await asyncio.gather(
-        add_nodes(0, 500),
-        add_nodes(500, 1000)
-    )
+    await asyncio.gather(add_nodes(0, 500), add_nodes(500, 1000))
 
     assert await networkx_storage.node_degree("node0") == 0
     assert len(networkx_storage._graph.nodes) == 1000
@@ -353,10 +407,12 @@ async def test_nonexistent_node_and_edge(networkx_storage):
 
 
 async def test_error_handling(networkx_storage):
-    with pytest.raises(ValueError, match="Clustering algorithm invalid_algo not supported"):
+    from nano_graphrag._exceptions import StorageError
+
+    with pytest.raises(StorageError, match="Clustering algorithm invalid_algo not supported"):
         await networkx_storage.clustering("invalid_algo")
 
-    with pytest.raises(ValueError, match="Node embedding algorithm invalid_algo not supported"):
+    with pytest.raises(StorageError, match="Node embedding algorithm invalid_algo not supported"):
         await networkx_storage.embed_nodes("invalid_algo")
 
 
