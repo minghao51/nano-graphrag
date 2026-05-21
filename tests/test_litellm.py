@@ -1,25 +1,25 @@
 """Tests for LiteLLM integration."""
 
-import asyncio
 import warnings
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 
+from nano_graphrag import GraphRAG
+from nano_graphrag._config import GraphRAGSettings
 from nano_graphrag._llm_litellm import (
     LiteLLMWrapper,
-    build_provider_requirements,
     build_json_schema_response_format,
-    litellm_completion_stream,
-    litellm_completion,
-    litellm_embedding,
+    build_provider_requirements,
     detect_provider,
+    litellm_completion,
+    litellm_completion_stream,
+    litellm_embedding,
     should_fallback_without_structured_output,
     supports_structured_output,
 )
 from nano_graphrag._schemas import EntityExtractionOutput
-from nano_graphrag import GraphRAG
-from nano_graphrag.base import GraphRAGConfig, DEFAULT_CHEAP_MODEL
-from nano_graphrag._config import GraphRAGSettings
+from nano_graphrag.base import DEFAULT_CHEAP_MODEL, GraphRAGConfig
 
 pytestmark = pytest.mark.unit
 
@@ -441,7 +441,7 @@ class TestGraphRAGConfig:
         config_file = tmp_path / "test_config.yaml"
         config.to_yaml(str(config_file))
 
-        with open(config_file, "r") as f:
+        with open(config_file) as f:
             loaded_data = yaml.safe_load(f)
 
         assert loaded_data["llm"]["model"] == "gpt-4o"
@@ -666,6 +666,7 @@ class TestGraphRAGConfigValidation:
     def test_invalid_quality_mode_raises_error(self):
         """Test that invalid entity_extraction_quality raises ValueError."""
         import pytest
+
         from nano_graphrag.base import GraphRAGConfig
 
         with pytest.raises(ValueError, match="quality"):
@@ -682,6 +683,7 @@ class TestGraphRAGConfigValidation:
     def test_invalid_cluster_algorithm_raises_error(self):
         """Test that invalid graph_cluster_algorithm raises ValueError."""
         import pytest
+
         from nano_graphrag.base import GraphRAGConfig
 
         with pytest.raises(ValueError, match="algorithm"):
@@ -698,6 +700,7 @@ class TestGraphRAGConfigValidation:
     def test_invalid_log_level_raises_error(self):
         """Test that invalid log_level raises ConfigError."""
         import pytest
+
         from nano_graphrag._exceptions import ConfigError
         from nano_graphrag.base import GraphRAGConfig
 
@@ -715,6 +718,7 @@ class TestGraphRAGConfigValidation:
     def test_from_env_with_invalid_quality(self, monkeypatch):
         """Test that from_env validates entity_extraction_quality."""
         import pytest
+
         from nano_graphrag.base import GraphRAGConfig
 
         monkeypatch.setenv("ENTITY_EXTRACTION_QUALITY", "invalid")
@@ -725,6 +729,7 @@ class TestGraphRAGConfigValidation:
         """Test that from_yaml validates graph_cluster_algorithm."""
         import pytest
         import yaml
+
         from nano_graphrag.base import GraphRAGConfig
 
         config_data = {"graph_cluster_algorithm": "invalid"}

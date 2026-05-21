@@ -85,7 +85,7 @@ def _build_litellm_exception_map() -> dict[type, type]:
     try:
         import litellm
 
-        mapping: dict[type, type] = {}
+        mapping = {}
         for attr, target in [
             ("RateLimitError", RateLimitError),
             ("AuthenticationError", AuthError),

@@ -4,6 +4,7 @@ test_cache.json
 run_test*.py
 nano_graphrag_cache*/
 tests/original_workflow.txt
+sage_snapshot.txt
 ### Python ###
 # Byte-compiled / optimized / DLL files
 __pycache__/

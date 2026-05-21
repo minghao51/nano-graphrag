@@ -1,11 +1,13 @@
-import os
-import shutil
-import pytest
-import networkx as nx
-import numpy as np
 import asyncio
 import json
+import os
+import shutil
+
 import leidenalg as la
+import networkx as nx
+import numpy as np
+import pytest
+
 from nano_graphrag import GraphRAG
 from nano_graphrag._storage import NetworkXStorage
 from nano_graphrag._utils import wrap_embedding_func_with_attrs

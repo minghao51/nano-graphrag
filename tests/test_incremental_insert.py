@@ -524,8 +524,6 @@ def test_manifests_rolled_back_on_rebuild_failure(monkeypatch):
     """If rebuild fails, manifests should be deleted so docs are re-extracted next run."""
     rag = build_incremental_rag()
 
-    from nano_graphrag._ops.extraction_rebuild import rebuild_knowledge_graph_for_documents
-
     async def failing_rebuild(*args, **kwargs):
         raise RuntimeError("Simulated rebuild failure")
 
