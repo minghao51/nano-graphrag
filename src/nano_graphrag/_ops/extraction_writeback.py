@@ -290,8 +290,15 @@ async def _write_extraction_manifest(
                 rate=round(failure_rate, 3),
             )
             if failure_rate > 0.5:
-                raise RuntimeError(
-                    f"Alias extraction failed: {failure_rate:.1%} of batches failed ({failed_batches}/{total_batches})"
+                from .._exceptions import ExtractionError
+
+                raise ExtractionError(
+                    f"Alias extraction failed: {failure_rate:.1%} of batches failed ({failed_batches}/{total_batches})",
+                    details={
+                        "failed": failed_batches,
+                        "total": total_batches,
+                        "rate": failure_rate,
+                    },
                 )
 
     summary_semaphore = asyncio.Semaphore(global_config.get("extraction_max_async", 16))

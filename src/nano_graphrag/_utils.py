@@ -18,6 +18,8 @@ import structlog
 import tiktoken
 from pydantic import BaseModel
 
+from ._exceptions import ConfigError
+
 try:
     from transformers import AutoTokenizer
 except ImportError:
@@ -216,13 +218,16 @@ class TokenizerWrapper:
                 )
             self._tokenizer = AutoTokenizer.from_pretrained(self.model_name, use_fast=True)
         else:
-            raise ValueError(f"Unknown tokenizer_type: {self.tokenizer_type}")
+            raise ConfigError(
+                f"Unknown tokenizer_type: {self.tokenizer_type}",
+                details={"tokenizer_type": self.tokenizer_type},
+            )
 
     def get_tokenizer(self):
         """Provides access to the underlying tokenizer object."""
         self._lazy_load_tokenizer()
         if self._tokenizer is None:
-            raise RuntimeError(
+            raise ConfigError(
                 f"Tokenizer failed to load: type='{self.tokenizer_type}', name='{self.model_name}'"
             )
         return self._tokenizer
@@ -230,7 +235,7 @@ class TokenizerWrapper:
     def encode(self, text: str) -> list[int]:
         self._lazy_load_tokenizer()
         if self._tokenizer is None:
-            raise RuntimeError(
+            raise ConfigError(
                 f"Tokenizer failed to load: type='{self.tokenizer_type}', name='{self.model_name}'"
             )
         if text in self._encode_cache:
@@ -245,7 +250,7 @@ class TokenizerWrapper:
     def decode(self, tokens: list[int]) -> str:
         self._lazy_load_tokenizer()
         if self._tokenizer is None:
-            raise RuntimeError(
+            raise ConfigError(
                 f"Tokenizer failed to load: type='{self.tokenizer_type}', name='{self.model_name}'"
             )
         key = tuple(tokens)
@@ -261,7 +266,7 @@ class TokenizerWrapper:
     def decode_batch(self, tokens_list: list[list[int]]) -> list[str]:
         self._lazy_load_tokenizer()
         if self._tokenizer is None:
-            raise RuntimeError(
+            raise ConfigError(
                 f"Tokenizer failed to load: type='{self.tokenizer_type}', name='{self.model_name}'"
             )
         if self.tokenizer_type == "tiktoken":

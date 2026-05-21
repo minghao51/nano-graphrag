@@ -489,7 +489,12 @@ class SQLiteGraphStorage(BaseGraphStorage):
 
     async def clustering(self, algorithm: str, affected_node_ids: set[str] | None = None):
         if algorithm not in self._clustering_algorithms:
-            raise ValueError(f"Clustering algorithm {algorithm} not supported")
+            from .._exceptions import StorageError
+
+            raise StorageError(
+                f"Clustering algorithm {algorithm} not supported",
+                details={"algorithm": algorithm},
+            )
 
         projection = self._build_projection()
         temp_storage = type("ProjectedStorage", (), {})()

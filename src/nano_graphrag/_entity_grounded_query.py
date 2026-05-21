@@ -13,21 +13,9 @@ Key improvements over naive querying:
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from dataclasses import dataclass, field
 
+from ._schemas import QueryResult
 from ._utils import logger
-
-
-@dataclass
-class QueryResult:
-    """Result of an entity-grounded query."""
-
-    answer: str
-    entity_ids: list[str]  # Entity IDs used in answer
-    canonical_entities: list[str]  # Canonical names for display
-    confidence: float  # 0-1 score based on entity grounding
-    raw_response: str | None = None  # Original LLM response if verbose
-    validation_errors: list[str] = field(default_factory=list)
 
 
 class EntityGroundedQuery:
@@ -78,10 +66,13 @@ class EntityGroundedQuery:
             logger.info("entity_grounded_no_entities", question=question[:100])
             return QueryResult(
                 answer=self.fallback_message,
-                entity_ids=[],
-                canonical_entities=[],
-                confidence=0.0,
-                validation_errors=["No entities retrieved"],
+                mode=mode,
+                metadata={
+                    "entity_ids": [],
+                    "canonical_entities": [],
+                    "confidence": 0.0,
+                    "validation_errors": ["No entities retrieved"],
+                },
             )
 
         # Stage 2: Get canonical names for context
@@ -96,9 +87,9 @@ class EntityGroundedQuery:
         logger.info(
             "entity_grounded_query_complete",
             entities_retrieved=len(entity_ids),
-            entities_used=len(result.entity_ids),
-            confidence=round(result.confidence, 2),
-            validation_errors=len(result.validation_errors),
+            entities_used=len(result.metadata.get("entity_ids", [])),
+            confidence=round(result.metadata.get("confidence", 0.0), 2),
+            validation_errors=len(result.metadata.get("validation_errors", [])),
         )
 
         return result
@@ -343,11 +334,14 @@ Answer:"""
                     # No entities found, return fallback
                     return QueryResult(
                         answer=self.fallback_message,
-                        entity_ids=[],
-                        canonical_entities=[],
-                        confidence=0.0,
-                        raw_response=raw_answer,
-                        validation_errors=validation_errors,
+                        mode="entity_grounded",
+                        metadata={
+                            "entity_ids": [],
+                            "canonical_entities": [],
+                            "confidence": 0.0,
+                            "raw_response": raw_answer,
+                            "validation_errors": validation_errors,
+                        },
                     )
 
         # Normalize answer to canonical names
@@ -366,11 +360,14 @@ Answer:"""
 
         return QueryResult(
             answer=normalized_answer,
-            entity_ids=used_entity_ids,
-            canonical_entities=canonical_names,
-            confidence=confidence,
-            raw_response=raw_answer if raw_answer != normalized_answer else None,
-            validation_errors=validation_errors,
+            mode="entity_grounded",
+            metadata={
+                "entity_ids": used_entity_ids,
+                "canonical_entities": canonical_names,
+                "confidence": confidence,
+                "raw_response": raw_answer if raw_answer != normalized_answer else None,
+                "validation_errors": validation_errors,
+            },
         )
 
     def _calculate_confidence(

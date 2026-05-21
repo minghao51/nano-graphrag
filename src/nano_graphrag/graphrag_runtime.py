@@ -8,6 +8,7 @@ from functools import partial
 
 import structlog
 
+from ._exceptions import ConfigError
 from ._utils import LOG_PRE_CHAIN, EmbeddingFunc, TokenizerWrapper, limit_async_func_call, logger
 from .base import (
     SUPPORTED_GRAPH_CLUSTERING,
@@ -16,9 +17,31 @@ from .base import (
 
 def _normalize_settings(self):
     if self.graph_cluster_algorithm not in SUPPORTED_GRAPH_CLUSTERING:
-        raise ValueError(
+        raise ConfigError(
             f"Unsupported graph_cluster_algorithm={self.graph_cluster_algorithm!r}. "
-            f"Supported: {', '.join(SUPPORTED_GRAPH_CLUSTERING)}"
+            f"Supported: {', '.join(SUPPORTED_GRAPH_CLUSTERING)}",
+            details={
+                "algorithm": self.graph_cluster_algorithm,
+                "supported": list(SUPPORTED_GRAPH_CLUSTERING),
+            },
+        )
+
+    if self.entity_extraction_quality not in ("fast", "balanced"):
+        raise ConfigError(
+            f"Invalid entity_extraction_quality={self.entity_extraction_quality!r}. Must be 'fast' or 'balanced'.",
+            details={"quality": self.entity_extraction_quality},
+        )
+
+    if self.extraction_batch_size < 1:
+        raise ConfigError(
+            f"extraction_batch_size must be >= 1, got {self.extraction_batch_size}",
+            details={"extraction_batch_size": self.extraction_batch_size},
+        )
+
+    if self.embedding_dim < 1:
+        raise ConfigError(
+            f"embedding_dim must be >= 1, got {self.embedding_dim}",
+            details={"embedding_dim": self.embedding_dim},
         )
 
     if self.embedding_batch_size is not None:
@@ -151,6 +174,7 @@ def _configure_runtime(self):
                 api_base=api_base,
                 api_key=api_key,
                 timeout=self.llm_timeout,
+                callback_dispatcher=self._callback_dispatcher,
             )
         )
 
@@ -160,6 +184,7 @@ def _configure_runtime(self):
         api_base,
         api_key,
         self.llm_timeout,
+        callback_dispatcher=self._callback_dispatcher,
     )
     self.cheap_model_func = _make_llm_wrapper(self.llm_cheap_model, self.cheap_model_max_async)
     self.cheap_model_stream_func = _make_litellm_stream_wrapper(
@@ -167,6 +192,7 @@ def _configure_runtime(self):
         api_base,
         api_key,
         self.llm_timeout,
+        callback_dispatcher=self._callback_dispatcher,
     )
 
     limited_embedding = limit_async_func_call(self.embedding_func_max_async)(
@@ -175,6 +201,7 @@ def _configure_runtime(self):
             model=self.embedding_model,
             api_base=self.embedding_api_base or self.api_base,
             api_key=self.embedding_api_key or self.api_key,
+            callback_dispatcher=self._callback_dispatcher,
         )
     )
     self.embedding_func = EmbeddingFunc(
@@ -272,7 +299,11 @@ def _make_buffered_stream_wrapper(model_func):
 
 
 def _make_litellm_stream_wrapper(
-    model: str, api_base: str | None, api_key: str | None, timeout: int
+    model: str,
+    api_base: str | None,
+    api_key: str | None,
+    timeout: int,
+    callback_dispatcher=None,
 ):
     from ._llm_litellm import litellm_completion_stream
 
@@ -287,6 +318,7 @@ def _make_litellm_stream_wrapper(
             api_base=api_base,
             api_key=api_key,
             timeout=timeout,
+            callback_dispatcher=callback_dispatcher,
             **kwargs,
         ):
             yield chunk

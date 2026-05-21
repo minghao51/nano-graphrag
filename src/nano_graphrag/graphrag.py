@@ -5,6 +5,7 @@ from dataclasses import dataclass, field, fields
 from datetime import datetime
 from typing import Any
 
+from ._exceptions import StorageConfigError
 from ._ops import chunking_by_token_size, extract_entities
 from ._schemas import CommunityReportOutput
 from ._utils import (
@@ -40,6 +41,37 @@ from .graphrag_runtime import (
     _normalize_settings,
     _runtime_config,
 )
+
+_STORAGE_REGISTRY: dict[str, str] = {
+    "json": "nano_graphrag._storage.kv_json:JsonKVStorage",
+    "sqlite": "nano_graphrag._storage.kv_json:SQLiteKVStorage",
+    "hnsw": "nano_graphrag._storage.vdb_hnswlib:HNSWVectorStorage",
+    "networkx": "nano_graphrag._storage.gdb_networkx:NetworkXStorage",
+    "sqlite_graph": "nano_graphrag._storage.gdb_sqlite:SQLiteGraphStorage",
+}
+
+
+def _resolve_storage(name_or_cls):
+    if name_or_cls is None or not isinstance(name_or_cls, str):
+        return name_or_cls
+    key = name_or_cls.strip().lower()
+    if key not in _STORAGE_REGISTRY:
+        raise StorageConfigError(
+            f"Unknown storage backend {name_or_cls!r}. Available: {sorted(_STORAGE_REGISTRY.keys())}",
+            details={"requested": name_or_cls, "available": sorted(_STORAGE_REGISTRY.keys())},
+        )
+    module_path, class_name = _STORAGE_REGISTRY[key].rsplit(":", 1)
+    import importlib
+
+    try:
+        mod = importlib.import_module(module_path)
+        return getattr(mod, class_name)
+    except (ImportError, AttributeError) as e:
+        raise StorageConfigError(
+            f"Failed to load storage backend {name_or_cls!r}: {e}",
+            details={"backend": name_or_cls, "module": module_path, "class": class_name},
+        ) from e
+
 
 _SECRET_KEYS = {"api_key", "llm_api_key", "embedding_api_key"}
 _CALLABLE_KEYS = {
@@ -127,6 +159,7 @@ class GraphRAG(_ConfigFields):
     always_create_working_dir: bool = True
     addon_params: dict = field(default_factory=dict)
     convert_response_to_json_func: Callable[..., Any] = convert_response_to_json
+    callbacks: list = field(default_factory=list)
 
     # Runtime-attributed storage instances, set by _build_storages in __post_init__
     chunk_entity_relation_graph: BaseGraphStorage | None = field(init=False, default=None)
@@ -148,22 +181,39 @@ class GraphRAG(_ConfigFields):
         return cls(**kwargs)
 
     def __post_init__(self):
-        if self.key_string_value_json_storage_cls is None:
-            from ._storage import JsonKVStorage
+        if (
+            isinstance(self.key_string_value_json_storage_cls, str)
+            or self.key_string_value_json_storage_cls is None
+        ):
+            resolved = _resolve_storage(self.key_string_value_json_storage_cls)
+            if resolved is None:
+                from ._storage import JsonKVStorage
 
-            self.key_string_value_json_storage_cls = JsonKVStorage
-        if self.vector_db_storage_cls is None:
-            from ._storage import HNSWVectorStorage
+                resolved = JsonKVStorage
+            self.key_string_value_json_storage_cls = resolved
+        if isinstance(self.vector_db_storage_cls, str) or self.vector_db_storage_cls is None:
+            resolved = _resolve_storage(self.vector_db_storage_cls)
+            if resolved is None:
+                from ._storage import HNSWVectorStorage
 
-            self.vector_db_storage_cls = HNSWVectorStorage
-        if self.graph_storage_cls is None:
-            from ._storage import NetworkXStorage
+                resolved = HNSWVectorStorage
+            self.vector_db_storage_cls = resolved
+        if isinstance(self.graph_storage_cls, str) or self.graph_storage_cls is None:
+            resolved = _resolve_storage(self.graph_storage_cls)
+            if resolved is None:
+                from ._storage import NetworkXStorage
 
-            self.graph_storage_cls = NetworkXStorage
+                resolved = NetworkXStorage
+            self.graph_storage_cls = resolved
 
         self._normalize_settings()
         self._configure_logging()
         self._build_tokenizer()
+        from ._callbacks import _CallbackDispatcher, _NullDispatcher
+
+        self._callback_dispatcher = (
+            _CallbackDispatcher(self.callbacks) if self.callbacks else _NullDispatcher()
+        )
         self._configure_runtime()
         self._build_storages()
 
@@ -216,22 +266,59 @@ class GraphRAG(_ConfigFields):
     astream_query = astream_query
 
     def insert(self, string_or_strings):
+        """Insert one or more text documents into the knowledge graph.
+
+        Args:
+            string_or_strings: A single text string or list of text strings to insert.
+                Documents are deduplicated via content hash — unchanged documents are skipped.
+
+        Returns:
+            None (use ``ainsert`` for async version).
+        """
         loop = always_get_an_event_loop()
         return loop.run_until_complete(self.ainsert(string_or_strings))
 
     def insert_documents(self, documents: dict[str, str], force_rebuild: bool = False):
+        """Insert documents with explicit IDs into the knowledge graph.
+
+        Args:
+            documents: Mapping of ``{doc_id: text_content}``.
+            force_rebuild: If True, re-extract even unchanged documents.
+
+        Returns:
+            None (use ``ainsert_documents`` for async version).
+        """
         loop = always_get_an_event_loop()
         return loop.run_until_complete(
             self.ainsert_documents(documents, force_rebuild=force_rebuild)
         )
 
     def query(self, query: str, param: QueryParam | None = None):
+        """Query the knowledge graph.
+
+        Args:
+            query: The question or search string.
+            param: Query parameters controlling mode, top-k, token limits, etc.
+                Defaults to ``QueryParam()`` with ``mode="global"``.
+
+        Returns:
+            QueryResult: Structured query output containing ``answer``, ``mode``,
+            ``sources``, timing, and metadata.
+        """
         if param is None:
             param = QueryParam.from_config(self)
         loop = always_get_an_event_loop()
         return loop.run_until_complete(self.aquery(query, param))
 
     async def ainsert(self, string_or_strings):
+        """Async insert one or more text documents.
+
+        Args:
+            string_or_strings: A single text string or list of strings.
+
+        Documents are deduplicated by content hash. Delta detection skips
+        unchanged documents automatically.
+        """
         if isinstance(string_or_strings, str):
             string_or_strings = [string_or_strings]
         normalized = [c.strip() for c in string_or_strings if c.strip()]
@@ -244,18 +331,40 @@ class GraphRAG(_ConfigFields):
         return await self._ainsert_documents(documents, allow_legacy_custom=True)
 
     async def ainsert_documents(self, documents: dict[str, str], force_rebuild: bool = False):
+        """Async insert documents with explicit IDs.
+
+        Args:
+            documents: Mapping of ``{doc_id: text_content}``.
+            force_rebuild: If True, re-extract even unchanged documents.
+        """
         return await self._ainsert_documents(
             documents, allow_legacy_custom=False, force_rebuild=force_rebuild
         )
 
     async def arebuild_graph(self):
+        """Rebuild the entire knowledge graph from existing document manifests.
+
+        Re-reads all manifests from ``document_index`` and reconstructs the graph
+        without re-running LLM extraction. Useful after storage corruption or
+        when switching graph backends.
+        """
         return await self._rebuild_graph_from_manifests()
 
     def rebuild_graph(self):
+        """Synchronous wrapper for ``arebuild_graph``."""
         loop = always_get_an_event_loop()
         return loop.run_until_complete(self.arebuild_graph())
 
     async def arefine(self, phases: list[str] | None = None) -> dict:
+        """Run the knowledge graph refinement pipeline.
+
+        Args:
+            phases: List of phases to run. Options: ``"merge"``, ``"enrich"``, ``"infer"``.
+                Defaults to all phases if None.
+
+        Returns:
+            dict with per-phase statistics (merged, enriched, inferred counts).
+        """
         from ._ops.refinement import arefine
 
         return await arefine(
@@ -267,12 +376,22 @@ class GraphRAG(_ConfigFields):
         )
 
     def refine(self, phases: list[str] | None = None) -> dict:
+        """Synchronous wrapper for ``arefine``."""
         loop = always_get_an_event_loop()
         return loop.run_until_complete(self.arefine(phases))
 
     async def aexport_vault(
         self, path: str | None = None, include_communities: bool | None = None
     ) -> dict:
+        """Export the knowledge graph to an Obsidian-compatible vault.
+
+        Args:
+            path: Output directory path. Defaults to ``self.vault_path``.
+            include_communities: Whether to include community report files.
+
+        Returns:
+            dict with export statistics (entity files, relationship files, etc.).
+        """
         from ._vault import aexport_vault
 
         if include_communities is None:
@@ -290,6 +409,45 @@ class GraphRAG(_ConfigFields):
     ) -> dict:
         loop = always_get_an_event_loop()
         return loop.run_until_complete(self.aexport_vault(path, include_communities))
+
+    async def astatus(self):
+        """Return comprehensive graph status without loading the full graph.
+
+        Returns:
+            GraphStatus with entity count, community info, health assessment, etc.
+        """
+        from ._visualization import compute_status
+
+        return await compute_status(self.working_dir, rag=self)
+
+    def status(self):
+        """Synchronous wrapper for ``astatus``."""
+        loop = always_get_an_event_loop()
+        return loop.run_until_complete(self.astatus())
+
+    async def aexport_graph_html(
+        self, output: str = "graph.html", max_nodes: int = 200, **kwargs
+    ) -> str:
+        """Generate interactive HTML visualization of the knowledge graph.
+
+        Args:
+            output: Output HTML file path.
+            max_nodes: Maximum nodes to render (performance).
+            kwargs: Passed to pyvis Network configuration.
+
+        Returns:
+            Path to the generated HTML file.
+        """
+        from ._visualization import visualize_graph
+
+        return await visualize_graph(
+            self.chunk_entity_relation_graph, output=output, max_nodes=max_nodes, **kwargs
+        )
+
+    def export_graph_html(self, output: str = "graph.html", max_nodes: int = 200, **kwargs) -> str:
+        """Synchronous wrapper for ``aexport_graph_html``."""
+        loop = always_get_an_event_loop()
+        return loop.run_until_complete(self.aexport_graph_html(output, max_nodes, **kwargs))
 
 
 # Runtime-attributed storage instances, set by _build_storages in __post_init__.

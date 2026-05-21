@@ -5,6 +5,7 @@ import os
 import time
 from hashlib import sha256
 
+from ._exceptions import ConfigError, GraphIntegrityError
 from ._ops import (
     extract_document_entity_relationships,
     extract_entities,
@@ -12,6 +13,7 @@ from ._ops import (
     get_chunks,
     rebuild_knowledge_graph_for_documents,
 )
+from ._schemas import InsertResult
 from ._utils import compute_sha256_id, logger
 
 
@@ -167,11 +169,24 @@ async def _ainsert_documents(
     if not _is_builtin_extractor(self.entity_extraction_func):
         if allow_legacy_custom:
             return await self._legacy_custom_ainsert(documents)
-        raise NotImplementedError(
-            "insert_documents requires the built-in extract_entities pipeline."
+        raise ConfigError(
+            "insert_documents requires the built-in extract_entities pipeline.",
+            details={
+                "extractor": getattr(
+                    self.entity_extraction_func, "__name__", str(self.entity_extraction_func)
+                )
+            },
         )
 
     success = False
+    insert_start_time = time.monotonic()
+    insert_result = InsertResult(documents_processed=0)
+    pre_entity_count = 0
+    pre_relationship_count = 0
+    graph = self.chunk_entity_relation_graph
+    if graph is not None and hasattr(graph, "_graph") and graph._graph is not None:
+        pre_entity_count = graph._graph.number_of_nodes()
+        pre_relationship_count = graph._graph.number_of_edges()
     await self._insert_start()
     try:
         normalized_docs = {
@@ -184,7 +199,7 @@ async def _ainsert_documents(
         }
         if not normalized_docs:
             logger.warning("no_valid_docs")
-            return
+            return InsertResult(documents_processed=0)
 
         existing_docs = await self.full_docs.get_by_ids(list(normalized_docs.keys()))
         docs_to_process = {}
@@ -263,7 +278,7 @@ async def _ainsert_documents(
         if not docs_to_process:
             logger.warning("all_docs_unchanged")
             success = True
-            return
+            return InsertResult(documents_processed=0, documents_skipped=len(normalized_docs))
 
         logger.info(
             "delta_detection",
@@ -330,6 +345,10 @@ async def _ainsert_documents(
             nonlocal _completed_count
             async with doc_semaphore:
                 doc_id, manifest = await _extract_doc(doc_id, doc)
+            await self._callback_dispatcher.chunk_extracted(
+                doc_id,
+                len(chunks_by_doc.get(doc_id, {})),
+            )
             _completed_count += 1
             if _completed_count % flush_batch_size == 0:
                 async with doc_write_lock:
@@ -346,6 +365,9 @@ async def _ainsert_documents(
                         total=len(docs_to_process),
                         pct=_completed_count * 100 // len(docs_to_process),
                     )
+                    await self._callback_dispatcher.extraction_progress(
+                        _completed_count, len(docs_to_process)
+                    )
             return doc_id, manifest
 
         doc_items = list(docs_to_process.items())
@@ -355,6 +377,7 @@ async def _ainsert_documents(
             concurrency=max_doc_concurrency,
             flush_every=flush_batch_size,
         )
+        await self._callback_dispatcher.extraction_start(len(doc_items))
         results = await asyncio.gather(
             *[_extract_doc_limited(doc_id, doc) for doc_id, doc in doc_items]
         )
@@ -439,6 +462,9 @@ async def _ainsert_documents(
                         self._runtime_config(),
                         only_community_ids=affected_community_ids,
                     )
+                    await self._callback_dispatcher.community_report(
+                        level=0, count=len(affected_community_ids or [])
+                    )
                 else:
                     logger.info("community_report_skipped", reason="enable_community_reports=False")
                     await self.chunk_entity_relation_graph.clustering(
@@ -489,10 +515,13 @@ async def _ainsert_documents(
                 )
                 found = sum(1 for r in results if r)
                 if found == 0:
-                    raise RuntimeError(
+                    raise GraphIntegrityError(
                         f"Integrity check failed: {manifest_entity_count} entities in manifests "
-                        f"but 0 found in graph. Graph rebuild may have silently failed. "
-                        f"Rolling back document_index and raising for transaction rollback."
+                        f"but 0 found in graph. Graph rebuild may have silently failed.",
+                        details={
+                            "manifest_entity_count": manifest_entity_count,
+                            "found_in_graph": 0,
+                        },
                     )
                 elif found < manifest_entity_count:
                     logger.info(
@@ -504,7 +533,22 @@ async def _ainsert_documents(
             if snapshot_path and os.path.exists(snapshot_path):
                 os.unlink(snapshot_path)
             success = True
-        except Exception:
+            elapsed_ms = round((time.monotonic() - insert_start_time) * 1000, 1)
+            graph = self.chunk_entity_relation_graph
+            entity_count = 0
+            relationship_count = 0
+            if graph is not None and hasattr(graph, "_graph") and graph._graph is not None:
+                entity_count = graph._graph.number_of_nodes() - pre_entity_count
+                relationship_count = graph._graph.number_of_edges() - pre_relationship_count
+            insert_result = InsertResult(
+                documents_processed=len(docs_to_process),
+                entities_created=entity_count,
+                relationships_created=relationship_count,
+                latency_ms=elapsed_ms,
+            )
+            await self._callback_dispatcher.extraction_complete(insert_result)
+        except Exception as e:
+            await self._callback_dispatcher.extraction_error(e)
             if snapshot_path and self.chunk_entity_relation_graph is not None:
                 await self.chunk_entity_relation_graph._restore_graph(snapshot_path)
             if snapshot_path and os.path.exists(snapshot_path):
@@ -535,6 +579,7 @@ async def _ainsert_documents(
         else:
             if self.chunk_entity_relation_graph is not None:
                 await self.chunk_entity_relation_graph.index_done_callback()
+    return insert_result
 
 
 async def _insert_start(self):

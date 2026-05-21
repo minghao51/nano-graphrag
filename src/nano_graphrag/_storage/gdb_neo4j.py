@@ -9,6 +9,7 @@ from typing import Any
 from neo4j import AsyncGraphDatabase
 from neo4j.exceptions import DriverError, ServiceUnavailable
 
+from .._exceptions import StorageConfigError
 from .._utils import logger
 from ..base import BaseGraphStorage, SingleCommunitySchema
 from ..prompt import GRAPH_FIELD_SEP
@@ -51,7 +52,7 @@ class Neo4jStorage(BaseGraphStorage):
         self.namespace = f"{make_path_idable(self.global_config['working_dir'])}__{self.namespace}"
         logger.info("neo4j_label", namespace=self.namespace)
         if self.neo4j_url is None or self.neo4j_auth is None:
-            raise ValueError("Missing neo4j_url or neo4j_auth in addon_params")
+            raise StorageConfigError("Missing neo4j_url or neo4j_auth in addon_params")
         self.async_driver = AsyncGraphDatabase.driver(
             self.neo4j_url,
             auth=self.neo4j_auth,
@@ -498,8 +499,11 @@ class Neo4jStorage(BaseGraphStorage):
 
     async def clustering(self, algorithm: str, affected_node_ids=None):
         if algorithm not in {"leiden", "louvain"}:
-            raise ValueError(
-                f"Clustering algorithm {algorithm} not supported in Neo4j implementation"
+            from .._exceptions import StorageError
+
+            raise StorageError(
+                f"Clustering algorithm {algorithm} not supported in Neo4j implementation",
+                details={"algorithm": algorithm},
             )
 
         random_seed = self.global_config["graph_cluster_seed"]

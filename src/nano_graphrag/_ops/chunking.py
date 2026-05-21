@@ -72,7 +72,9 @@ def get_chunks(
     **chunk_func_params,
 ):
     if tokenizer_wrapper is None:
-        raise ValueError("tokenizer_wrapper is required")
+        from .._exceptions import ConfigError
+
+        raise ConfigError("tokenizer_wrapper is required")
     inserting_chunks: dict[str, dict[str, str | int]] = {}
     new_docs_list = list(new_docs.items())
     docs = [new_doc[1]["content"] for new_doc in new_docs_list]

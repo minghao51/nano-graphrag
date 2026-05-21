@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -220,3 +222,81 @@ class GlobalMapPoint(BaseModel):
 
 class GlobalMapOutput(BaseModel):
     points: list[GlobalMapPoint] = Field(default_factory=list, description="List of key points")
+
+
+# =============================================================================
+# Structured result types for public API
+# =============================================================================
+
+
+@dataclass
+class TokenUsage:
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    estimated_cost_usd: float | None = None
+
+
+@dataclass
+class QuerySource:
+    source_type: Literal["entity", "community", "chunk"]
+    id: str
+    name: str | None = None
+    relevance_score: float | None = None
+    text_snippet: str | None = None
+
+
+@dataclass
+class QueryResult:
+    answer: str
+    mode: str
+    sources: list[QuerySource] = field(default_factory=list)
+    tokens_used: TokenUsage | None = None
+    latency_ms: float = 0.0
+    metadata: dict = field(default_factory=dict)
+
+    def __str__(self) -> str:
+        return self.answer
+
+    def __bool__(self) -> bool:
+        return bool(self.answer)
+
+
+@dataclass
+class InsertResult:
+    documents_processed: int
+    documents_skipped: int = 0
+    entities_created: int = 0
+    relationships_created: int = 0
+    communities_updated: int = 0
+    tokens_used: TokenUsage | None = None
+    latency_ms: float = 0.0
+
+
+@dataclass
+class QueryTrace:
+    entities_matched: list[str] = field(default_factory=list)
+    communities_used: list[str] = field(default_factory=list)
+    chunks_used: list[str] = field(default_factory=list)
+    retrieval_scores: dict[str, float] = field(default_factory=dict)
+    mode_specific: dict = field(default_factory=dict)
+
+
+@dataclass
+class StreamTextChunk:
+    text: str
+
+    def __str__(self) -> str:
+        return self.text
+
+
+@dataclass
+class StreamSourceRef:
+    sources: list[QuerySource] = field(default_factory=list)
+
+
+@dataclass
+class StreamComplete:
+    trace: QueryTrace | None = None
+    tokens: TokenUsage | None = None
+    latency_ms: float = 0.0

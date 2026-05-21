@@ -13,6 +13,8 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 
+from ._exceptions import ConfigError
+
 DEFAULT_LLM_MODEL = "openrouter/google/gemma-4-31b-it"
 DEFAULT_CHEAP_MODEL = "openrouter/google/gemma-4-31b-it"
 DEFAULT_EMBEDDING_MODEL = "openrouter/qwen/qwen3-embedding-8b"
@@ -90,7 +92,10 @@ class LoggingConfig(BaseModel):
     def validate_level(cls, v: str) -> str:
         valid = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
         if v.upper() not in valid:
-            raise ValueError(f"Invalid log_level={v!r}. Must be one of: {sorted(valid)}")
+            raise ConfigError(
+                f"Invalid log_level={v!r}. Must be one of: {sorted(valid)}",
+                details={"log_level": v, "valid": sorted(valid)},
+            )
         return v.upper()
 
 

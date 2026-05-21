@@ -19,6 +19,17 @@ from ._utils import EmbeddingFunc
 
 @dataclass
 class QueryParam:
+    """Parameters controlling query behavior.
+
+    Attributes:
+        mode: Query mode — ``"local"`` (entity-centric), ``"global"`` (community reports),
+            ``"naive"`` (vector search), or ``"entity_grounded"`` (structured).
+        only_need_context: If True, return retrieved context instead of LLM-generated answer.
+        response_type: Format directive for the answer (e.g., ``"Concise Answer"``).
+        level: Community hierarchy level for global mode.
+        top_k: Number of top entities/chunks to retrieve.
+    """
+
     mode: Literal["local", "global", "naive", "entity_grounded"] = "global"
     only_need_context: bool = False
     response_type: str = "Concise Answer"
@@ -365,17 +376,15 @@ class _ConfigFields:
 
 @dataclass
 class GraphRAGConfig(_ConfigFields):
-    """Backward-compatible configuration wrapper around GraphRAGSettings.
-
-    Delegates loading/validation to Pydantic-backed GraphRAGSettings internally,
-    but exposes the same flat dataclass interface as before.
+    """Configuration wrapper around GraphRAGSettings.
 
     Supports three loading methods:
-        - from_env(): Load from environment variables
-        - from_yaml(path): Load from YAML (flat or nested format)
-        - from_dict(data): Load from a dictionary (flat or nested)
+        - ``from_env()``: Load from environment variables
+        - ``from_yaml(path)``: Load from YAML (flat or nested format)
+        - ``from_dict(data)``: Load from a dictionary
 
-    Example:
+    Example::
+
         config = GraphRAGConfig.from_yaml("config/settings.yaml")
         rag = GraphRAG.from_config(config)
     """

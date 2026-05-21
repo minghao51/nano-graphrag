@@ -4,6 +4,7 @@ import time
 from hashlib import sha256
 
 from ._entity_grounded_query import EntityGroundedQuery
+from ._exceptions import ModeNotEnabledError, QueryError
 from ._ops.query import (
     global_query,
     global_query_stream,
@@ -12,16 +13,26 @@ from ._ops.query import (
     naive_query,
     naive_query_stream,
 )
+from ._schemas import QueryResult, QuerySource, StreamComplete, StreamSourceRef, StreamTextChunk
 from ._utils import bind_run_context, logger
 
 
 def _check_mode_permissions(mode: str, enable_local: bool, enable_naive_rag: bool):
     if mode == "local" and not enable_local:
-        raise ValueError("enable_local is False, cannot query in local mode")
+        raise ModeNotEnabledError(
+            "enable_local is False, cannot query in local mode",
+            details={"mode": mode, "enable_local": enable_local},
+        )
     if mode == "naive" and not enable_naive_rag:
-        raise ValueError("enable_naive_rag is False, cannot query in naive mode")
+        raise ModeNotEnabledError(
+            "enable_naive_rag is False, cannot query in naive mode",
+            details={"mode": mode, "enable_naive_rag": enable_naive_rag},
+        )
     if mode == "entity_grounded" and not enable_local:
-        raise ValueError("enable_local is False, cannot query in entity_grounded mode")
+        raise ModeNotEnabledError(
+            "enable_local is False, cannot query in entity_grounded mode",
+            details={"mode": mode, "enable_local": enable_local},
+        )
 
 
 def _build_entity_grounded_query(self, param, runtime):
@@ -79,8 +90,12 @@ async def aquery(self, query, param):
     runtime = self._runtime_config()
     logger.info("query_start", **_query_log_payload(query, runtime))
 
+    await self._callback_dispatcher.query_start(query, param.mode)
+    await self._callback_dispatcher.query_sources_found([])
+
     start_time = time.monotonic()
     response = ""
+    metadata = {}
     try:
         if param.mode == "local":
             response = await local_query(
@@ -117,10 +132,24 @@ async def aquery(self, query, param):
             entity_query = _build_entity_grounded_query(self, param, runtime)
             result = await entity_query.query(query, top_k=param.top_k, mode="local")
             response = result.answer
+            metadata = result.metadata or {}
+            entity_ids = result.metadata.get("entity_ids", [])
+            await self._callback_dispatcher.query_sources_found(
+                [QuerySource(source_type="entity", id=eid) for eid in entity_ids]
+            )
         else:
-            raise ValueError(f"Unknown mode {param.mode}")
+            raise QueryError(f"Unknown mode {param.mode}", details={"mode": param.mode})
         elapsed = (time.monotonic() - start_time) * 1000
         logger.info("query_complete", latency_ms=round(elapsed, 1), answer_chars=len(response))
+
+        result = QueryResult(
+            answer=response,
+            mode=param.mode,
+            latency_ms=round(elapsed, 1),
+            metadata=metadata,
+        )
+
+        await self._callback_dispatcher.query_complete(result)
 
         if self.enable_retrieval_feedback and param.mode in ("local", "naive"):
             try:
@@ -132,7 +161,7 @@ async def aquery(self, query, param):
                 context_text, doc_ids_retrieved = await _collect_feedback_context(self, query)
                 if not context_text:
                     logger.debug("retrieval_feedback_skipped", reason="no_retrieved_context")
-                    return response
+                    return result
                 feedback = await compute_retrieval_feedback(
                     query=query,
                     context_text=context_text,
@@ -143,7 +172,7 @@ async def aquery(self, query, param):
             except Exception:
                 logger.debug("retrieval_feedback_failed", exc_info=True)
 
-        return response
+        return result
     finally:
         await self._query_done()
 
@@ -154,6 +183,9 @@ async def astream_query(self, query, param):
     runtime = self._runtime_config()
     logger.info("query_start", **_query_log_payload(query, runtime))
     start_time = time.monotonic()
+
+    await self._callback_dispatcher.query_start(query, param.mode)
+    await self._callback_dispatcher.query_sources_found([])
 
     if param.mode == "local":
         stream = local_query_stream(
@@ -194,20 +226,27 @@ async def astream_query(self, query, param):
             if not entity_ids:
                 yield entity_query.fallback_message
                 return
+            sources = [QuerySource(source_type="entity", id=eid) for eid in entity_ids]
+            await self._callback_dispatcher.query_sources_found(sources)
+            yield StreamSourceRef(sources=sources)
             entity_context = await entity_query._build_entity_context(entity_ids)
             async for chunk in entity_query.generate_answer_stream(query, entity_context):
                 yield chunk
 
         stream = _entity_stream()
     else:
-        raise ValueError(f"Unknown mode {param.mode}")
+        raise QueryError(f"Unknown mode {param.mode}", details={"mode": param.mode})
 
     try:
         async for chunk in stream:
-            yield chunk
+            if isinstance(chunk, str):
+                yield StreamTextChunk(text=chunk)
+            else:
+                yield chunk
     finally:
         elapsed = (time.monotonic() - start_time) * 1000
         logger.info("query_stream_complete", latency_ms=round(elapsed, 1))
+        yield StreamComplete(latency_ms=round(elapsed, 1))
         await self._query_done()
 
 

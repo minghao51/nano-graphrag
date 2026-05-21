@@ -313,7 +313,12 @@ class NetworkXStorage(BaseGraphStorage):
     async def clustering(self, algorithm: str, affected_node_ids: set[str] | None = None):
         async with self._graph_lock.write_lock():
             if algorithm not in self._clustering_algorithms:
-                raise ValueError(f"Clustering algorithm {algorithm} not supported")
+                from .._exceptions import StorageError
+
+                raise StorageError(
+                    f"Clustering algorithm {algorithm} not supported",
+                    details={"algorithm": algorithm},
+                )
             await self._clustering_algorithms[algorithm].cluster(
                 self, affected_node_ids=affected_node_ids
             )
@@ -328,7 +333,12 @@ class NetworkXStorage(BaseGraphStorage):
 
     async def embed_nodes(self, algorithm: str) -> tuple[np.ndarray, list[str]]:
         if algorithm not in self._node_embed_algorithms:
-            raise ValueError(f"Node embedding algorithm {algorithm} not supported")
+            from .._exceptions import StorageError
+
+            raise StorageError(
+                f"Node embedding algorithm {algorithm} not supported",
+                details={"algorithm": algorithm},
+            )
         return await self._node_embed_algorithms[algorithm]()
 
     async def _node2vec_embed(self):

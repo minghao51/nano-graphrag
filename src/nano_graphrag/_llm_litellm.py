@@ -17,6 +17,7 @@ from tenacity import (
     wait_exponential,
 )
 
+from ._exceptions import ConfigError, translate_litellm_errors
 from ._utils import compute_args_hash, logger, wrap_embedding_func_with_attrs
 from .base import BaseKVStorage
 
@@ -126,9 +127,10 @@ def detect_provider(model: str) -> str:
             return provider
 
     logger.error("provider_detection_failed", model=model)
-    raise ValueError(
+    raise ConfigError(
         f"Unable to detect provider for model {model!r}. "
-        "Use an explicit provider prefix (e.g., 'openai/...', 'openrouter/...')."
+        "Use an explicit provider prefix (e.g., 'openai/...', 'openrouter/...').",
+        details={"model": model},
     )
 
 
@@ -326,6 +328,7 @@ async def litellm_completion(
     api_base: str | None = None,
     api_key: str | None = None,
     timeout: int = 120,
+    callback_dispatcher=None,
     **kwargs,
 ) -> str | BaseModel:
     history_messages = history_messages or []
@@ -396,7 +399,8 @@ async def litellm_completion(
 
     start_time = time.monotonic()
     try:
-        response = await asyncio.wait_for(_call_llm(), timeout=timeout)
+        with translate_litellm_errors():
+            response = await asyncio.wait_for(_call_llm(), timeout=timeout)
     except TimeoutError:
         elapsed_ms = (time.monotonic() - start_time) * 1000
         logger.error(
@@ -418,6 +422,13 @@ async def litellm_completion(
     result = response.choices[0].message.content
 
     usage_data = _extract_usage(response, model, elapsed_ms, "llm_call_complete")
+    if callback_dispatcher is not None:
+        await callback_dispatcher.llm_call(
+            model,
+            usage_data["prompt_tokens"],
+            usage_data["completion_tokens"],
+            elapsed_ms,
+        )
 
     if (
         response_format is not None
@@ -442,6 +453,7 @@ async def litellm_completion(
                         api_base=api_base,
                         api_key=api_key,
                         timeout=timeout,
+                        callback_dispatcher=callback_dispatcher,
                         **kwargs,
                     )
 
@@ -470,6 +482,7 @@ async def litellm_completion_stream(
     api_base: str | None = None,
     api_key: str | None = None,
     timeout: int = 120,
+    callback_dispatcher=None,
     **kwargs,
 ) -> AsyncIterator[str]:
     history_messages = history_messages or []
@@ -507,6 +520,7 @@ async def litellm_completion_stream(
             api_base=api_base,
             api_key=api_key,
             timeout=timeout,
+            callback_dispatcher=callback_dispatcher,
             **kwargs,
         )
         if isinstance(result, BaseModel):
@@ -545,6 +559,7 @@ async def litellm_embedding(
     model: str = "text-embedding-3-small",
     api_base: str | None = None,
     api_key: str | None = None,
+    callback_dispatcher=None,
 ) -> np.ndarray:  # type: ignore[name-defined]
     import numpy as np
 
@@ -554,10 +569,20 @@ async def litellm_embedding(
     if api_key:
         kwargs["api_key"] = api_key
     start_time = time.monotonic()
-    response = await litellm.aembedding(**kwargs)
+    with translate_litellm_errors():
+        response = await litellm.aembedding(**kwargs)
     elapsed_ms = (time.monotonic() - start_time) * 1000
 
-    _extract_usage(response, model, elapsed_ms, "embedding_call_complete", num_texts=len(texts))
+    usage_data = _extract_usage(
+        response, model, elapsed_ms, "embedding_call_complete", num_texts=len(texts)
+    )
+    if callback_dispatcher is not None:
+        await callback_dispatcher.llm_call(
+            model,
+            usage_data["prompt_tokens"],
+            usage_data["completion_tokens"],
+            elapsed_ms,
+        )
     return np.array([dp["embedding"] for dp in response.data])
 
 
@@ -571,6 +596,7 @@ class LiteLLMWrapper:
         api_base: str | None = None,
         api_key: str | None = None,
         timeout: int = 120,
+        callback_dispatcher=None,
     ):
         self.model = model
         self.structured_output = structured_output
@@ -579,6 +605,7 @@ class LiteLLMWrapper:
         self.api_base = api_base
         self.api_key = api_key
         self.timeout = timeout
+        self.callback_dispatcher = callback_dispatcher
 
     async def __call__(
         self,
@@ -600,6 +627,7 @@ class LiteLLMWrapper:
             api_base=self.api_base,
             api_key=self.api_key,
             timeout=self.timeout,
+            callback_dispatcher=self.callback_dispatcher,
             **kwargs,
         )
 
@@ -618,6 +646,7 @@ class LiteLLMWrapper:
             api_base=self.api_base,
             api_key=self.api_key,
             timeout=self.timeout,
+            callback_dispatcher=self.callback_dispatcher,
             **kwargs,
         ):
             yield chunk
