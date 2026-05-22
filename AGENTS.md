@@ -81,7 +81,8 @@ experiments/            # Benchmark configs, scripts, and docs
 
 ## 6. Key Architecture
 
-- **Config:** `GraphRAGConfig` dataclass in `base.py` delegates to Pydantic-backed `GraphRAGSettings` in `_config.py`. `_ConfigFields` mixin shared with `GraphRAG`. Supports `from_env()`, `from_yaml()`, `from_dict()`. YAML defaults in `config/settings.yaml`. `FLAT_FIELD_TO_ENV_VAR` mapping for env var resolution.
+- **Config:** `GraphRAGConfig` dataclass in `base.py` delegates to Pydantic-backed `GraphRAGSettings` in `_config.py`. `_ConfigFields` dataclass shared with `GraphRAG` — defaults auto-synced from `FLAT_DEFAULTS`. Supports `from_env()`, `from_yaml()`, `from_dict()`. `FLAT_FIELD_TO_ENV_VAR` mapping for env var resolution.
+- **Class architecture:** `GraphRAG` inherits `_ConfigFields`, `_ConfigMixin`, `_InsertMixin`, `_QueryMixin` — replacing the previous method-patching pattern. Each mixin module is self-contained: runtime (`graphrag_runtime.py`), insert (`graphrag_insert.py`), query (`graphrag_query.py`).
 - **Extraction pipeline:** `_ainsert_documents()` in `graphrag_insert.py` — delta detection via content hash → parallel doc extraction (`asyncio.gather` + semaphore) → batched chunk extraction (N chunks/LLM call) → incremental flush every N docs.
 - **LLM calls:** `_llm_litellm.py` — `litellm_completion()` async with exponential backoff (3 retries). Structured output via Pydantic models with provider-specific fallback (structured → prompt-based → text).
 - **Storage pattern:** Namespace-based. `BaseKVStorage` → `JsonKVStorage`. `BaseVectorStorage` → `HNSWVectorStorage`. `BaseGraphStorage` → `NetworkXStorage`. All async.

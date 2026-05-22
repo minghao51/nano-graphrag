@@ -30,11 +30,13 @@ The minimal core favors:
 - Builds storage backends
 - Runs insert and query flows
 
-`graphrag.py` now stays focused on the public dataclass and entrypoints. Internal implementation is split into:
+`graphrag.py` now stays focused on the public dataclass and entrypoints. Internal implementation is organized as mixin classes:
 
-- `graphrag_runtime.py`: runtime normalization, logging, tokenizer setup, provider setup, and storage construction
-- `graphrag_insert.py`: insert and incremental rebuild orchestration
-- `graphrag_query.py`: query-mode dispatch and query-finalization helpers
+- `graphrag_runtime.py`: `_ConfigMixin` — runtime normalization, logging, tokenizer setup, provider setup, and storage construction
+- `graphrag_insert.py`: `_InsertMixin` — insert and incremental rebuild orchestration
+- `graphrag_query.py`: `_QueryMixin` — query-mode dispatch and query-finalization helpers
+
+`GraphRAG` inherits from `_ConfigFields`, `_ConfigMixin`, `_InsertMixin`, and `_QueryMixin` — replacing the previous method-patching pattern.
 
 `GraphRAGConfig` is the canonical configuration object for runtime settings. Direct `GraphRAG(...)` kwargs still work as compatibility aliases for one release window.
 
