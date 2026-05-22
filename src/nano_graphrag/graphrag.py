@@ -23,24 +23,9 @@ from .base import (
     QueryParam,
     _ConfigFields,
 )
-from .graphrag_insert import (
-    _ainsert_documents,
-    _flush_doc_progress,
-    _insert_done,
-    _insert_start,
-    _legacy_custom_ainsert,
-    _rebuild_graph_from_manifests,
-    _rollback_insert_storages,
-)
-from .graphrag_query import _query_done, aquery, astream_query
-from .graphrag_runtime import (
-    _build_storages,
-    _build_tokenizer,
-    _configure_logging,
-    _configure_runtime,
-    _normalize_settings,
-    _runtime_config,
-)
+from .graphrag_insert import _InsertMixin
+from .graphrag_query import _QueryMixin
+from .graphrag_runtime import _ConfigMixin
 
 _STORAGE_REGISTRY: dict[str, str] = {
     "json": "nano_graphrag._storage.kv_json:JsonKVStorage",
@@ -85,7 +70,7 @@ _CALLABLE_KEYS = {
 
 
 @dataclass
-class GraphRAG(_ConfigFields):
+class GraphRAG(_ConfigFields, _ConfigMixin, _InsertMixin, _QueryMixin):
     working_dir: str = field(  # type: ignore[assignment]
         default_factory=lambda: (
             f"./nano_graphrag_cache_{datetime.now().strftime('%Y-%m-%d-%H:%M:%S')}"
@@ -242,28 +227,6 @@ class GraphRAG(_ConfigFields):
             else:
                 result[f.name] = val
         return result
-
-    # Methods patched from graphrag_runtime.py (init helpers)
-    _normalize_settings = _normalize_settings
-    _configure_logging = _configure_logging
-    _build_tokenizer = _build_tokenizer
-    _configure_runtime = _configure_runtime
-    _build_storages = _build_storages
-    _runtime_config = _runtime_config
-
-    # Methods patched from graphrag_insert.py (document insertion pipeline)
-    _legacy_custom_ainsert = _legacy_custom_ainsert
-    _ainsert_documents = _ainsert_documents
-    _flush_doc_progress = _flush_doc_progress
-    _rebuild_graph_from_manifests = _rebuild_graph_from_manifests
-    _insert_start = _insert_start
-    _insert_done = _insert_done
-    _rollback_insert_storages = _rollback_insert_storages
-
-    # Methods patched from graphrag_query.py (query interface)
-    aquery = aquery
-    _query_done = _query_done
-    astream_query = astream_query
 
     def insert(self, string_or_strings):
         """Insert one or more text documents into the knowledge graph.
