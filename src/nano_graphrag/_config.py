@@ -300,117 +300,95 @@ def _unflatten_data_if_flat(data: dict[str, Any]) -> dict[str, Any]:
     return _unflatten_data(data)
 
 
-# (flat_key, section_name, nested_key, env_var_name)
-_FIELD_SPECS: list[tuple[str, str, str, str | None]] = [
-    ("llm_model", "llm", "model", "LLM_MODEL"),
-    ("llm_cheap_model", "llm", "cheap_model", "LLM_CHEAP_MODEL"),
-    ("llm_api_base", "llm", "api_base", "LLM_API_BASE"),
-    ("llm_api_key", "llm", "api_key", "LLM_API_KEY"),
-    ("llm_max_async", "llm", "max_async", "LLM_MAX_ASYNC"),
-    ("llm_max_tokens", "llm", "max_tokens", "LLM_MAX_TOKENS"),
-    ("llm_timeout", "llm", "timeout", "LLM_TIMEOUT"),
-    ("embedding_model", "embedding", "model", "EMBEDDING_MODEL"),
-    ("embedding_api_base", "embedding", "api_base", "EMBEDDING_API_BASE"),
-    ("embedding_api_key", "embedding", "api_key", "EMBEDDING_API_KEY"),
-    ("embedding_dim", "embedding", "dim", "EMBEDDING_DIM"),
-    ("embedding_max_async", "embedding", "max_async", "EMBEDDING_MAX_ASYNC"),
-    ("embedding_batch_size", "embedding", "batch_size", "EMBEDDING_BATCH_SIZE"),
-    ("extraction_max_async", "extraction", "max_async", "EXTRACTION_MAX_ASYNC"),
-    ("extraction_batch_size", "extraction", "batch_size", "EXTRACTION_BATCH_SIZE"),
-    ("doc_extraction_max_async", "extraction", "doc_max_async", "DOC_EXTRACTION_MAX_ASYNC"),
-    ("doc_flush_batch_size", "extraction", "doc_flush_batch_size", "DOC_FLUSH_BATCH_SIZE"),
-    ("entity_extraction_quality", "extraction", "quality", "ENTITY_EXTRACTION_QUALITY"),
-    ("extraction_backend", "extraction", "backend", "EXTRACTION_BACKEND"),
-    ("graph_cluster_algorithm", "clustering", "algorithm", "GRAPH_CLUSTER_ALGORITHM"),
-    (
-        "max_incremental_updates_before_full",
-        "clustering",
-        "max_incremental_updates_before_full",
-        "MAX_INCREMENTAL_UPDATES_BEFORE_FULL",
-    ),
-    ("alias_batch_size", "clustering", "alias_batch_size", "ALIAS_BATCH_SIZE"),
-    (
-        "alias_max_batches_in_flight",
-        "clustering",
-        "alias_max_batches_in_flight",
-        "ALIAS_MAX_BATCHES_IN_FLIGHT",
-    ),
-    ("enable_entity_linking", "entity_linking", "enabled", "ENABLE_ENTITY_LINKING"),
-    (
-        "entity_linking_use_neighborhood_evidence",
-        "entity_linking",
-        "use_neighborhood_evidence",
-        "ENTITY_LINKING_USE_NEIGHBORHOOD_EVIDENCE",
-    ),
-    (
-        "entity_linking_similarity_threshold",
-        "entity_linking",
-        "similarity_threshold",
-        "ENTITY_LINKING_SIMILARITY_THRESHOLD",
-    ),
-    (
-        "entity_linking_max_candidates",
-        "entity_linking",
-        "max_candidates",
-        "ENTITY_LINKING_MAX_CANDIDATES",
-    ),
-    (
-        "entity_linking_iou_threshold",
-        "entity_linking",
-        "iou_threshold",
-        "ENTITY_LINKING_IOU_THRESHOLD",
-    ),
-    (
-        "entity_linking_min_common_neighbors",
-        "entity_linking",
-        "min_common_neighbors",
-        "ENTITY_LINKING_MIN_COMMON_NEIGHBORS",
-    ),
-    ("entity_count_min_ratio", "entity_filter", "count_min_ratio", "ENTITY_COUNT_MIN_RATIO"),
-    (
-        "entity_count_min_absolute",
-        "entity_filter",
-        "count_min_absolute",
-        "ENTITY_COUNT_MIN_ABSOLUTE",
-    ),
-    ("enable_node_embedding", "features", "node_embedding", "ENABLE_NODE_EMBEDDING"),
-    ("enable_local", "features", "local_search", "ENABLE_LOCAL"),
-    ("enable_naive_rag", "features", "naive_rag", "ENABLE_NAIVE_RAG"),
-    ("enable_llm_cache", "features", "llm_cache", "ENABLE_LLM_CACHE"),
-    ("enable_community_reports", "features", "community_reports", "ENABLE_COMMUNITY_REPORTS"),
-    ("enable_temporal_extraction", "features", "temporal_extraction", "ENABLE_TEMPORAL_EXTRACTION"),
-    ("log_level", "logging", "level", "LOG_LEVEL"),
-    ("log_file", "logging", "file", "LOG_FILE"),
-    ("log_query_text", "logging", "log_query_text", "LOG_QUERY_TEXT"),
-    ("enable_refinement", "refinement", "enabled", "ENABLE_REFINEMENT"),
-    ("refinement_merge_threshold", "refinement", "merge_threshold", "REFINEMENT_MERGE_THRESHOLD"),
-    (
-        "refinement_enrich_min_chars",
-        "refinement",
-        "enrich_min_chars",
-        "REFINEMENT_ENRICH_MIN_CHARS",
-    ),
-    (
-        "refinement_infer_confidence",
-        "refinement",
-        "infer_confidence",
-        "REFINEMENT_INFER_CONFIDENCE",
-    ),
-    ("refinement_batch_size", "refinement", "batch_size", "REFINEMENT_BATCH_SIZE"),
-    ("refinement_infer_hub_cap", "refinement", "infer_hub_cap", "REFINEMENT_INFER_HUB_CAP"),
-    (
-        "relationship_confidence_threshold",
-        "refinement",
-        "relationship_confidence_threshold",
-        "RELATIONSHIP_CONFIDENCE_THRESHOLD",
-    ),
-    ("vault_path", "vault", "path", "VAULT_PATH"),
-    ("vault_export_communities", "vault", "export_communities", "VAULT_EXPORT_COMMUNITIES"),
-]
+_SECTION_MODELS: dict[str, type[BaseModel]] = {
+    "llm": LLMConfig,
+    "embedding": EmbeddingConfig,
+    "extraction": ExtractionConfig,
+    "clustering": ClusteringConfig,
+    "entity_linking": EntityLinkingConfig,
+    "entity_filter": EntityFilterConfig,
+    "features": FeatureFlags,
+    "logging": LoggingConfig,
+    "refinement": RefinementConfig,
+    "vault": VaultConfig,
+}
 
-_UNFLATTEN_MAP: dict[str, tuple[str, str]] = {fk: (s, nk) for fk, s, nk, _ in _FIELD_SPECS}
-_FLATTEN_MAP: dict[tuple[str, str], str] = {(s, nk): fk for fk, s, nk, _ in _FIELD_SPECS}
-FLAT_FIELD_TO_ENV_VAR: dict[str, str] = {fk: ev for fk, _, _, ev in _FIELD_SPECS if ev is not None}
+_FLAT_KEY_OVERRIDES: dict[tuple[str, str], str] = {
+    ("extraction", "doc_max_async"): "doc_extraction_max_async",
+    ("extraction", "doc_flush_batch_size"): "doc_flush_batch_size",
+    ("extraction", "quality"): "entity_extraction_quality",
+    ("clustering", "algorithm"): "graph_cluster_algorithm",
+    ("clustering", "max_incremental_updates_before_full"): "max_incremental_updates_before_full",
+    ("clustering", "alias_batch_size"): "alias_batch_size",
+    ("clustering", "alias_max_batches_in_flight"): "alias_max_batches_in_flight",
+    ("entity_linking", "enabled"): "enable_entity_linking",
+    ("entity_filter", "count_min_ratio"): "entity_count_min_ratio",
+    ("entity_filter", "count_min_absolute"): "entity_count_min_absolute",
+    ("features", "node_embedding"): "enable_node_embedding",
+    ("features", "local_search"): "enable_local",
+    ("features", "naive_rag"): "enable_naive_rag",
+    ("features", "llm_cache"): "enable_llm_cache",
+    ("features", "community_reports"): "enable_community_reports",
+    ("features", "temporal_extraction"): "enable_temporal_extraction",
+    ("refinement", "enabled"): "enable_refinement",
+    ("refinement", "relationship_confidence_threshold"): "relationship_confidence_threshold",
+    ("logging", "level"): "log_level",
+    ("logging", "file"): "log_file",
+    ("logging", "log_query_text"): "log_query_text",
+}
+
+
+def _flat_key_for(section: str, field_name: str) -> str:
+    return _FLAT_KEY_OVERRIDES.get((section, field_name), f"{section}_{field_name}")
+
+
+def _build_flat_maps():
+    flat_to_nested: dict[str, tuple[str, str]] = {}
+    nested_to_flat: dict[tuple[str, str], str] = {}
+    for section_name, section_cls in _SECTION_MODELS.items():
+        for field_name in section_cls.model_fields:
+            nested_key = (section_name, field_name)
+            fk = _flat_key_for(section_name, field_name)
+            flat_to_nested[fk] = nested_key
+            nested_to_flat[nested_key] = fk
+    return flat_to_nested, nested_to_flat
+
+
+_UNFLATTEN_MAP, _FLATTEN_MAP = _build_flat_maps()
+_NESTED_KEYS: frozenset[str] = frozenset(_SECTION_MODELS.keys())
+
+_EXTRA_FLAT_DEFAULTS: dict[str, Any] = {
+    "enable_query_planning": True,
+    "structural_feature_weights": [0.5, 0.2, 0.1, 0.2],
+    "edge_gate_threshold": 0.0,
+    "propagation_hops": 1,
+    "subgraph_prune_ratio": 0.0,
+    "edge_gate_decay": 1.0,
+    "enable_retrieval_feedback": False,
+    "re_extraction_recall_threshold": 0.5,
+}
+
+
+def _compute_flat_defaults() -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "working_dir": "./nano_graphrag",
+        "api_key": None,
+        "api_base": None,
+        **_EXTRA_FLAT_DEFAULTS,
+    }
+    for section_name, section_cls in _SECTION_MODELS.items():
+        for field_name, field_info in section_cls.model_fields.items():
+            fk = _flat_key_for(section_name, field_name)
+            if field_info.default_factory is not None:
+                result[fk] = field_info.default_factory()
+            else:
+                result[fk] = field_info.default
+    return result
+
+
+FLAT_DEFAULTS: dict[str, Any] = _compute_flat_defaults()
+
+FLAT_FIELD_TO_ENV_VAR: dict[str, str] = {fk: fk.upper() for fk in FLAT_DEFAULTS}
 FLAT_FIELD_TO_ENV_VAR.update(
     {
         "working_dir": "GRAPH_WORKING_DIR",
@@ -418,8 +396,6 @@ FLAT_FIELD_TO_ENV_VAR.update(
         "api_base": "GRAPH_API_BASE",
     }
 )
-
-_NESTED_KEYS: frozenset[str] = frozenset({s for _, s, _, _ in _FIELD_SPECS})
 
 
 def _is_nested_format(data: dict[str, Any]) -> bool:

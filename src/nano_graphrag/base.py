@@ -7,10 +7,11 @@ from typing import Any, Generic, Literal, TypedDict, TypeVar
 import numpy as np
 
 from ._config import (
-    DEFAULT_CHEAP_MODEL,
-    DEFAULT_EMBEDDING_DIM,
-    DEFAULT_EMBEDDING_MODEL,
-    DEFAULT_LLM_MODEL,
+    DEFAULT_CHEAP_MODEL,  # noqa: F401 - re-exported
+    DEFAULT_EMBEDDING_DIM,  # noqa: F401 - re-exported
+    DEFAULT_EMBEDDING_MODEL,  # noqa: F401 - re-exported
+    DEFAULT_LLM_MODEL,  # noqa: F401 - re-exported
+    FLAT_DEFAULTS,
     SUPPORTED_GRAPH_CLUSTERING,  # noqa: F401 - re-exported for graphrag_runtime.py
     GraphRAGSettings,
 )
@@ -288,90 +289,97 @@ class BaseGraphStorage(StorageNameSpace):
 
 @dataclass
 class _ConfigFields:
-    """Single source of truth for config fields shared between GraphRAG and GraphRAGConfig.
+    """Config fields shared between GraphRAG and GraphRAGConfig.
 
+    Defaults are auto-synced from GraphRAGSettings via FLAT_DEFAULTS.
     Do not instantiate directly — use GraphRAGConfig or GraphRAG instead.
     """
 
     # === Core ===
-    working_dir: str = "./nano_graphrag"
+    working_dir: str = FLAT_DEFAULTS["working_dir"]
 
     # === Shared API credentials (LLM + Embedding use same key by default) ===
-    api_key: str | None = None
-    api_base: str | None = None
+    api_key: str | None = FLAT_DEFAULTS["api_key"]
+    api_base: str | None = FLAT_DEFAULTS["api_base"]
 
     # === LLM (passed to LiteLLM) ===
-    llm_model: str = DEFAULT_LLM_MODEL
-    llm_cheap_model: str = DEFAULT_CHEAP_MODEL
-    llm_api_base: str | None = None
-    llm_api_key: str | None = None
-    llm_max_async: int = 32
-    llm_max_tokens: int = 32768
-    llm_timeout: int = 120
+    llm_model: str = FLAT_DEFAULTS["llm_model"]
+    llm_cheap_model: str = FLAT_DEFAULTS["llm_cheap_model"]
+    llm_api_base: str | None = FLAT_DEFAULTS["llm_api_base"]
+    llm_api_key: str | None = FLAT_DEFAULTS["llm_api_key"]
+    llm_max_async: int = FLAT_DEFAULTS["llm_max_async"]
+    llm_max_tokens: int = FLAT_DEFAULTS["llm_max_tokens"]
+    llm_timeout: int = FLAT_DEFAULTS["llm_timeout"]
 
     # === Embedding ===
-    embedding_model: str = DEFAULT_EMBEDDING_MODEL
-    embedding_api_base: str | None = None
-    embedding_api_key: str | None = None
-    embedding_dim: int = DEFAULT_EMBEDDING_DIM
-    embedding_max_async: int = 16
-    embedding_batch_size: int = 32
+    embedding_model: str = FLAT_DEFAULTS["embedding_model"]
+    embedding_api_base: str | None = FLAT_DEFAULTS["embedding_api_base"]
+    embedding_api_key: str | None = FLAT_DEFAULTS["embedding_api_key"]
+    embedding_dim: int = FLAT_DEFAULTS["embedding_dim"]
+    embedding_max_async: int = FLAT_DEFAULTS["embedding_max_async"]
+    embedding_batch_size: int = FLAT_DEFAULTS["embedding_batch_size"]
 
     # === Compute/Quality ===
-    extraction_max_async: int = 16
-    extraction_batch_size: int = 5
-    doc_extraction_max_async: int = 4
-    doc_flush_batch_size: int = 50
-    entity_extraction_quality: str = "balanced"
-    extraction_backend: str = "llm"
-    graph_cluster_algorithm: str = "leiden"
-    max_incremental_updates_before_full: int = 10
-    alias_batch_size: int = 20
-    enable_node_embedding: bool = False
+    extraction_max_async: int = FLAT_DEFAULTS["extraction_max_async"]
+    extraction_batch_size: int = FLAT_DEFAULTS["extraction_batch_size"]
+    doc_extraction_max_async: int = FLAT_DEFAULTS["doc_extraction_max_async"]
+    doc_flush_batch_size: int = FLAT_DEFAULTS["doc_flush_batch_size"]
+    entity_extraction_quality: str = FLAT_DEFAULTS["entity_extraction_quality"]
+    extraction_backend: str = FLAT_DEFAULTS["extraction_backend"]
+    graph_cluster_algorithm: str = FLAT_DEFAULTS["graph_cluster_algorithm"]
+    max_incremental_updates_before_full: int = FLAT_DEFAULTS["max_incremental_updates_before_full"]
+    alias_batch_size: int = FLAT_DEFAULTS["alias_batch_size"]
+    enable_node_embedding: bool = FLAT_DEFAULTS["enable_node_embedding"]
 
     # === Features ===
-    enable_local: bool = True
-    enable_naive_rag: bool = False
-    enable_llm_cache: bool = True
-    enable_entity_linking: bool = False
-    entity_linking_use_neighborhood_evidence: bool = True
-    enable_community_reports: bool = True
-    enable_temporal_extraction: bool = False
-    entity_linking_similarity_threshold: float = 0.92
-    entity_linking_max_candidates: int = 3
-    entity_linking_iou_threshold: float = 0.3
-    entity_linking_min_common_neighbors: int = 2
-    alias_max_batches_in_flight: int = 5
-    entity_count_min_ratio: float = 2.0
-    entity_count_min_absolute: int = 3
+    enable_local: bool = FLAT_DEFAULTS["enable_local"]
+    enable_naive_rag: bool = FLAT_DEFAULTS["enable_naive_rag"]
+    enable_llm_cache: bool = FLAT_DEFAULTS["enable_llm_cache"]
+    enable_entity_linking: bool = FLAT_DEFAULTS["enable_entity_linking"]
+    entity_linking_use_neighborhood_evidence: bool = FLAT_DEFAULTS[
+        "entity_linking_use_neighborhood_evidence"
+    ]
+    enable_community_reports: bool = FLAT_DEFAULTS["enable_community_reports"]
+    enable_temporal_extraction: bool = FLAT_DEFAULTS["enable_temporal_extraction"]
+    entity_linking_similarity_threshold: float = FLAT_DEFAULTS[
+        "entity_linking_similarity_threshold"
+    ]
+    entity_linking_max_candidates: int = FLAT_DEFAULTS["entity_linking_max_candidates"]
+    entity_linking_iou_threshold: float = FLAT_DEFAULTS["entity_linking_iou_threshold"]
+    entity_linking_min_common_neighbors: int = FLAT_DEFAULTS["entity_linking_min_common_neighbors"]
+    alias_max_batches_in_flight: int = FLAT_DEFAULTS["alias_max_batches_in_flight"]
+    entity_count_min_ratio: float = FLAT_DEFAULTS["entity_count_min_ratio"]
+    entity_count_min_absolute: int = FLAT_DEFAULTS["entity_count_min_absolute"]
 
     # === Logging ===
-    log_level: str = "INFO"
-    log_file: str | None = None
-    log_query_text: bool = False
+    log_level: str = FLAT_DEFAULTS["log_level"]
+    log_file: str | None = FLAT_DEFAULTS["log_file"]
+    log_query_text: bool = FLAT_DEFAULTS["log_query_text"]
 
     # === Refinement Pipeline ===
-    enable_refinement: bool = False
-    refinement_merge_threshold: float = 0.93
-    refinement_enrich_min_chars: int = 80
-    refinement_infer_confidence: float = 0.80
-    refinement_batch_size: int = 50
-    refinement_infer_hub_cap: int = 3
-    relationship_confidence_threshold: float = 0.0
+    enable_refinement: bool = FLAT_DEFAULTS["enable_refinement"]
+    refinement_merge_threshold: float = FLAT_DEFAULTS["refinement_merge_threshold"]
+    refinement_enrich_min_chars: int = FLAT_DEFAULTS["refinement_enrich_min_chars"]
+    refinement_infer_confidence: float = FLAT_DEFAULTS["refinement_infer_confidence"]
+    refinement_batch_size: int = FLAT_DEFAULTS["refinement_batch_size"]
+    refinement_infer_hub_cap: int = FLAT_DEFAULTS["refinement_infer_hub_cap"]
+    relationship_confidence_threshold: float = FLAT_DEFAULTS["relationship_confidence_threshold"]
 
     # === Vault Export ===
-    vault_path: str = "./vault"
-    vault_export_communities: bool = True
+    vault_path: str = FLAT_DEFAULTS["vault_path"]
+    vault_export_communities: bool = FLAT_DEFAULTS["vault_export_communities"]
 
     # === SAGE-Inspired Improvements (Phases 1-4) ===
-    enable_query_planning: bool = True
-    structural_feature_weights: list[float] = field(default_factory=lambda: [0.5, 0.2, 0.1, 0.2])
-    edge_gate_threshold: float = 0.0
-    propagation_hops: int = 1
-    subgraph_prune_ratio: float = 0.0
-    edge_gate_decay: float = 1.0
-    enable_retrieval_feedback: bool = False
-    re_extraction_recall_threshold: float = 0.5
+    enable_query_planning: bool = FLAT_DEFAULTS["enable_query_planning"]
+    structural_feature_weights: list[float] = field(
+        default_factory=lambda: list(FLAT_DEFAULTS["structural_feature_weights"])
+    )
+    edge_gate_threshold: float = FLAT_DEFAULTS["edge_gate_threshold"]
+    propagation_hops: int = FLAT_DEFAULTS["propagation_hops"]
+    subgraph_prune_ratio: float = FLAT_DEFAULTS["subgraph_prune_ratio"]
+    edge_gate_decay: float = FLAT_DEFAULTS["edge_gate_decay"]
+    enable_retrieval_feedback: bool = FLAT_DEFAULTS["enable_retrieval_feedback"]
+    re_extraction_recall_threshold: float = FLAT_DEFAULTS["re_extraction_recall_threshold"]
 
 
 @dataclass
