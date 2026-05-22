@@ -87,31 +87,6 @@ async def _process_relationship_writeback(
     )
 
 
-async def _extract_aliases_for_entity(
-    entity_name: str,
-    entity_type: str,
-    source_chunk_ids: list[str],
-    chunks: dict[str, TextChunkSchema],
-    global_config: dict,
-) -> list[str]:
-    """Extract aliases for an entity from its source chunks.
-
-    Args:
-        entity_name: The canonical entity name
-        entity_type: The entity type
-        source_chunk_ids: IDs of chunks where this entity appears
-        chunks: All text chunks
-        global_config: Global configuration
-
-    Returns:
-        List of alias names for this entity
-    """
-    result = await _extract_aliases_for_batch(
-        [(entity_name, entity_type, source_chunk_ids)], chunks, global_config
-    )
-    return result.get(entity_name, [])
-
-
 async def _extract_aliases_for_batch(
     entities: list[tuple[str, str, list[str]]],
     chunks: dict[str, TextChunkSchema],

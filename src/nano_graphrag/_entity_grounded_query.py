@@ -104,10 +104,8 @@ class EntityGroundedQuery:
         - multihop: Vector similarity + one-hop neighbor expansion
         - naive: Entity resolution from query text
         """
-        if mode == "local":
+        if mode in ("local", "global"):
             entities = await self._local_retrieval(question, top_k)
-        elif mode == "global":
-            entities = await self._global_retrieval(question, top_k)
         elif mode == "multihop":
             entities = await self._multihop_retrieval(question, top_k)
         else:  # naive
@@ -119,22 +117,6 @@ class EntityGroundedQuery:
     async def _local_retrieval(self, question: str, top_k: int) -> list[str]:
         """Local retrieval: Find entities using vector similarity search."""
         # Query vector database for similar entities
-        results = await self.entities_vdb.query(question, top_k=top_k)
-
-        # Extract entity IDs from results
-        entity_ids = [r["id"] for r in results] if results else []
-
-        return entity_ids
-
-    async def _global_retrieval(self, question: str, top_k: int) -> list[str]:
-        """Global retrieval: Find entities using vector similarity.
-
-        Note: This could be enhanced with community-based approaches
-        similar to global_query, but for entity-grounded queries we
-        primarily need entity IDs, not community summaries.
-        """
-        # For now, use the same vector similarity approach as local
-        # This could be enhanced to use community-based ranking
         results = await self.entities_vdb.query(question, top_k=top_k)
 
         # Extract entity IDs from results

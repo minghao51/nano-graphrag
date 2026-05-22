@@ -141,7 +141,7 @@ def parse_value(value: str):
             return value.strip('"')  # Remove surrounding quotes if they exist
 
 
-def extract_values_from_json(json_string, keys=None, allow_no_quotes=False):
+def extract_values_from_json(json_string, keys=None):
     """Extract key values from a non-standard or malformed JSON string, handling nested objects."""
     if keys is None:
         keys = ["reasoning", "answer", "data"]
@@ -178,7 +178,7 @@ def convert_response_to_json(response: str | BaseModel) -> dict:
 
     if prediction_json is None:
         logger.info("attempting_non_standard_json_extraction")
-        prediction_json = extract_values_from_json(response, allow_no_quotes=True)
+        prediction_json = extract_values_from_json(response)
 
     if not prediction_json:
         logger.error("unable_to_extract_json_data")
