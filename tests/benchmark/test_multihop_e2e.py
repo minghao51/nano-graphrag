@@ -33,6 +33,40 @@ def _get_default_model() -> tuple[str, str]:
     return ("gpt-4o-mini", "openai")  # Default fallback
 
 
+def test_has_live_llm_key_false_for_missing_and_invalid(monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    assert _has_live_llm_key() is False
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "encrypted:abc")
+    monkeypatch.setenv("OPENAI_API_KEY", "FAKE")
+    assert _has_live_llm_key() is False
+
+
+def test_has_live_llm_key_true_for_valid_openai(monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-valid")
+    assert _has_live_llm_key() is True
+
+
+def test_has_live_llm_key_true_for_valid_openrouter(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-v1-test-valid")
+    assert _has_live_llm_key() is True
+
+
+def test_get_default_model_prioritizes_openrouter(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-v1-valid")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-valid")
+    assert _get_default_model() == ("openrouter/openai/gpt-4o-mini", "openrouter")
+
+
+def test_get_default_model_falls_back_to_openai(monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-valid")
+    assert _get_default_model() == ("gpt-4o-mini", "openai")
+
+
 @pytest.mark.integration
 async def test_multihop_e2e_small_dataset():
     """End-to-end test of multi-hop retrieval on small dataset."""
@@ -102,7 +136,13 @@ async def test_multihop_e2e_small_dataset():
     try:
         # Run experiment
         runner = ExperimentRunner(config)
-        result = await runner.run()
+        try:
+            result = await runner.run()
+        except Exception as exc:
+            error_text = str(exc).lower()
+            if "authenticationerror" in error_text or "401" in error_text:
+                pytest.skip(f"Live LLM credentials are invalid for integration run: {exc}")
+            raise
 
         # Verify results
         assert "multihop" in result.mode_results

@@ -3,8 +3,6 @@ import shutil
 import numpy as np
 import pytest
 from unittest.mock import patch
-from dataclasses import asdict
-from nano_graphrag import GraphRAG
 from nano_graphrag._utils import wrap_embedding_func_with_attrs
 from nano_graphrag._storage import HNSWVectorStorage
 
@@ -31,10 +29,9 @@ async def mock_embedding(texts: list[str]) -> np.ndarray:
 
 @pytest.fixture
 def hnsw_storage(setup_teardown):
-    rag = GraphRAG(working_dir=WORKING_DIR, embedding_func=mock_embedding)
     return HNSWVectorStorage(
         namespace="test",
-        global_config=asdict(rag),
+        global_config={"working_dir": WORKING_DIR},
         embedding_func=mock_embedding,
         meta_fields={"entity_name"},
     )
@@ -59,10 +56,9 @@ async def test_upsert_and_query(hnsw_storage):
 
 
 async def test_persistence(setup_teardown):
-    rag = GraphRAG(working_dir=WORKING_DIR, embedding_func=mock_embedding)
     initial_storage = HNSWVectorStorage(
         namespace="test",
-        global_config=asdict(rag),
+        global_config={"working_dir": WORKING_DIR},
         embedding_func=mock_embedding,
         meta_fields={"entity_name"},
     )
@@ -76,7 +72,7 @@ async def test_persistence(setup_teardown):
 
     new_storage = HNSWVectorStorage(
         namespace="test",
-        global_config=asdict(rag),
+        global_config={"working_dir": WORKING_DIR},
         embedding_func=mock_embedding,
         meta_fields={"entity_name"},
     )
@@ -89,10 +85,9 @@ async def test_persistence(setup_teardown):
 
 
 async def test_persistence_large_dataset(setup_teardown):
-    rag = GraphRAG(working_dir=WORKING_DIR, embedding_func=mock_embedding)
     initial_storage = HNSWVectorStorage(
         namespace="test_large",
-        global_config=asdict(rag),
+        global_config={"working_dir": WORKING_DIR},
         embedding_func=mock_embedding,
         meta_fields={"entity_name"},
         max_elements=10000,
@@ -107,7 +102,7 @@ async def test_persistence_large_dataset(setup_teardown):
 
     new_storage = HNSWVectorStorage(
         namespace="test_large",
-        global_config=asdict(rag),
+        global_config={"working_dir": WORKING_DIR},
         embedding_func=mock_embedding,
         meta_fields={"entity_name"},
         max_elements=10000,
@@ -204,11 +199,10 @@ async def test_index_done_callback(hnsw_storage):
 
 
 async def test_max_elements_limit(setup_teardown):
-    rag = GraphRAG(working_dir=WORKING_DIR, embedding_func=mock_embedding)
     max_elements = 10
     small_storage = HNSWVectorStorage(
         namespace="test_small",
-        global_config=asdict(rag),
+        global_config={"working_dir": WORKING_DIR},
         embedding_func=mock_embedding,
         meta_fields={"entity_name"},
         max_elements=max_elements,
@@ -238,7 +232,7 @@ async def test_max_elements_limit(setup_teardown):
     large_max_elements = 100
     large_storage = HNSWVectorStorage(
         namespace="test_large",
-        global_config=asdict(rag),
+        global_config={"working_dir": WORKING_DIR},
         embedding_func=mock_embedding,
         meta_fields={"entity_name"},
         max_elements=large_max_elements,
@@ -257,10 +251,9 @@ async def test_max_elements_limit(setup_teardown):
 
 
 async def test_ef_search_values(setup_teardown):
-    rag = GraphRAG(working_dir=WORKING_DIR, embedding_func=mock_embedding)
     storage = HNSWVectorStorage(
         namespace="test_ef",
-        global_config=asdict(rag),
+        global_config={"working_dir": WORKING_DIR},
         embedding_func=mock_embedding,
         meta_fields={"entity_name"},
         ef_search=10,
